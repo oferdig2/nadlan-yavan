@@ -49,14 +49,14 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         return rows.ToList();
     }
 
-    public async Task MarkReadyAsync(long fileAttachmentId, CancellationToken ct = default)
+    public async Task<bool> MarkReadyAsync(long fileAttachmentId, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        await conn.ExecuteAsync(new CommandDefinition("""
+        return await conn.ExecuteAsync(new CommandDefinition("""
             UPDATE file_attachment
             SET upload_status = 'Ready', s3_upload_id = NULL, completed_utc = UTC_TIMESTAMP(3), updated_utc = UTC_TIMESTAMP(3)
-            WHERE file_attachment_id = @fileAttachmentId
-            """, new { fileAttachmentId }, cancellationToken: ct));
+            WHERE file_attachment_id = @fileAttachmentId AND upload_status = 'Pending'
+            """, new { fileAttachmentId }, cancellationToken: ct)) == 1;
     }
 
     public async Task UpdateMetadataAsync(long fileAttachmentId, int fileTypeId, string? caption, string? notes, int? sortOrder, CancellationToken ct = default)
@@ -74,6 +74,20 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         await using var conn = await _db.OpenAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM file_attachment WHERE file_attachment_id = @fileAttachmentId", new { fileAttachmentId }, cancellationToken: ct));
+    }
+
+    public async Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime startedBeforeUtc, int limit, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<FileAttachment>(new CommandDefinition("""
+            SELECT file_attachment_id, file_type_id, attached_to_type, attached_to_id, storage_key, original_file_name,
+                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_utc
+            FROM file_attachment
+            WHERE upload_status = 'Pending' AND uploaded_utc < @startedBeforeUtc
+            ORDER BY uploaded_utc
+            LIMIT @limit
+            """, new { startedBeforeUtc, limit }, cancellationToken: ct));
+        return rows.ToList();
     }
 
     public async Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default)

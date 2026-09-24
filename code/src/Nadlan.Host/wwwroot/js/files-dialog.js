@@ -63,9 +63,16 @@
           zone: zone,
           fileTypes: ref.fileTypes,
           maxFileSizeBytes: config.maxFileSizeBytes,
-          onUploaded: function () { changed = true; load(); }
+          onUploaded: function () { changed = true; loadSoon(); }
         });
       });
+
+      // Many files finishing close together (multi-file drop) cause one reload, not one per file.
+      var loadTimer = null;
+      function loadSoon() {
+        clearTimeout(loadTimer);
+        loadTimer = setTimeout(load, 700);
+      }
 
       function load() {
         Nadlan.api.get("/api/files", { attachedToType: options.attachedToType, attachedToId: options.attachedToId })

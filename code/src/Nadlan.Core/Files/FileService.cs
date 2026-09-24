@@ -6,9 +6,6 @@ namespace Nadlan.Core.Files;
 
 public sealed record FileStorageSettings
 {
-    /// <summary>First segment of every key, e.g. "dev" or "prod", so environments can share a bucket safely.</summary>
-    public string KeyPrefix { get; init; } = "dev";
-
     public long PartSizeBytes { get; init; } = 8L * 1024 * 1024;
     public long MaxFileSizeBytes { get; init; } = 20L * 1024 * 1024 * 1024;
     public TimeSpan PartUrlLifetime { get; init; } = TimeSpan.FromHours(1);
@@ -71,7 +68,7 @@ public sealed class FileService
         var partSize = PartSizeFor(request.FileSize);
         var key = BuildKey(targetType, request.AttachedToId, fileName);
 
-        var uploadId = await _storage.StartMultipartUploadAsync(key, mime, ContentDisposition(fileName), ct);
+        var uploadId = await _storage.StartMultipartUploadAsync(key, mime, ContentDisposition(fileName, mime), ct);
         var id = await _files.InsertPendingAsync(new FileAttachment
         {
             FileTypeId = request.FileTypeId,
@@ -127,7 +124,14 @@ public sealed class FileService
             throw new DomainValidationException("FILE_SIZE_MISMATCH", $"Upload incomplete: stored {size?.ToString() ?? "nothing"} of {file.FileSize} bytes. Please upload again.");
         }
 
-        await _files.MarkReadyAsync(fileAttachmentId, ct);
+        if (!await _files.MarkReadyAsync(fileAttachmentId, ct))
+        {
+            // The upload was cancelled while S3 was completing it: the row is gone, so remove the object too
+            // rather than leave a file in the bucket that nothing points to.
+            await _storage.DeleteObjectAsync(file.StorageKey, ct);
+            throw new DomainValidationException("FILE_UPLOAD_CANCELLED", "The upload was cancelled.");
+        }
+
         return file with { UploadStatus = FileUploadStatus.Ready, S3UploadId = null };
     }
 
@@ -160,6 +164,32 @@ public sealed class FileService
         }
 
         await _files.DeleteAsync(fileAttachmentId, ct);
+    }
+
+    /// <summary>
+    /// Aborts uploads left Pending longer than <paramref name="olderThan"/> (tab closed mid-upload) and removes their rows.
+    /// The bucket lifecycle rule expires the parts after a day anyway; this keeps the table in step. Returns the count.
+    /// </summary>
+    public async Task<int> SweepAbandonedUploadsAsync(TimeSpan olderThan, CancellationToken ct = default)
+    {
+        if (!_storage.IsConfigured)
+        {
+            return 0;
+        }
+
+        var swept = 0;
+        foreach (var file in await _files.ListStalePendingAsync(DateTime.UtcNow - olderThan, limit: 500, ct))
+        {
+            if (file.S3UploadId is not null)
+            {
+                await _storage.AbortMultipartUploadAsync(file.StorageKey, file.S3UploadId, ct); // NoSuchUpload is fine
+            }
+
+            await _files.DeleteAsync(file.FileAttachmentId, ct);
+            swept++;
+        }
+
+        return swept;
     }
 
     /// <summary>Smallest part size (whole MiB, >= configured size) that keeps the file within S3's 10,000 parts.</summary>
@@ -205,9 +235,10 @@ public sealed class FileService
         }
     }
 
-    // {prefix}/{target}/{id}/{guid}/{name}: unique, human-traceable, and grouped per entity for lifecycle rules.
+    // {target}/{id}/{guid}/{name}, relative to the storage root folder (added by IObjectStorage): unique, traceable,
+    // grouped per entity, and unaffected when the files move to another bucket/folder.
     private string BuildKey(string targetType, long targetId, string fileName)
-        => $"{_settings.KeyPrefix.Trim('/')}/{targetType.ToLowerInvariant()}/{targetId}/{Guid.NewGuid():N}/{SafeKeyName(fileName)}";
+        => $"{targetType.ToLowerInvariant()}/{targetId}/{Guid.NewGuid():N}/{SafeKeyName(fileName)}";
 
     internal static string CleanFileName(string? name)
     {
@@ -238,11 +269,21 @@ public sealed class FileService
         return safe.Length <= 120 ? safe : safe[..100] + Path.GetExtension(safe);
     }
 
-    /// <summary>inline so images/PDFs open in the browser; RFC 5987 filename* keeps Greek names intact on download.</summary>
-    internal static string ContentDisposition(string fileName)
+    // Types a browser would execute rather than display (script in HTML/SVG/XML). Checked by type AND extension,
+    // because the browser-declared type is not trusted.
+    private static readonly string[] ActiveMimeTypes = { "text/html", "image/svg+xml", "application/xhtml+xml", "text/xml", "application/xml", "text/javascript", "application/javascript" };
+    private static readonly string[] ActiveExtensions = { ".html", ".htm", ".xhtml", ".svg", ".svgz", ".xml", ".js", ".mjs" };
+
+    /// <summary>
+    /// inline so images/PDFs open in the browser; "active" content (HTML, SVG, XML, JS) is always a download so it can
+    /// never run as a page. RFC 5987 filename* keeps Greek names intact on download.
+    /// </summary>
+    internal static string ContentDisposition(string fileName, string mimeType)
     {
+        var active = ActiveMimeTypes.Any(m => mimeType.StartsWith(m, StringComparison.OrdinalIgnoreCase))
+                     || ActiveExtensions.Contains(Path.GetExtension(fileName), StringComparer.OrdinalIgnoreCase);
         var ascii = SafeKeyName(fileName);
         var encoded = Uri.EscapeDataString(fileName);
-        return $"inline; filename=\"{ascii}\"; filename*=UTF-8''{encoded}";
+        return $"{(active ? "attachment" : "inline")}; filename=\"{ascii}\"; filename*=UTF-8''{encoded}";
     }
 }

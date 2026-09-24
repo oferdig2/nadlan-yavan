@@ -17,7 +17,7 @@ public class FileTests
 
         var row = files.Rows.Single();
         Assert.Equal("Asset", row.AttachedToType);                          // normalized target type
-        Assert.StartsWith("dev/asset/5/", row.StorageKey);                   // prefix/target/id/guid/name
+        Assert.StartsWith("asset/5/", row.StorageKey);                       // target/id/guid/name, relative to RootFolder
         Assert.EndsWith("/1.jpg", row.StorageKey);                           // ASCII-only key segment
         Assert.Equal("Βίλα 1.jpg", row.OriginalFileName);                    // real name kept, path stripped
         Assert.Equal(FileUploadStatus.Pending, row.UploadStatus);
@@ -116,11 +116,16 @@ public class FileTests
         public Task<FileAttachment?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Rows.FirstOrDefault(r => r.FileAttachmentId == id));
         public Task<IReadOnlyList<FileListItem>> ListReadyAsync(string t, long id, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task MarkReadyAsync(long id, CancellationToken ct = default)
+        public Task<bool> MarkReadyAsync(long id, CancellationToken ct = default)
         {
-            var i = Rows.FindIndex(r => r.FileAttachmentId == id);
+            var i = Rows.FindIndex(r => r.FileAttachmentId == id && r.UploadStatus == FileUploadStatus.Pending);
+            if (i < 0)
+            {
+                return Task.FromResult(false);
+            }
+
             Rows[i] = Rows[i] with { UploadStatus = FileUploadStatus.Ready, S3UploadId = null };
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
 
         public Task UpdateMetadataAsync(long id, int t, string? c, string? n, int? s, CancellationToken ct = default) => Task.CompletedTask;
@@ -130,6 +135,9 @@ public class FileTests
             Rows.RemoveAll(r => r.FileAttachmentId == id);
             return Task.CompletedTask;
         }
+
+        public Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime before, int limit, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<FileAttachment>>(Rows.Where(r => r.UploadStatus == FileUploadStatus.Pending && r.UploadedUtc < before).Take(limit).ToList());
 
         public Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<FileType>>(new[] { new FileType(1, "PHOTO", "Photo", "Marketing", true, 10) });

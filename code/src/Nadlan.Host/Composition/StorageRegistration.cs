@@ -18,12 +18,12 @@ public static class StorageRegistration
             : new NoStorageUrlProvider());
         services.AddSingleton(new FileStorageSettings
         {
-            KeyPrefix = string.IsNullOrWhiteSpace(options.KeyPrefix) ? "dev" : options.KeyPrefix,
             PartSizeBytes = Math.Max(5, options.PartSizeMb) * 1024L * 1024,
             MaxFileSizeBytes = Math.Max(1, options.MaxFileSizeGb) * 1024L * 1024 * 1024,
             PartUrlLifetime = TimeSpan.FromMinutes(Math.Max(5, options.UploadUrlMinutes)),
         });
         services.AddSingleton<FileService>();
+        services.AddHostedService<Nadlan.Host.Files.AbandonedUploadSweeper>();
         return services;
     }
 

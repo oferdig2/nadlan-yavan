@@ -1,5 +1,3 @@
-using Amazon.S3;
-using Amazon.S3.Model;
 using Nadlan.Core.Files;
 
 namespace Nadlan.Storage.S3;
@@ -8,25 +6,40 @@ public static class FileUrlProviderFactory
 {
     public static IFileUrlProvider Create(StorageOptions options, S3ObjectStorage storage) => options.Delivery.Mode switch
     {
-        DeliveryModes.CloudFrontSigned => new CloudFrontSignedUrlProvider(options.Delivery),
-        DeliveryModes.CloudFrontPublic => new CloudFrontPublicUrlProvider(options.Delivery),
+        DeliveryModes.CloudFrontSigned => new CloudFrontSignedUrlProvider(options),
+        DeliveryModes.CloudFrontPublic => new CloudFrontPublicUrlProvider(options),
         DeliveryModes.S3Presigned => new S3PresignedUrlProvider(options, storage),
         _ => throw new InvalidOperationException(
             $"Unknown Nadlan:Storage:Delivery:Mode '{options.Delivery.Mode}'. Use S3Presigned, CloudFrontSigned or CloudFrontPublic."),
     };
 
-    internal static string ObjectPath(string storageKey)
-        => string.Join('/', storageKey.Split('/').Select(Uri.EscapeDataString));
-
-    internal static string RequireDomain(StorageOptions.DeliveryOptions d)
+    /// <summary>
+    /// URL for a stored (relative) key on CloudFront: full S3 key minus the distribution's origin path, URL-encoded per segment.
+    /// </summary>
+    internal static string CloudFrontUrl(StorageOptions options, string relativeKey)
     {
+        var d = options.Delivery;
         var domain = d.CloudFrontDomain.Trim().TrimEnd('/');
         if (domain.Length == 0)
         {
             throw new InvalidOperationException("Nadlan:Storage:Delivery:CloudFrontDomain is required for CloudFront delivery.");
         }
 
-        return domain.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? domain : "https://" + domain;
+        var baseUrl = domain.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? domain : "https://" + domain;
+        var key = options.FullKey(relativeKey);
+        var originPath = d.CloudFrontOriginPath.Trim().Trim('/');
+        if (originPath.Length > 0)
+        {
+            if (!key.StartsWith(originPath + "/", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"CloudFrontOriginPath '/{originPath}' is not a prefix of the storage key '{key}'. It must match (part of) RootFolder.");
+            }
+
+            key = key[(originPath.Length + 1)..];
+        }
+
+        return $"{baseUrl}/{string.Join('/', key.Split('/').Select(Uri.EscapeDataString))}";
     }
 }
 
@@ -42,15 +55,7 @@ public sealed class S3PresignedUrlProvider : IFileUrlProvider
         _storage = storage;
     }
 
-    public string GetUrl(string storageKey)
-        => _storage.Client.GetPreSignedURL(new GetPreSignedUrlRequest
-        {
-            BucketName = _options.Bucket,
-            Key = storageKey,
-            Verb = HttpVerb.GET,
-            Expires = DateTime.UtcNow.AddMinutes(_options.Delivery.UrlMinutes),
-            Protocol = Protocol.HTTPS,
-        });
+    public string GetUrl(string storageKey) => _storage.GetDownloadUrl(storageKey, TimeSpan.FromMinutes(_options.Delivery.UrlMinutes));
 }
 
 /// <summary>
@@ -59,24 +64,24 @@ public sealed class S3PresignedUrlProvider : IFileUrlProvider
 /// </summary>
 public sealed class CloudFrontSignedUrlProvider : IFileUrlProvider, IDisposable
 {
-    private readonly StorageOptions.DeliveryOptions _options;
-    private readonly string _baseUrl;
+    private readonly StorageOptions _options;
     private readonly CloudFrontUrlSigner _signer;
 
-    public CloudFrontSignedUrlProvider(StorageOptions.DeliveryOptions options)
+    public CloudFrontSignedUrlProvider(StorageOptions options)
     {
         _options = options;
-        _baseUrl = FileUrlProviderFactory.RequireDomain(options);
-        if (string.IsNullOrWhiteSpace(options.KeyPairId) || string.IsNullOrWhiteSpace(options.PrivateKeyPem))
+        var d = options.Delivery;
+        if (string.IsNullOrWhiteSpace(d.KeyPairId) || string.IsNullOrWhiteSpace(d.PrivateKeyPem))
         {
             throw new InvalidOperationException("CloudFrontSigned delivery needs Nadlan:Storage:Delivery:KeyPairId and PrivateKeyPem.");
         }
 
-        _signer = new CloudFrontUrlSigner(options.PrivateKeyPem.Replace("\\n", "\n"), options.KeyPairId); // allow one-line PEM in env vars
+        _signer = new CloudFrontUrlSigner(d.PrivateKeyPem.Replace("\\n", "\n"), d.KeyPairId); // allow one-line PEM in env vars
+        FileUrlProviderFactory.CloudFrontUrl(options, "startup-check"); // bad domain/origin path fails at startup, not per request
     }
 
     public string GetUrl(string storageKey)
-        => _signer.Sign($"{_baseUrl}/{FileUrlProviderFactory.ObjectPath(storageKey)}", DateTimeOffset.UtcNow.AddMinutes(_options.UrlMinutes));
+        => _signer.Sign(FileUrlProviderFactory.CloudFrontUrl(_options, storageKey), DateTimeOffset.UtcNow.AddMinutes(_options.Delivery.UrlMinutes));
 
     public void Dispose() => _signer.Dispose();
 }
@@ -84,12 +89,13 @@ public sealed class CloudFrontSignedUrlProvider : IFileUrlProvider, IDisposable
 /// <summary>Public CDN: plain CloudFront URLs. Only for content that may be public (no per-file permissions).</summary>
 public sealed class CloudFrontPublicUrlProvider : IFileUrlProvider
 {
-    private readonly string _baseUrl;
+    private readonly StorageOptions _options;
 
-    public CloudFrontPublicUrlProvider(StorageOptions.DeliveryOptions options)
+    public CloudFrontPublicUrlProvider(StorageOptions options)
     {
-        _baseUrl = FileUrlProviderFactory.RequireDomain(options);
+        _options = options;
+        FileUrlProviderFactory.CloudFrontUrl(options, "startup-check"); // bad domain/origin path fails at startup, not per request
     }
 
-    public string GetUrl(string storageKey) => $"{_baseUrl}/{FileUrlProviderFactory.ObjectPath(storageKey)}";
+    public string GetUrl(string storageKey) => FileUrlProviderFactory.CloudFrontUrl(_options, storageKey);
 }

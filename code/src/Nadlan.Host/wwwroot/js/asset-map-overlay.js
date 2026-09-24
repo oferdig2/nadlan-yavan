@@ -14,7 +14,6 @@
   function createAssetMapOverlay(map, options) {
     var layer = new google.maps.Data({ map: map });
     var focusedParcelId = null;
-    var hoveredId = null;
     var interactive = true;
 
     layer.setStyle(function (feature) {
@@ -27,12 +26,13 @@
         strokeColor: anySelected ? "#111827" : color,
         strokeWeight: id === focusedParcelId || anySelected ? 3 : 1.5,
         fillColor: color,
-        fillOpacity: id === hoveredId || id === focusedParcelId ? 0.5 : 0.3
+        fillOpacity: id === focusedParcelId ? 0.5 : 0.3
       };
     });
 
-    layer.addListener("mouseover", function (e) { hoveredId = e.feature.getId(); refresh(); });
-    layer.addListener("mouseout", function () { hoveredId = null; refresh(); });
+    // Per-feature override (Google's hover pattern): touches one polygon, not a restyle of the whole layer.
+    layer.addListener("mouseover", function (e) { layer.overrideStyle(e.feature, { fillOpacity: 0.5 }); });
+    layer.addListener("mouseout", function (e) { layer.revertStyle(e.feature); });
     layer.addListener("click", function (e) {
       focusedParcelId = e.feature.getId();
       refresh();

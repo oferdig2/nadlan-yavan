@@ -44,7 +44,10 @@ internal static class GeoJson
                         $"Point {pair[0]}, {pair[1]} is outside Greece. Coordinates must be longitude, latitude (KML/GeoJSON order).");
                 }
 
-                points.Add(point);
+                if (points.Count == 0 || points[^1] != point)
+                {
+                    points.Add(point); // repeated corners add nothing and make MySQL call the polygon invalid (same rule as KML import)
+                }
             }
 
             if (points.Count > 0 && points[0] != points[^1])

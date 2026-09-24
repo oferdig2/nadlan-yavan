@@ -131,12 +131,11 @@ public sealed class ParcelService
             return (typed, false);
         }
 
-        // Unknown KAEK: prefer the same readable, deterministic form the demo data uses; otherwise a unique one.
-        if (area is not null && !string.IsNullOrWhiteSpace(request.OT) && !string.IsNullOrWhiteSpace(request.PlotNumber))
-        {
-            return (ProvisionalRegistryId.Create(area.Code, request.OT, request.OTExt, request.PlotNumber, request.PlotExt), true);
-        }
-
-        return (ProvisionalRegistryId.CreateUnique(), true);
+        // Unknown KAEK: prefer the same readable, deterministic form the demo data uses; otherwise a unique one
+        // (also when OT/Plot have no letters or digits, e.g. "-").
+        var readable = area is null
+            ? null
+            : ProvisionalRegistryId.TryCreate(area.Code, request.OT, request.OTExt, request.PlotNumber, request.PlotExt);
+        return (readable ?? ProvisionalRegistryId.CreateUnique(), true);
     }
 }

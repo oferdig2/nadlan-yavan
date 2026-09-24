@@ -7,7 +7,10 @@ using Nadlan.Core.Files;
 
 namespace Nadlan.Storage.S3;
 
-/// <summary>S3 implementation of <see cref="IObjectStorage"/>. Bytes go browser → S3 directly; this only coordinates.</summary>
+/// <summary>
+/// S3 implementation of <see cref="IObjectStorage"/>. Bytes go browser → S3 directly; this only coordinates.
+/// Callers pass keys relative to RootFolder; the folder is added here, in one place.
+/// </summary>
 public sealed class S3ObjectStorage : IObjectStorage, IDisposable
 {
     private readonly StorageOptions _options;
@@ -27,16 +30,27 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
     public Task<string> StartMultipartUploadAsync(string key, string contentType, string contentDisposition, CancellationToken ct = default)
         => Guard(async () =>
         {
-            var request = new InitiateMultipartUploadRequest { BucketName = _options.Bucket, Key = key, ContentType = contentType };
+            var request = new InitiateMultipartUploadRequest { BucketName = _options.Bucket, Key = _options.FullKey(key), ContentType = contentType };
             request.Headers.ContentDisposition = contentDisposition;
             return (await Client.InitiateMultipartUploadAsync(request, ct)).UploadId;
         });
+
+    /// <summary>Short-lived GET URL (dev delivery mode). Same error handling as every other S3 call.</summary>
+    public string GetDownloadUrl(string key, TimeSpan lifetime)
+        => Guard(() => Client.GetPreSignedURL(new GetPreSignedUrlRequest
+        {
+            BucketName = _options.Bucket,
+            Key = _options.FullKey(key),
+            Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.Add(lifetime),
+            Protocol = Protocol.HTTPS,
+        }));
 
     public string GetPartUploadUrl(string key, string uploadId, int partNumber, TimeSpan lifetime)
         => Guard(() => Client.GetPreSignedURL(new GetPreSignedUrlRequest
         {
             BucketName = _options.Bucket,
-            Key = key,
+            Key = _options.FullKey(key),
             Verb = HttpVerb.PUT,
             UploadId = uploadId,
             PartNumber = partNumber,
@@ -53,7 +67,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             {
                 var response = await Client.ListPartsAsync(new ListPartsRequest
                 {
-                    BucketName = _options.Bucket, Key = key, UploadId = uploadId, PartNumberMarker = marker,
+                    BucketName = _options.Bucket, Key = _options.FullKey(key), UploadId = uploadId, PartNumberMarker = marker,
                 }, ct);
                 parts.AddRange((response.Parts ?? new List<PartDetail>()).Select(p => new UploadedPart(p.PartNumber ?? 0, p.ETag)));
                 if (response.IsTruncated != true)
@@ -69,7 +83,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
         => Guard(async () => await Client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
         {
             BucketName = _options.Bucket,
-            Key = key,
+            Key = _options.FullKey(key),
             UploadId = uploadId,
             PartETags = parts.Select(p => new PartETag(p.PartNumber, p.ETag)).ToList(),
         }, ct));
@@ -79,7 +93,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
         {
             try
             {
-                await Client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = _options.Bucket, Key = key, UploadId = uploadId }, ct);
+                await Client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = _options.Bucket, Key = _options.FullKey(key), UploadId = uploadId }, ct);
             }
             catch (AmazonS3Exception ex) when (ex.ErrorCode == "NoSuchUpload")
             {
@@ -94,7 +108,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
         {
             try
             {
-                var meta = await Client.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = _options.Bucket, Key = key }, ct);
+                var meta = await Client.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = _options.Bucket, Key = _options.FullKey(key) }, ct);
                 return meta.ContentLength;
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -104,7 +118,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
         });
 
     public Task DeleteObjectAsync(string key, CancellationToken ct = default)
-        => Guard(async () => await Client.DeleteObjectAsync(new DeleteObjectRequest { BucketName = _options.Bucket, Key = key }, ct));
+        => Guard(async () => await Client.DeleteObjectAsync(new DeleteObjectRequest { BucketName = _options.Bucket, Key = _options.FullKey(key) }, ct));
 
     public void Dispose()
     {

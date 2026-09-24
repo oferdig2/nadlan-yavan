@@ -46,7 +46,13 @@ public static class InventoryParcelPlanner
                 continue;
             }
 
-            var key = ProvisionalRegistryId.Create(row.Area.Code, row.OT, row.OTExt, row.Plot, row.PlotExt);
+            var key = ProvisionalRegistryId.TryCreate(row.Area.Code, row.OT, row.OTExt, row.Plot, row.PlotExt);
+            if (key is null)
+            {
+                rejected.Add(new RejectedRow(row, $"OT '{row.OT}' / Plot '{row.Plot}' have no letters or digits; cannot identify the Parcel."));
+                continue;
+            }
+
             candidates.Add((row, parsed.Polygon!, parsed.Warnings, key));
         }
 

@@ -1,6 +1,7 @@
 {
   "CORSRules": [
     {
+      "ID": "nadlan-app",
       "AllowedOrigins": ["http://localhost:5515"],
       "AllowedMethods": ["PUT", "GET", "HEAD"],
       "AllowedHeaders": ["*"],

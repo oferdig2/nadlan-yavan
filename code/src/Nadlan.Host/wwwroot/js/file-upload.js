@@ -10,7 +10,7 @@
 
   var CONCURRENCY = 4;
   var PART_ATTEMPTS = 3;
-  var URL_BATCH = 50;
+  var URL_BATCH = 100; // = FileService.MaxPartUrlsPerCall
 
   function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -81,9 +81,23 @@
       });
     }
 
+    // URLs are fetched in batches of up to URL_BATCH pending parts (one API call serves many parts);
+    // concurrent workers share the batch request that is already in flight.
+    var pendingParts = [];
+    var urlRequest = null;
+    function ensureUrl(n) {
+      if (urls[n]) { return Promise.resolve(); }
+      if (!urlRequest) {
+        var from = pendingParts.indexOf(n);
+        var batch = pendingParts.slice(Math.max(0, from)).filter(function (p) { return !urls[p] && !etags[p]; }).slice(0, URL_BATCH);
+        if (batch.indexOf(n) < 0) { batch.unshift(n); batch = batch.slice(0, URL_BATCH); }
+        urlRequest = fetchUrls(batch).then(function () { urlRequest = null; }, function (err) { urlRequest = null; throw err; });
+      }
+      return urlRequest.then(function () { return urls[n] ? null : ensureUrl(n); });
+    }
+
     function sendPart(n, attempt) {
-      var ready = urls[n] ? Promise.resolve() : fetchUrls([n]);
-      return ready.then(function () { return putPart(n); }).catch(function (err) {
+      return ensureUrl(n).then(function () { return putPart(n); }).catch(function (err) {
         if (cancelled || halted || err.aborted || err.fatal || attempt >= PART_ATTEMPTS) { throw err; }
         partBytes[n] = 0;
         if (err.status === 403) { delete urls[n]; } // presigned URL expired → get a fresh one
@@ -92,21 +106,19 @@
     }
 
     function runParts() {
-      var pending = [];
-      for (var n = 1; n <= session.partCount; n++) { if (!etags[n]) { pending.push(n); } }
+      pendingParts = [];
+      for (var n = 1; n <= session.partCount; n++) { if (!etags[n]) { pendingParts.push(n); } }
+      if (!pendingParts.length) { return Promise.resolve(); } // every part already in S3 (e.g. only /complete failed)
 
-      // Fetch the first batch of URLs up front; later ones on demand.
-      return fetchUrls(pending.slice(0, URL_BATCH)).then(function () {
-        var next = 0;
-        function worker() {
-          if (cancelled || halted || next >= pending.length) { return Promise.resolve(); }
-          var n = pending[next++];
-          return sendPart(n, 1).then(worker);
-        }
-        var workers = [];
-        for (var i = 0; i < Math.min(CONCURRENCY, pending.length); i++) { workers.push(worker()); }
-        return Promise.all(workers);
-      });
+      var next = 0;
+      function worker() {
+        if (cancelled || halted || next >= pendingParts.length) { return Promise.resolve(); }
+        var n = pendingParts[next++];
+        return sendPart(n, 1).then(worker);
+      }
+      var workers = [];
+      for (var i = 0; i < Math.min(CONCURRENCY, pendingParts.length); i++) { workers.push(worker()); }
+      return Promise.all(workers);
     }
 
     function complete() {
@@ -122,24 +134,66 @@
       handlers.onState("failed", err.message || "Upload failed.");
     }
 
-    function start() {
+    var alreadyStored = false; // the server says this upload already completed (its reply had been lost)
+
+    // One path for the first attempt and for retries: prepare (new session / resync with S3) → parts → complete.
+    function run(prepare) {
+      halted = false;
       handlers.onState("uploading");
-      Nadlan.api.post("/api/files/uploads", {
-        attachedToType: target.attachedToType, attachedToId: target.attachedToId, fileTypeId: target.fileTypeId,
-        fileName: file.name, mimeType: file.type || null, fileSize: file.size
-      }).then(function (s) {
-        session = s;
-        return runParts();
-      }).then(function () {
-        if (cancelled) { return; }
+      prepare().then(function () { return alreadyStored ? null : runParts(); }).then(function () {
+        if (cancelled || halted) { return; }
+        if (alreadyStored) {
+          handlers.onState("done");
+          resolveDone(session.fileAttachmentId);
+          return;
+        }
         return complete().then(function (r) {
+          if (cancelled) { return; } // the server removes a file whose upload was cancelled mid-complete
           handlers.onState("done");
           resolveDone(r.fileAttachmentId);
         });
       }).catch(fail);
     }
 
-    start();
+    function createSession() {
+      return Nadlan.api.post("/api/files/uploads", {
+        attachedToType: target.attachedToType, attachedToId: target.attachedToId, fileTypeId: target.fileTypeId,
+        fileName: file.name, mimeType: file.type || null, fileSize: file.size
+      }).then(function (s) { session = s; });
+    }
+
+    // Resume: S3 is the source of truth for which parts arrived.
+    function resyncParts() {
+      return Nadlan.api.get("/api/files/uploads/" + session.fileAttachmentId + "/parts").then(function (parts) {
+        etags = {};
+        partBytes = {};
+        parts.forEach(function (p) {
+          etags[p.partNumber] = p.eTag;
+          var r = partRange(p.partNumber);
+          partBytes[p.partNumber] = r.end - r.start;
+        });
+        urls = {};
+        progress();
+      });
+    }
+
+    // Retry: resume when S3 still has the multipart upload; otherwise decide from the server's answer.
+    function resumeOrRestart() {
+      return resyncParts().catch(function (err) {
+        if (err.code === "FILE_NOT_UPLOADING") { alreadyStored = true; return; } // completed; only the reply was lost
+        // Session gone (rejected & removed, or the multipart upload expired): start a fresh upload of the same file.
+        if (err.status === 404 || /NoSuchUpload/.test(err.message || "")) {
+          session = null;
+          etags = {};
+          partBytes = {};
+          urls = {};
+          return createSession();
+        }
+        throw err;
+      });
+    }
+
+    run(createSession);
 
     return {
       promise: promise,
@@ -152,27 +206,7 @@
         if (session) { Nadlan.api.del("/api/files/uploads/" + session.fileAttachmentId).catch(function () { /* lifecycle rule cleans up */ }); }
       },
 
-      // Resume: S3 is the source of truth for which parts arrived.
-      retry: function () {
-        halted = false;
-        if (!session) { start(); return; }
-        handlers.onState("uploading");
-        Nadlan.api.get("/api/files/uploads/" + session.fileAttachmentId + "/parts").then(function (parts) {
-          etags = {};
-          partBytes = {};
-          parts.forEach(function (p) {
-            etags[p.partNumber] = p.eTag;
-            var r = partRange(p.partNumber);
-            partBytes[p.partNumber] = r.end - r.start;
-          });
-          urls = {};
-          progress();
-          return runParts();
-        }).then(function () {
-          if (cancelled) { return; }
-          return complete().then(function (r) { handlers.onState("done"); resolveDone(r.fileAttachmentId); });
-        }).catch(fail);
-      }
+      retry: function () { run(session ? resumeOrRestart : createSession); }
     };
   }
 

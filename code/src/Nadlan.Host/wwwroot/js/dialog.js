@@ -31,6 +31,18 @@
       }
     });
 
+    // Enter in a field = the primary button (Save/Add). Not in textareas (new line) or type-ahead inputs
+    // (Enter picks a suggestion there), and never while the buttons are busy.
+    var primary = options.buttons.filter(function (b) { return b.primary; })[0];
+    if (primary) {
+      $el.on("keydown", "input, select", function (e) {
+        if (e.key !== "Enter" || $(this).hasClass("ui-autocomplete-input") || $(this).is(":checkbox, :radio, [type=file]")) { return; }
+        e.preventDefault();
+        var $btn = $el.closest(".ui-dialog").find(".ui-dialog-buttonpane button.btn-primary");
+        if (!$btn.prop("disabled")) { primary.click(); }
+      });
+    }
+
     return {
       $el: $el,
       close: function () { if (!closed) { $el.dialog("close"); } },

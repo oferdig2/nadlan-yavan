@@ -1,9 +1,9 @@
 {
   "Rules": [
     {
-      "ID": "abort-incomplete-multipart-uploads",
+      "ID": "nadlan-abort-incomplete-uploads",
       "Status": "Enabled",
-      "Filter": {},
+      "Filter": { "Prefix": "__ROOT_PREFIX__" },
       "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
     }
   ]

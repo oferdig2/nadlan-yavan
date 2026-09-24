@@ -21,13 +21,18 @@ public static class ProvisionalRegistryId
         => registryId is not null && registryId.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase);
 
     public static string Create(string areaCode, string ot, string? otExt, string plot, string? plotExt)
+        => TryCreate(areaCode, ot, otExt, plot, plotExt)
+           ?? throw new ArgumentException("Area code, OT and plot (with letters or digits) are required for a provisional registry ID.");
+
+    /// <summary>Null when area, OT or plot has no letters/digits left after cleaning (e.g. OT "-").</summary>
+    public static string? TryCreate(string? areaCode, string? ot, string? otExt, string? plot, string? plotExt)
     {
         var area = Clean(areaCode);
         var otPart = Clean(ot);
         var plotPart = Clean(plot);
         if (area.Length == 0 || otPart.Length == 0 || plotPart.Length == 0)
         {
-            throw new ArgumentException("Area code, OT and plot are required for a provisional registry ID.");
+            return null;
         }
 
         return $"{Prefix}{area}-OT{otPart}{Ext(otExt)}-P{plotPart}{Ext(plotExt)}";

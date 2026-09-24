@@ -145,23 +145,34 @@
 
     var requestSeq = 0;
     function reload() {
-      var filter = filters.getFilter(state.mode);
-      if (!filter) { return; }
-      if (state.scope === "rectangle" && !state.rectangle) { results.setMessage("Draw a rectangle to search in."); return; }
+      // Claim a sequence number first: any search still in flight (maybe for the other mode) is now stale,
+      // even if this reload can't run a search of its own.
+      var seq = ++requestSeq;
+      var mode = state.mode;
+      var filter = filters.getFilter(mode);
+      if (!filter) { clearResults("Fix the filter to search."); return; }
+      if (state.scope === "rectangle" && !state.rectangle) { clearResults("Draw a rectangle to search in."); return; }
 
       var query = $.extend({}, filter, currentArea() || {});
-      var url = state.mode === "assets" ? "/api/assets" : "/api/parcels";
-      var seq = ++requestSeq;
+      var url = mode === "assets" ? "/api/assets" : "/api/parcels";
       setStatus("Searching…");
       Nadlan.api.get(url, query).then(function (res) {
-        if (seq !== requestSeq) { return; } // superseded by a newer search
+        if (seq !== requestSeq || mode !== state.mode) { return; } // superseded by a newer search / mode switch
         state.items = res.items;
-        (state.mode === "assets" ? assetOverlay : parcelOverlay).setItems(res.items);
+        (mode === "assets" ? assetOverlay : parcelOverlay).setItems(res.items);
         results.setItems(res.items, res.truncated);
         setStatus("");
       }, function (err) {
         if (seq === requestSeq) { setStatus("Search failed: " + err.message, true); }
       });
+    }
+
+    // Nothing from another mode or an older filter may stay on screen (e.g. Parcels shown as Assets).
+    function clearResults(message) {
+      state.items = [];
+      (state.mode === "assets" ? assetOverlay : parcelOverlay).setItems([]);
+      results.setMessage(message);
+      setStatus("");
     }
 
     function fitGeometry(geometry, maxZoom) {

@@ -67,9 +67,14 @@ public interface IFileAttachmentStore
     Task<long> InsertPendingAsync(FileAttachment file, CancellationToken ct = default);
     Task<FileAttachment?> GetAsync(long fileAttachmentId, CancellationToken ct = default);
     Task<IReadOnlyList<FileListItem>> ListReadyAsync(string attachedToType, long attachedToId, CancellationToken ct = default);
-    Task MarkReadyAsync(long fileAttachmentId, CancellationToken ct = default);
+    /// <summary>Pending → Ready. False if the row is gone or no longer Pending (e.g. cancelled while completing).</summary>
+    Task<bool> MarkReadyAsync(long fileAttachmentId, CancellationToken ct = default);
     Task UpdateMetadataAsync(long fileAttachmentId, int fileTypeId, string? caption, string? notes, int? sortOrder, CancellationToken ct = default);
     Task DeleteAsync(long fileAttachmentId, CancellationToken ct = default);
+
+    /// <summary>Uploads still Pending that started before the cutoff (abandoned: tab closed, never cancelled).</summary>
+    Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime startedBeforeUtc, int limit, CancellationToken ct = default);
+
     Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default);
 }
 

@@ -16,20 +16,19 @@
   function createParcelMapOverlay(map, options) {
     var layer = new google.maps.Data({ map: map });
     var selectedId = null;
-    var hoveredId = null;
     var interactive = true;
 
     layer.setStyle(function (feature) {
       var id = feature.getId();
       var base = feature.getProperty("registryIdIsProvisional") ? STYLE_PROVISIONAL : STYLE_NORMAL;
       var style = Object.assign({ clickable: interactive }, base);
-      if (id === hoveredId) { Object.assign(style, STYLE_HOVER); }
       if (id === selectedId) { Object.assign(style, STYLE_SELECTED); }
       return style;
     });
 
-    layer.addListener("mouseover", function (e) { hoveredId = e.feature.getId(); refresh(); });
-    layer.addListener("mouseout", function () { hoveredId = null; refresh(); });
+    // Per-feature override (Google's hover pattern): touches one polygon, not a restyle of the whole layer.
+    layer.addListener("mouseover", function (e) { layer.overrideStyle(e.feature, STYLE_HOVER); });
+    layer.addListener("mouseout", function (e) { layer.revertStyle(e.feature); });
     layer.addListener("click", function (e) {
       selectedId = e.feature.getId();
       refresh();

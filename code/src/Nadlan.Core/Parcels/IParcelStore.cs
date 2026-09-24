@@ -5,14 +5,31 @@ namespace Nadlan.Core.Parcels;
 /// <summary>Map bounding box in WGS84 degrees.</summary>
 public readonly record struct GeoBounds(double West, double South, double East, double North)
 {
-    public GeoPolygon ToPolygon() => new(new[]
+    /// <summary>Max longitude step along the north/south edges (~1 m error at Greek latitudes).</summary>
+    private const double EdgeStepDegrees = 0.1;
+
+    /// <summary>
+    /// The box as a polygon for a spatial query. MySQL (SRID 4326) treats polygon edges as geodesics, which bow away
+    /// from the latitude lines the map shows (≈35 km at zoom 7), so the north and south edges get extra points.
+    /// East/west edges are meridians - already geodesics.
+    /// </summary>
+    public GeoPolygon ToPolygon()
     {
-        new[]
+        var steps = Math.Max(1, (int)Math.Ceiling((East - West) / EdgeStepDegrees));
+        var ring = new List<GeoPoint>(2 * steps + 3);
+        for (var i = 0; i <= steps; i++)
         {
-            new GeoPoint(West, South), new GeoPoint(East, South), new GeoPoint(East, North),
-            new GeoPoint(West, North), new GeoPoint(West, South)
+            ring.Add(new GeoPoint(West + (East - West) * i / steps, South));
         }
-    });
+
+        for (var i = steps; i >= 0; i--)
+        {
+            ring.Add(new GeoPoint(West + (East - West) * i / steps, North));
+        }
+
+        ring.Add(ring[0]);
+        return new GeoPolygon(new[] { ring });
+    }
 }
 
 /// <summary>Two Parcels whose interiors overlap by more than a threshold (sliver-free; adjacent Parcels don't count).</summary>

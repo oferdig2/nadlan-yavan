@@ -75,7 +75,8 @@
           },
           onState: function (state, message) {
             $item.find("[data-act=retry]").prop("hidden", state !== "failed");
-            $item.find("[data-act=cancel]").prop("hidden", state === "done" || state === "cancelled");
+            // No cancel while finishing: S3 may already hold the complete file at that point.
+            $item.find("[data-act=cancel]").prop("hidden", state === "done" || state === "cancelled" || state === "completing");
             if (state === "completing") { status("Finishing…"); }
             if (state === "failed") { status(message, true); }
             if (state === "cancelled") { $item.remove(); }

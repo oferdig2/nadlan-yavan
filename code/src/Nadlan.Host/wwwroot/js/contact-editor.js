@@ -24,7 +24,7 @@
       "<fieldset class=\"checks\"><legend>Roles</legend>" +
         roles.map(function (r) {
           return "<label class=\"check\"><input type=\"checkbox\" data-role-id=\"" + r.id + "\"" +
-            (roleIds.indexOf(r.id) >= 0 ? " checked" : "") + "> " + esc(r.name) + "</label>";
+            (roleIds.indexOf(r.id) >= 0 ? " checked" : "") + "> " + esc(r.name) + (r.isActive ? "" : " (inactive)") + "</label>";
         }).join("") +
       "</fieldset>" +
       "<label>Notes<textarea class=\"input\" name=\"notes\" rows=\"2\">" + v(c.notes) + "</textarea></label>" +

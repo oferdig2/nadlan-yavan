@@ -8,7 +8,10 @@ using Nadlan.Persistence.MySql;
 //   status                                show current vs latest schema version (read-only)
 //   config list                           list app_config rows
 //   config show <configKey>               print one row, e.g. ms:host
-//   config set <configKey> <path> <value> set one value, e.g. ms:host Nadlan:Maps:GoogleApiKey AIza...
+//   config set <configKey> <path> <value> set one value, e.g. ms:host Nadlan:Maps:GoogleApiKey AIza...  (--empty = "")
+//   config remove <configKey> <path>      delete an obsolete key, e.g. ms:host Nadlan:Storage:KeyPrefix
+
+const string EmptyValueToken = "--empty";
 
 const string Usage = """
     Usage:
@@ -17,7 +20,8 @@ const string Usage = """
       Nadlan.DbTool status
       Nadlan.DbTool config list
       Nadlan.DbTool config show <configKey>
-      Nadlan.DbTool config set <configKey> <path> <value>
+      Nadlan.DbTool config set <configKey> <path> <value>     (use --empty for an empty value)
+      Nadlan.DbTool config remove <configKey> <path>
     """;
 
 try
@@ -74,11 +78,30 @@ try
 
         case ["config", "set", var key, var path, var value]:
         {
+            // Windows PowerShell drops "" when calling a program, so an empty value is spelled --empty.
+            var actual = value == EmptyValueToken ? "" : value;
             await migrator.EnsureUpToDateAsync();
             var store = new AppConfigMySqlStore(db.ConnectionString);
             var (_, json, _) = await store.TryGetAsync(key);
-            await store.UpsertAsync(key, AppConfigJson.SetValue(json, path, value));
-            Console.WriteLine($"Set {key} -> {path}. Restart the app to pick it up.");
+            await store.UpsertAsync(key, AppConfigJson.SetValue(json, path, actual));
+            Console.WriteLine($"Set {key} -> {path} = {(actual.Length == 0 ? "(empty)" : "(value)")}. Restart the app to pick it up.");
+            return 0;
+        }
+
+        case ["config", "remove", var key, var path]:
+        {
+            await migrator.EnsureUpToDateAsync();
+            var store = new AppConfigMySqlStore(db.ConnectionString);
+            var (found, json, _) = await store.TryGetAsync(key);
+            var (updated, removed) = found ? AppConfigJson.RemoveValue(json, path) : (json, false);
+            if (removed)
+            {
+                await store.UpsertAsync(key, updated);
+            }
+
+            Console.WriteLine(removed
+                ? $"Removed {key} -> {path}. Restart the app. (If appsettings.json still has it, the default is added back.)"
+                : $"{key} has no {path}.");
             return 0;
         }
 

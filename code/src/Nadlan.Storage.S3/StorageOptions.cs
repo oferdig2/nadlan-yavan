@@ -16,8 +16,19 @@ public sealed class StorageOptions
     /// <summary>Optional AWS profile name (~/.aws/credentials). Empty = default chain (AWS_PROFILE env var, role, ...).</summary>
     public string AwsProfile { get; set; } = "";
 
-    /// <summary>First key segment ("dev", "prod") so environments can share a bucket without mixing files.</summary>
-    public string KeyPrefix { get; set; } = "dev";
+    /// <summary>
+    /// Folder inside the bucket that holds everything, e.g. "nadlan/dev" in a shared bucket, or "" for a dedicated one.
+    /// The DB stores keys RELATIVE to this folder, so moving to another bucket/folder = copy the objects
+    /// (aws s3 sync s3://old/root s3://new/root) + change Bucket/RootFolder. No DB changes.
+    /// </summary>
+    public string RootFolder { get; set; } = "nadlan/dev";
+
+    /// <summary>Full S3 key for a stored (relative) key.</summary>
+    public string FullKey(string relativeKey)
+    {
+        var root = RootFolder.Trim().Trim('/');
+        return root.Length == 0 ? relativeKey : $"{root}/{relativeKey}";
+    }
 
     public int PartSizeMb { get; set; } = 8;
     public int MaxFileSizeGb { get; set; } = 20;
@@ -32,6 +43,12 @@ public sealed class StorageOptions
 
         /// <summary>CloudFront domain, e.g. d1234abcd.cloudfront.net or files.example.com.</summary>
         public string CloudFrontDomain { get; set; } = "";
+
+        /// <summary>
+        /// The distribution's "Origin path", if it has one (e.g. "/nadlan/prod"). That part of the S3 key is then
+        /// not repeated in URLs. Empty = the distribution points at the bucket root and URLs carry the full key.
+        /// </summary>
+        public string CloudFrontOriginPath { get; set; } = "";
 
         /// <summary>CloudFront public key id (from the key group) used to sign URLs.</summary>
         public string KeyPairId { get; set; } = "";

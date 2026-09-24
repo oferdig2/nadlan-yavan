@@ -21,11 +21,13 @@ Map-first GIS real-estate platform (Parcels → Assets → Portfolios). ASP.NET 
 | `load-demo-parcels.ps1` | Load legacy Airtable polygons as demo Parcels (needs the legacy CSV, not in the repo) |
 | `aws/setup-s3.ps1` | One-time bucket + CORS + lifecycle + least-privilege IAM user (run with an admin AWS profile) |
 
+> **Local / private network only for now:** there is no login yet (auth is a later slice), so every API is open.
+
 ## Configuration
 
 DB-first, like Futuristic SaaS: the MySQL password is the only bootstrap secret (`NADLAN_MYSQL_CS`, built by the scripts).
-Everything else lives in the `app_config` table (seeded once from `appsettings.json`). AWS credentials are never stored:
-an AWS profile on dev machines, an IAM role on EC2/Fargate. CloudFront delivery: `code/aws/CLOUDFRONT.md`.
+Everything else lives in the `app_config` table (seeded from `appsettings.json`; new settings are added, DB values never overwritten). AWS credentials are never stored:
+an AWS profile on dev machines, an IAM role on EC2/Fargate. File storage setup, moving buckets and CloudFront: `code/aws/STORAGE.md`.
 
 ## Layout
 

@@ -14,4 +14,8 @@
     <ProjectReference Include="..\Nadlan.Core\Nadlan.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Nadlan.Core.Tests" />
+  </ItemGroup>
+
 </Project>

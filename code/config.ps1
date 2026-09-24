@@ -2,6 +2,8 @@
 #   .\config.ps1 list
 #   .\config.ps1 show ms:host
 #   .\config.ps1 set ms:host Nadlan:Maps:GoogleApiKey AIza...
+#   .\config.ps1 set ms:host Nadlan:Storage:RootFolder --empty     (empty value)
+#   .\config.ps1 remove ms:host Nadlan:Storage:KeyPrefix           (delete an obsolete key)
 # Restart the app after a change.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSCommandPath
