@@ -1,0 +1,92 @@
+.layout {
+  position: absolute;
+  top: var(--header-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+}
+
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  min-height: 0;
+}
+
+#filters { padding: 10px 12px; border-bottom: 1px solid var(--border); overflow-y: auto; max-height: 55%; }
+#results { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.map { flex: 1; min-width: 0; }
+body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
+
+.map-status { margin-left: auto; font-size: 13px; color: var(--muted); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-status.error { color: var(--error); }
+
+/* Results list */
+.results-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 12px 4px; font-size: 13px; font-weight: 600; }
+.results-actions { display: flex; gap: 4px; padding: 0 12px 6px; flex-wrap: wrap; }
+.results-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; font-size: 13px; }
+.results-list li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; border-top: 1px solid var(--border); cursor: pointer; }
+.results-list li:hover { background: var(--bg); }
+.results-list input[type=checkbox] { margin-top: 3px; }
+.row-body { flex: 1; min-width: 0; }
+.row-sub { font-size: 12px; }
+
+/* Floating cards float over the map on the right; the layer lets clicks through to the map. */
+.popup-layer {
+  position: absolute;
+  top: calc(var(--header-h) + 12px);
+  right: 12px;
+  bottom: 12px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.map-card {
+  pointer-events: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.map-card.pinned { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+.card-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.card-title { font-weight: 600; }
+.card-actions button { border: none; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 2px 4px; }
+.card-body, .card-details { padding: 6px 10px 8px; }
+.card-details { border-top: 1px dashed var(--border); }
+.card-row { display: flex; gap: 8px; padding: 3px 0; }
+.card-label { width: 100px; flex-shrink: 0; color: var(--muted); }
+.card-value { flex: 1; word-break: break-word; }
+
+.card-section { border-top: 1px solid var(--border); padding: 6px 10px 8px; }
+.card-section-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin-bottom: 4px; }
+.card-assets { list-style: none; margin: 0; padding: 0; }
+.card-assets li { display: flex; gap: 6px; align-items: flex-start; padding: 5px 0; border-top: 1px solid var(--border); }
+.card-assets li:first-child { border-top: none; }
+
+.kaek { font-family: ui-monospace, Consolas, monospace; }
+
+@media (max-width: 800px) {
+  .sidebar { width: 240px; }
+  .popup-layer { width: 300px; }
+}
+
+@media (max-width: 600px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: auto; max-height: 40%; border-right: none; border-bottom: 1px solid var(--border); }
+  .popup-layer { width: auto; left: 12px; top: auto; max-height: 50%; }
+}

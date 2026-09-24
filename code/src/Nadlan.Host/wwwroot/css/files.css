@@ -1,0 +1,46 @@
+/* Files: drop zones, upload queue, file cards, gallery. */
+
+.files-dialog { display: flex; flex-direction: column; gap: 14px; }
+.zones { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+
+.drop-area {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 12px 8px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--bg);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.drop-area:hover, .drop-area:focus { border-color: var(--accent); outline: none; }
+.drop-area.drag-over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.drop-label { font-weight: 600; font-size: 13px; }
+.drop-hint { font-size: 12px; margin-top: 2px; }
+
+.upload-queue { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12px; }
+.upload-item { border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; margin-top: 4px; background: var(--surface); }
+.upload-item.done { border-color: #86efac; }
+.upload-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-item progress { width: 100%; height: 6px; }
+.upload-actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+.gallery-group h4 { margin: 6px 0; font-size: 13px; }
+.file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+
+.file-card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--surface); font-size: 12px; }
+.file-card:hover { border-color: var(--accent); }
+.file-thumb-wrap { position: relative; aspect-ratio: 4 / 3; background: #0f172a; }
+.file-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.file-icon { display: flex; align-items: center; justify-content: center; color: #cbd5e1; font-weight: 700; font-size: 18px; letter-spacing: 1px; }
+.file-badge { position: absolute; right: 6px; bottom: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; }
+.file-title { padding: 4px 6px 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-sub { padding: 0 6px 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.file-preview .file-card { cursor: default; max-width: 260px; }
+.btn-danger { color: var(--error); border-color: #fecaca; }
+
+/* Map card thumbnails */
+.thumb-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 4px; }
+.thumb-strip .file-title, .thumb-strip .file-sub { display: none; }
+.row-actions { display: flex; flex-direction: column; gap: 3px; }

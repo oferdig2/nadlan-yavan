@@ -1,0 +1,74 @@
+/* Forms, buttons, dialogs, selectors - shared by every editor. */
+
+.btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-small { padding: 2px 8px; font-size: 12px; }
+.btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+
+.form { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.form label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
+.form label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+.form-row { display: flex; gap: 8px; }
+.form-row > label { flex: 1; min-width: 0; }
+.form-row > label.narrow { flex: 0 0 64px; }
+.form-static { padding: 4px 0; }
+.form.compact { gap: 6px; }
+
+.input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); }
+
+.checks { border: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.checks legend { color: var(--muted); padding: 0 0 2px; font-size: 13px; }
+
+.form-error { color: var(--error); background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+.warn { color: var(--warn-text); }
+
+.geometry-box { border: 1px dashed var(--border); border-radius: 8px; padding: 6px 10px; }
+.geometry-box legend { color: var(--muted); padding: 0 4px; }
+.geometry-box details { margin-top: 4px; }
+.geometry-box summary { cursor: pointer; color: var(--accent); }
+.overlap-box ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* EntityRelationEditor */
+.relation-editor { display: flex; flex-direction: column; gap: 3px; }
+.relation-label { color: var(--muted); }
+.relation-body { display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.relation-summary { flex: 1; min-width: 0; }
+.relation-actions { display: flex; gap: 4px; }
+.summary-title { font-weight: 600; }
+.relation-search { margin-top: 4px; }
+
+/* MultiEntitySelector */
+.multi-select .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.multi-select .chips:empty { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: #e0e7ff; color: #1e3a8a; border-radius: 12px; padding: 1px 4px 1px 8px; font-size: 12px; }
+.chip button { border: none; background: none; cursor: pointer; color: inherit; padding: 0 2px; font-size: 14px; line-height: 1; }
+
+/* jQuery UI tweaks so it matches the app */
+.ui-dialog { font-family: inherit; border-radius: 10px; box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25); z-index: 1000; }
+.ui-dialog .ui-dialog-titlebar { background: var(--surface); border: none; border-bottom: 1px solid var(--border); border-radius: 0; font-weight: 600; }
+.ui-dialog .ui-dialog-buttonpane button.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ui-autocomplete { max-height: 280px; overflow-y: auto; z-index: 1100 !important; font-family: inherit; font-size: 13px; }
+.ui-autocomplete .ac-detail { display: block; color: var(--muted); font-size: 11px; }

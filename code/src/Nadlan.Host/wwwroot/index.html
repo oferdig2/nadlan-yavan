@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nadlan — Map</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/themes/base/jquery-ui.min.css" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="/css/forms.css" />
+  <link rel="stylesheet" href="/css/map.css" />
+  <link rel="stylesheet" href="/css/files.css" />
+</head>
+<body>
+  <header class="app-header">
+    <span class="app-title">Nadlan</span>
+    <nav class="view-switch" aria-label="Map view">
+      <button type="button" class="active" data-view="parcels">Parcels</button>
+      <button type="button" data-view="assets">Assets</button>
+    </nav>
+    <button type="button" class="btn" data-tool="new-parcel">+ New parcel</button>
+    <span id="map-status" class="map-status"></span>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section id="filters"></section>
+      <section id="results"></section>
+    </aside>
+    <main id="map" class="map"></main>
+  </div>
+  <div id="popup-layer" class="popup-layer"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/jquery-ui.min.js"></script>
+  <!-- shared -->
+  <script src="/js/api.js"></script>
+  <script src="/js/formatters.js"></script>
+  <script src="/js/reference-data.js"></script>
+  <script src="/js/dialog.js"></script>
+  <!-- reusable components -->
+  <script src="/js/entity-selector.js"></script>
+  <script src="/js/multi-entity-selector.js"></script>
+  <script src="/js/entity-relation-editor.js"></script>
+  <script src="/js/contact-editor.js"></script>
+  <script src="/js/asset-editor.js"></script>
+  <script src="/js/portfolio-picker.js"></script>
+  <script src="/js/asset-selection.js"></script>
+  <!-- files -->
+  <script src="/js/file-upload.js"></script>
+  <script src="/js/file-upload-zone.js"></script>
+  <script src="/js/file-card.js"></script>
+  <script src="/js/file-metadata-editor.js"></script>
+  <script src="/js/files-dialog.js"></script>
+  <!-- map -->
+  <script src="/js/parcel-map-overlay.js"></script>
+  <script src="/js/asset-map-overlay.js"></script>
+  <script src="/js/map-rectangle-selector.js"></script>
+  <script src="/js/parcel-draw-tool.js"></script>
+  <script src="/js/parcel-editor.js"></script>
+  <script src="/js/map-filter-panel.js"></script>
+  <script src="/js/results-panel.js"></script>
+  <script src="/js/map-entity-popup.js"></script>
+  <script src="/js/map-page.js"></script>
+</body>
+</html>

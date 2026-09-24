@@ -1,0 +1,22 @@
+# Design docs + legacy Airtable exports stay local (legacy data contains customer personal data)
+AI/
+
+# Secrets - never commit keys (CloudFront signing keys, env files)
+*.pem
+*.key
+.env
+.env.*
+
+# .NET build output and IDE
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+TestResults/
+
+# Local output
+*.log
+import-reports/
