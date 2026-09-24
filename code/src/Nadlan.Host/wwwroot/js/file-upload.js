@@ -159,7 +159,12 @@
       return Nadlan.api.post("/api/files/uploads", {
         attachedToType: target.attachedToType, attachedToId: target.attachedToId, fileTypeId: target.fileTypeId,
         fileName: file.name, mimeType: file.type || null, fileSize: file.size
-      }).then(function (s) { session = s; });
+      }).then(function (s) {
+        session = s;
+        if (cancelled) { // Cancel was pressed before the server answered: drop the session it just created
+          Nadlan.api.del("/api/files/uploads/" + s.fileAttachmentId).catch(function () { /* sweeper cleans up */ });
+        }
+      });
     }
 
     // Resume: S3 is the source of truth for which parts arrived.

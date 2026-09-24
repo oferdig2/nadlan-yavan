@@ -34,9 +34,15 @@ public static class FileEndpoints
         group.MapGet("/{fileAttachmentId:long}/content", async (long fileAttachmentId, IFileAttachmentStore files, IFileUrlProvider urls, CancellationToken ct) =>
         {
             var file = await files.GetAsync(fileAttachmentId, ct);
-            return file is { UploadStatus: FileUploadStatus.Ready }
-                ? Results.Redirect(urls.GetUrl(file.StorageKey))
-                : Results.NotFound(new { error = "FILE_NOT_FOUND", message = "File not found." });
+            if (file is not { UploadStatus: FileUploadStatus.Ready })
+            {
+                return Results.NotFound(new { error = "FILE_NOT_FOUND", message = "File not found." });
+            }
+
+            var url = urls.GetUrl(file.StorageKey);
+            return url.Length == 0
+                ? Results.Json(new { error = "STORAGE_NOT_CONFIGURED", message = "File storage is not configured." }, statusCode: StatusCodes.Status503ServiceUnavailable)
+                : Results.Redirect(url);
         });
 
         group.MapPut("/{fileAttachmentId:long}", async (long fileAttachmentId, MetadataDto dto, FileService service, CancellationToken ct) =>

@@ -3,8 +3,9 @@
 #   1. bucket: created (all public access blocked) only if it doesn't exist; an existing bucket's settings are left alone
 #   2. CORS: adds/updates only this root folder's rule "nadlan-<root>" (uploads + ETag header); origins accumulate
 #   3. lifecycle: adds/updates only "nadlan-abort-uploads-<root>", scoped to RootFolder; other rules are kept
-#   4. IAM user "nadlan-<root>", allowed ONLY on objects under s3://Bucket/RootFolder/ (iam-policy-app.json)
-#   5. its access key, stored ONLY in your local AWS profile (~/.aws/credentials) - never in the DB or the repo
+#   4. IAM user "nadlan-<root>" (nadlan/dev → nadlan-dev), allowed ONLY on objects under s3://Bucket/RootFolder/
+#   5. its access key, in the local AWS profile of the same name (~/.aws/credentials) - never in the DB or the repo;
+#      an existing key is reused only if AWS confirms it belongs to that user in this account
 # Every name is per root folder, so dev (nadlan/dev) and prod (nadlan/prod) in one bucket/account never overwrite each
 # other. Safe to re-run. S3 "folders" are just key prefixes: nothing needs creating for RootFolder.
 #
@@ -16,7 +17,7 @@ param(
     [string]$Region = "eu-central-1",
     [Parameter(Mandatory = $true)][string]$AdminProfile,
     [string]$UserName = "",                                                   # default: nadlan-<root>
-    [string]$AppProfile = "nadlan",
+    [string]$AppProfile = "",                                                 # default: same as the IAM user name
     [string[]]$AllowedOrigins = @("http://localhost:5515")                   # ADDED to the origins already allowed
 )
 $ErrorActionPreference = "Stop"
@@ -29,8 +30,11 @@ if ($root -notmatch '^[A-Za-z0-9._/-]*$' -or $root -match '//') {
     throw "RootFolder '$RootFolder' may only contain letters, digits, '.', '_', '-' and single '/' separators."
 }
 
-$slug = if ($root) { ($root -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLowerInvariant() } else { "root" }
+# "nadlan/dev" → "dev" (the app name is already in every resource name), "client/files" → "client-files".
+$slug = if ($root) { ((($root -replace "^nadlan(/|$)", "") -replace "[^A-Za-z0-9]+", "-").Trim("-")).ToLowerInvariant() } else { "" }
+if (-not $slug) { $slug = "root" }
 if (-not $UserName) { $UserName = "nadlan-$slug" }
+if (-not $AppProfile) { $AppProfile = $UserName }
 $corsRuleId = "nadlan-$slug"
 $lifecycleRuleId = "nadlan-abort-uploads-$slug"
 $policyName = "NadlanFileStorage-$slug"
@@ -113,8 +117,13 @@ $ourRule = ((Get-Content (Join-Path $here "s3-lifecycle.json") -Raw).Replace("__
 $ourRule.ID = $lifecycleRuleId
 $existing = Get-OptionalConfig "NoSuchLifecycleConfiguration" @("s3api", "get-bucket-lifecycle-configuration", "--bucket", $Bucket)
 $otherRules = if ($existing) { @($existing.Rules | Where-Object { $_.ID -ne $lifecycleRuleId }) } else { @() }
+# A bucket-level lifecycle setting lives outside .Rules; pass it back unchanged or the PUT would reset it.
+$transitionSize = if ($existing -and $existing.TransitionDefaultMinimumObjectSize) { $existing.TransitionDefaultMinimumObjectSize } else { $null }
 Invoke-WithJsonFile @{ Rules = @($otherRules + $ourRule) } {
-    param($file) Invoke-Aws s3api put-bucket-lifecycle-configuration --bucket $Bucket --lifecycle-configuration $file | Out-Null
+    param($file)
+    $putArgs = @("s3api", "put-bucket-lifecycle-configuration", "--bucket", $Bucket, "--lifecycle-configuration", $file)
+    if ($transitionSize) { $putArgs += @("--transition-default-minimum-object-size", $transitionSize) }
+    Invoke-Aws @putArgs | Out-Null
 }
 Write-Host "   lifecycle rule '$lifecycleRuleId': abort unfinished uploads under '$rootPrefix' after 1 day ($($otherRules.Count) other rule(s) kept)"
 
@@ -139,7 +148,19 @@ $ErrorActionPreference = "Continue"   # "not set" is reported on stderr
 $existingKey = & aws configure get aws_access_key_id --profile $AppProfile 2>$null
 $ErrorActionPreference = "Stop"
 if ($existingKey) {
-    Write-Host "   already has a key - not creating another"
+    # Reuse the key only if AWS confirms it is THIS user in THIS account; a profile left from another account
+    # (e.g. before moving to the client's) or another root folder would silently give AccessDenied later.
+    $admin = Invoke-Aws sts get-caller-identity | ConvertFrom-Json
+    $expectedArn = "arn:aws:iam::$($admin.Account):user/$UserName"
+    $ErrorActionPreference = "Continue"
+    $identityJson = & aws sts get-caller-identity --profile $AppProfile --output json 2>$null
+    $ErrorActionPreference = "Stop"
+    $actualArn = if ($LASTEXITCODE -eq 0) { ($identityJson -join "`n" | ConvertFrom-Json).Arn } else { "(key rejected by AWS)" }
+    if ($actualArn -ne $expectedArn) {
+        throw "Local profile '$AppProfile' has a key for $actualArn, not $expectedArn. Use another -AppProfile, or remove that profile's key from ~/.aws/credentials and re-run."
+    }
+
+    Write-Host "   already has a valid key for $UserName - not creating another"
 } else {
     $key = Invoke-Aws iam create-access-key --user-name $UserName | ConvertFrom-Json
     & aws configure set aws_access_key_id $key.AccessKey.AccessKeyId --profile $AppProfile

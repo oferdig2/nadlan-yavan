@@ -24,7 +24,9 @@ Change a value: `.\config.ps1 set ms:host Nadlan:Storage:<Setting> <value>`, the
 
 On an existing bucket it changes nothing but its own CORS rule (`nadlan-app`) and lifecycle rule
 (`nadlan-abort-incomplete-uploads`, scoped to the root folder); other rules and bucket settings are kept. The IAM user
-it creates can reach only `s3://<bucket>/<RootFolder>/*`. The printed `config.ps1` commands point the app at it.
+it creates (`nadlan-<root>`, e.g. `nadlan-dev`) can reach only `s3://<bucket>/<RootFolder>/*`; its key goes into the local AWS
+profile of the same name, and an existing key is reused only if AWS confirms it belongs to that user in that account.
+The printed `config.ps1` commands point the app at it.
 
 ## 2. Moving to another bucket (e.g. the client's)
 

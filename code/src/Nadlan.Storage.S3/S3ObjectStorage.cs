@@ -143,6 +143,11 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
         {
             throw new StorageUnavailableException($"S3 client error (credentials/network): {ex.Message}", ex);
         }
+        catch (Exception ex) when (ex is HttpRequestException or TimeoutException or IOException or TaskCanceledException)
+        {
+            // SDK v4 surfaces network trouble (offline, DNS, proxy, timeout) as plain .NET exceptions.
+            throw new StorageUnavailableException($"S3 could not be reached: {ex.Message}", ex);
+        }
     }
 
     private static Task Guard(Func<Task> action) => Guard(async () => { await action(); return true; });
@@ -153,9 +158,9 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
         {
             return action();
         }
-        catch (AmazonClientException ex)
+        catch (Exception ex) when (ex is AmazonClientException or ArgumentException)
         {
-            throw new StorageUnavailableException($"S3 client error (credentials): {ex.Message}", ex);
+            throw new StorageUnavailableException($"S3 could not sign the request: {ex.Message}", ex);
         }
     }
 
