@@ -10,6 +10,9 @@
     var v = function (x) { return esc(x || ""); };
     var roleIds = c.roleIds || [];
     return "<form class=\"form\">" +
+      "<label>Type<select class=\"input\" name=\"contactType\">" +
+        "<option value=\"Person\"" + (c.contactType === "Organization" ? "" : " selected") + ">Person</option>" +
+        "<option value=\"Organization\"" + (c.contactType === "Organization" ? " selected" : "") + ">Organization</option></select></label>" +
       "<label>Display name<input class=\"input\" name=\"displayName\" value=\"" + v(c.displayName) + "\" placeholder=\"Leave empty to use first + last name\"></label>" +
       "<div class=\"form-row\">" +
         "<label>First name<input class=\"input\" name=\"firstName\" value=\"" + v(c.firstName) + "\"></label>" +

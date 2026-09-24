@@ -113,10 +113,11 @@ public static class AppConfigJson
 
     /// <summary>
     /// The key's actual spelling in this object, matched case-insensitively like IConfiguration does, or null.
-    /// Without this, "nadlan:storage:bucket" would create a second "nadlan" section next to "Nadlan".
+    /// Without this, "nadlan:storage:bucket" would create a second "nadlan" section next to "Nadlan". If a row already
+    /// has case variants, the LAST one is chosen - that is the one IConfiguration (and the app) actually uses.
     /// </summary>
     private static string? ExistingName(JsonObject node, string name)
-        => node.Select(p => p.Key).FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
+        => node.Select(p => p.Key).LastOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Adds keys that exist in <paramref name="defaultsJson"/> but not in <paramref name="currentJson"/>, recursively.

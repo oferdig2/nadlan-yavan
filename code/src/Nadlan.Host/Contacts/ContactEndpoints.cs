@@ -25,8 +25,12 @@ public static class ContactEndpoints
         group.MapPost("/", async (ContactDto dto, ContactService service, CancellationToken ct) =>
             Results.Ok(await service.CreateAsync(ToContact(dto, 0), ct)));
 
-        group.MapPut("/{contactId:long}", async (long contactId, ContactDto dto, ContactService service, CancellationToken ct) =>
-            Results.Ok(await service.UpdateAsync(ToContact(dto, contactId), ct)));
+        group.MapPut("/{contactId:long}", async (long contactId, ContactDto dto, ContactService service, IContactStore contacts, CancellationToken ct) =>
+        {
+            // A client that doesn't send contactType must not turn an Organization into a Person.
+            var type = dto.ContactType ?? (await contacts.GetAsync(contactId, ct))?.ContactType;
+            return Results.Ok(await service.UpdateAsync(ToContact(dto with { ContactType = type }, contactId), ct));
+        });
     }
 
     private static Contact ToContact(ContactDto dto, long contactId) => new()

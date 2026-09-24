@@ -162,7 +162,7 @@ public class FileTests
         }
 
         public string GetPartUploadUrl(string key, string uploadId, int partNumber, TimeSpan lifetime) => $"https://s3/{key}?part={partNumber}";
-        public Task<IReadOnlyList<UploadedPart>> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<UploadedPart>>(Array.Empty<UploadedPart>());
+        public Task<IReadOnlyList<UploadedPart>?> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<UploadedPart>?>(Array.Empty<UploadedPart>());
         public Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct = default) => Task.CompletedTask;
         public Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default) => Task.CompletedTask;
         public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default) => Task.FromResult(StoredSize);

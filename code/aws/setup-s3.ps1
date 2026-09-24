@@ -83,6 +83,13 @@ function Invoke-WithJsonFile($object, [scriptblock]$action) {
 Write-Host "== Bucket $Bucket ($Region), root folder '$rootPrefix'" -ForegroundColor Cyan
 if (Test-Aws s3api head-bucket --bucket $Bucket) {
     Write-Host "   exists - its settings are not changed"
+    # The app must sign URLs for the bucket's REAL region; the CLI follows redirects, so -Region alone would go unnoticed.
+    $location = (Invoke-Aws s3api get-bucket-location --bucket $Bucket | ConvertFrom-Json).LocationConstraint
+    $actualRegion = if ($location) { $location } else { "us-east-1" }
+    if ($actualRegion -ne $Region) {
+        Write-Host "   bucket is in $actualRegion (not $Region) - using $actualRegion" -ForegroundColor Yellow
+        $Region = $actualRegion
+    }
     $pab = Get-OptionalConfig "NoSuchPublicAccessBlockConfiguration" @("s3api", "get-public-access-block", "--bucket", $Bucket)
     $c = if ($pab) { $pab.PublicAccessBlockConfiguration } else { $null }
     if (-not ($c -and $c.BlockPublicAcls -and $c.IgnorePublicAcls -and $c.BlockPublicPolicy -and $c.RestrictPublicBuckets)) {
@@ -103,11 +110,13 @@ if (Test-Aws s3api head-bucket --bucket $Bucket) {
 $ourCors = (Get-Content (Join-Path $here "s3-cors.json") -Raw | ConvertFrom-Json).CORSRules[0]
 $ourCors.ID = $corsRuleId
 $existing = Get-OptionalConfig "NoSuchCORSConfiguration" @("s3api", "get-bucket-cors", "--bucket", $Bucket)
-$existingRules = if ($existing) { @($existing.CORSRules) } else { @() }
+$existingRules = @(if ($existing) { $existing.CORSRules })
 $previousOrigins = @($existingRules | Where-Object { $_.ID -eq $corsRuleId } | ForEach-Object { $_.AllowedOrigins })
 $otherCors = @($existingRules | Where-Object { $_.ID -ne $corsRuleId })
 $ourCors.AllowedOrigins = @(@($previousOrigins) + @($ourCors.AllowedOrigins) + @($AllowedOrigins) | Where-Object { $_ } | Select-Object -Unique)
-Invoke-WithJsonFile @{ CORSRules = @($otherCors + $ourCors) } {
+# Ours FIRST: S3 answers with the first rule that matches, and an earlier broad rule without ExposeHeaders ETag
+# would otherwise hide the ETag header and break every upload.
+Invoke-WithJsonFile @{ CORSRules = @(@($ourCors) + $otherCors) } {
     param($file) Invoke-Aws s3api put-bucket-cors --bucket $Bucket --cors-configuration $file | Out-Null
 }
 Write-Host "   CORS rule '$corsRuleId' allows $($ourCors.AllowedOrigins -join ', ') ($($otherCors.Count) other rule(s) kept)"
@@ -116,7 +125,8 @@ Write-Host "   CORS rule '$corsRuleId' allows $($ourCors.AllowedOrigins -join ',
 $ourRule = ((Get-Content (Join-Path $here "s3-lifecycle.json") -Raw).Replace("__ROOT_PREFIX__", $rootPrefix) | ConvertFrom-Json).Rules[0]
 $ourRule.ID = $lifecycleRuleId
 $existing = Get-OptionalConfig "NoSuchLifecycleConfiguration" @("s3api", "get-bucket-lifecycle-configuration", "--bucket", $Bucket)
-$otherRules = if ($existing) { @($existing.Rules | Where-Object { $_.ID -ne $lifecycleRuleId }) } else { @() }
+# @(...) around the whole if: PowerShell unrolls a one-item array returned from an if block into a bare object.
+$otherRules = @(if ($existing) { $existing.Rules | Where-Object { $_.ID -ne $lifecycleRuleId } })
 # A bucket-level lifecycle setting lives outside .Rules; pass it back unchanged or the PUT would reset it.
 $transitionSize = if ($existing -and $existing.TransitionDefaultMinimumObjectSize) { $existing.TransitionDefaultMinimumObjectSize } else { $null }
 Invoke-WithJsonFile @{ Rules = @($otherRules + $ourRule) } {

@@ -82,7 +82,14 @@ try
             var actual = value == EmptyValueToken ? "" : value;
             await migrator.EnsureUpToDateAsync();
             var store = new AppConfigMySqlStore(db.ConnectionString);
-            var (_, json, _) = await store.TryGetAsync(key);
+            var (found, json, _) = await store.TryGetAsync(key);
+            if (found && !AppConfigJson.IsValidObject(json))
+            {
+                // Same rule as the app: never replace a row we can't read, it would wipe every other setting.
+                Console.Error.WriteLine($"ERROR: app_config row '{key}' is not valid JSON; fix it first (e.g. in MySQL Workbench). Nothing was changed.");
+                return 1;
+            }
+
             await store.UpsertAsync(key, AppConfigJson.SetValue(json, path, actual));
             Console.WriteLine($"Set {key} -> {path} = {(actual.Length == 0 ? "(empty)" : "(value)")}. Restart the app to pick it up.");
             return 0;
@@ -93,6 +100,12 @@ try
             await migrator.EnsureUpToDateAsync();
             var store = new AppConfigMySqlStore(db.ConnectionString);
             var (found, json, _) = await store.TryGetAsync(key);
+            if (found && !AppConfigJson.IsValidObject(json))
+            {
+                Console.Error.WriteLine($"ERROR: app_config row '{key}' is not valid JSON; fix it first (e.g. in MySQL Workbench). Nothing was changed.");
+                return 1;
+            }
+
             var (updated, removed) = found ? AppConfigJson.RemoveValue(json, path) : (json, false);
             if (removed)
             {

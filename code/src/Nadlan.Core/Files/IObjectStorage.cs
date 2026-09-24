@@ -21,7 +21,8 @@ public interface IObjectStorage
 
     Task<string> StartMultipartUploadAsync(string key, string contentType, string contentDisposition, CancellationToken ct = default);
     string GetPartUploadUrl(string key, string uploadId, int partNumber, TimeSpan lifetime);
-    Task<IReadOnlyList<UploadedPart>> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default);
+    /// <summary>Parts S3 holds for the upload, or null when the multipart upload no longer exists (completed or aborted).</summary>
+    Task<IReadOnlyList<UploadedPart>?> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default);
     Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct = default);
     Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default);
 

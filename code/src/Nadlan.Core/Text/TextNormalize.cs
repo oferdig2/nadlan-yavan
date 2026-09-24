@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Nadlan.Core.Text;
 
@@ -29,26 +30,35 @@ public static class TextNormalize
     }
 
     /// <summary>
-    /// Parses a user/legacy number. "120,000" and "1,234.5" are thousands separators; a single comma with no dot
-    /// ("0,8") is a decimal comma. Returns null when empty or unreadable.
+    /// Parses a user/legacy number written the English or the Greek way. Returns null when empty or unreadable.
+    /// - both "." and "," present: the LAST one is the decimal separator ("1,234.5" and "1.234,5" = 1234.5)
+    /// - only commas: "120,000" = thousands; otherwise one comma = decimal ("0,8", "0,800", "12,5")
+    /// - only dots: two or more = thousands ("1.250.000"); one dot = decimal ("0.25", and "250.000" = 250)
+    /// Same rules as Nadlan.format.parseNumber in the browser (formatters.js).
     /// </summary>
     public static decimal? ParseDecimal(string? text)
     {
-        var t = text?.Trim();
+        var t = text?.Trim().Replace(" ", "");
         if (string.IsNullOrEmpty(t))
         {
             return null;
         }
 
-        var commas = t.Count(c => c == ',');
-        var isThousands = System.Text.RegularExpressions.Regex.IsMatch(t, @"^-?\d{1,3}(,\d{3})+(\.\d+)?$");
-        if (isThousands)
+        int lastDot = t.LastIndexOf('.'), lastComma = t.LastIndexOf(',');
+        if (lastDot >= 0 && lastComma >= 0)
         {
-            t = t.Replace(",", "");
+            var (thousands, decimalSep) = lastComma > lastDot ? ('.', ',') : (',', '.');
+            t = t.Replace(thousands.ToString(), "").Replace(decimalSep, '.');
         }
-        else if (commas == 1 && !t.Contains('.'))
+        else if (lastComma >= 0)
         {
-            t = t.Replace(',', '.');
+            t = Regex.IsMatch(t, @"^-?[1-9]\d{0,2}(,\d{3})+$") ? t.Replace(",", "")
+                : t.Count(c => c == ',') == 1 ? t.Replace(',', '.')
+                : t; // "1,2,3": unreadable
+        }
+        else if (t.Count(c => c == '.') > 1 && Regex.IsMatch(t, @"^-?[1-9]\d{0,2}(\.\d{3})+$"))
+        {
+            t = t.Replace(".", "");
         }
 
         return decimal.TryParse(t, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var d) ? d : null;

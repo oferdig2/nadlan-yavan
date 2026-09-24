@@ -35,6 +35,13 @@ public sealed class ApiErrorMiddleware
         {
             await WriteAsync(context, StatusCodes.Status503ServiceUnavailable, "STORAGE_ERROR", ex.Message);
         }
+        catch (MySqlConnector.MySqlException ex) when (ex.ErrorCode is MySqlConnector.MySqlErrorCode.DataTooLong
+                                                       or MySqlConnector.MySqlErrorCode.WarningDataOutOfRange)
+        {
+            // Strict-mode column limits (e.g. caption VARCHAR(300)): a user input problem, not a server crash.
+            await WriteAsync(context, StatusCodes.Status400BadRequest, "VALUE_TOO_LONG",
+                "A value is too long or too large for its field. Shorten it and try again.");
+        }
     }
 
     private static Task WriteAsync(HttpContext context, int status, string code, string message)

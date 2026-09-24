@@ -102,7 +102,23 @@ public sealed class FileService
     public async Task<IReadOnlyList<UploadedPart>> ListUploadedPartsAsync(long fileAttachmentId, CancellationToken ct = default)
     {
         var file = await GetPendingAsync(fileAttachmentId, ct);
-        return await _storage.ListUploadedPartsAsync(file.StorageKey, file.S3UploadId!, ct);
+        var parts = await _storage.ListUploadedPartsAsync(file.StorageKey, file.S3UploadId!, ct);
+        if (parts is not null)
+        {
+            return parts;
+        }
+
+        // The multipart upload is gone. Either S3 completed it and our side failed afterwards (size check / DB),
+        // or it was aborted (e.g. by the 1-day lifecycle rule). Decide from the object itself, so a finished
+        // multi-GB file is never uploaded twice or left orphaned.
+        if (await _storage.GetObjectSizeAsync(file.StorageKey, ct) == file.FileSize && await _files.MarkReadyAsync(fileAttachmentId, ct))
+        {
+            throw new DomainValidationException("FILE_NOT_UPLOADING", "This file is already fully uploaded.");
+        }
+
+        await _storage.DeleteObjectAsync(file.StorageKey, ct); // a partial/unknown object must not linger
+        await _files.DeleteAsync(fileAttachmentId, ct);
+        throw new EntityNotFoundException("File", fileAttachmentId); // the browser starts a fresh upload
     }
 
     public async Task<FileAttachment> CompleteUploadAsync(long fileAttachmentId, IReadOnlyList<UploadedPart> parts, CancellationToken ct = default)
@@ -280,7 +296,9 @@ public sealed class FileService
     /// </summary>
     internal static string ContentDisposition(string fileName, string mimeType)
     {
-        var active = ActiveMimeTypes.Any(m => mimeType.StartsWith(m, StringComparison.OrdinalIgnoreCase))
+        var mime = mimeType.Split(';')[0].Trim();
+        var active = ActiveMimeTypes.Any(m => mime.StartsWith(m, StringComparison.OrdinalIgnoreCase))
+                     || mime.EndsWith("+xml", StringComparison.OrdinalIgnoreCase) // atom, rss, xhtml, svg ... all render as XML
                      || ActiveExtensions.Contains(Path.GetExtension(fileName), StringComparer.OrdinalIgnoreCase);
         var ascii = SafeKeyName(fileName);
         var encoded = Uri.EscapeDataString(fileName);

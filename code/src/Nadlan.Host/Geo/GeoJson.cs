@@ -74,11 +74,19 @@ internal static class GeoJson
             return null;
         }
 
-        if (west is not double w || south is not double s || east is not double e || north is not double n || w >= e || s >= n)
+        if (west is not double w || south is not double s || east is not double e || north is not double n || s >= n)
         {
-            throw new DomainValidationException("INVALID_BOUNDS", "Map bounds need west < east and south < north.");
+            throw new DomainValidationException("INVALID_BOUNDS", "Map bounds need all four edges and south < north.");
         }
 
-        return new GeoBounds(w, s, e, n);
+        // Zoomed far out, Google Maps reports -180..180 or a view that crosses the antimeridian (west > east).
+        // MySQL SRID 4326 only accepts longitudes in (-180, 180], so both become a (just inside) world-wide box.
+        const double minLon = -179.999999, maxLon = 180;
+        if (w >= e || e - w >= 360)
+        {
+            (w, e) = (minLon, maxLon);
+        }
+
+        return new GeoBounds(Math.Clamp(w, minLon, maxLon), Math.Clamp(s, -90, 90), Math.Clamp(e, minLon, maxLon), Math.Clamp(n, -90, 90));
     }
 }

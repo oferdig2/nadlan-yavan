@@ -58,17 +58,26 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             Protocol = Protocol.HTTPS,
         }));
 
-    public Task<IReadOnlyList<UploadedPart>> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default)
-        => Guard<IReadOnlyList<UploadedPart>>(async () =>
+    public Task<IReadOnlyList<UploadedPart>?> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default)
+        => Guard<IReadOnlyList<UploadedPart>?>(async () =>
         {
             var parts = new List<UploadedPart>();
             string? marker = null;
             while (true)
             {
-                var response = await Client.ListPartsAsync(new ListPartsRequest
+                ListPartsResponse response;
+                try
                 {
-                    BucketName = _options.Bucket, Key = _options.FullKey(key), UploadId = uploadId, PartNumberMarker = marker,
-                }, ct);
+                    response = await Client.ListPartsAsync(new ListPartsRequest
+                    {
+                        BucketName = _options.Bucket, Key = _options.FullKey(key), UploadId = uploadId, PartNumberMarker = marker,
+                    }, ct);
+                }
+                catch (AmazonS3Exception ex) when (ex.ErrorCode == "NoSuchUpload")
+                {
+                    return null; // completed or aborted: the caller decides from the object itself
+                }
+
                 parts.AddRange((response.Parts ?? new List<PartDetail>()).Select(p => new UploadedPart(p.PartNumber ?? 0, p.ETag)));
                 if (response.IsTruncated != true)
                 {

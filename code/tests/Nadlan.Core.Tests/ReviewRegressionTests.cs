@@ -99,6 +99,51 @@ public class ReviewRegressionTests
         Assert.Null(files.Row);
     }
 
+    [Fact]
+    public async Task Resume_after_s3_already_completed_marks_ready_instead_of_reuploading()
+    {
+        var files = new CancellingStore { MarkReadyResult = true };
+        var storage = new RecordingStorage { Parts = null, StoredSize = 10 }; // multipart gone, object complete
+        var service = new FileService(files, new AnyTarget(), storage, new FileStorageSettings());
+        var session = await service.StartUploadAsync(new StartUploadRequest("Asset", 1, 1, "a.mp4", "video/mp4", 10));
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => service.ListUploadedPartsAsync(session.FileAttachmentId));
+
+        Assert.Equal("FILE_NOT_UPLOADING", ex.Code); // browser then shows "done", no second upload
+        Assert.Empty(storage.Deleted);
+    }
+
+    [Fact]
+    public async Task Resume_after_upload_expired_clears_it_so_the_browser_restarts()
+    {
+        var files = new CancellingStore();
+        var storage = new RecordingStorage { Parts = null, StoredSize = null };
+        var service = new FileService(files, new AnyTarget(), storage, new FileStorageSettings());
+        var session = await service.StartUploadAsync(new StartUploadRequest("Asset", 1, 1, "a.mp4", "video/mp4", 10));
+
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => service.ListUploadedPartsAsync(session.FileAttachmentId));
+        Assert.Null(files.Row);
+    }
+
+    [Theory]
+    [InlineData("120,000", 120000)]
+    [InlineData("1.234,5", 1234.5)]
+    [InlineData("0,800", 0.8)]      // a leading 0 group is never thousands
+    [InlineData("1.250.000", 1250000)]
+    [InlineData("250.000", 250)]    // single dot stays a decimal point
+    public void Greek_and_english_number_input(string text, double expected)
+    {
+        Assert.Equal((decimal)expected, Nadlan.Core.Text.TextNormalize.ParseDecimal(text));
+    }
+
+    [Theory]
+    [InlineData("feed.atom", "application/atom+xml")]
+    [InlineData("x.png", "application/rss+xml; charset=utf-8")]
+    public void Any_xml_type_is_a_download(string name, string mime)
+    {
+        Assert.StartsWith("attachment;", FileService.ContentDisposition(name, mime));
+    }
+
     // A store whose row is "deleted by a concurrent cancel" by the time the upload completes.
     private sealed class CancellingStore : IFileAttachmentStore
     {
@@ -111,7 +156,8 @@ public class ReviewRegressionTests
         }
 
         public Task<FileAttachment?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Row);
-        public Task<bool> MarkReadyAsync(long id, CancellationToken ct = default) => Task.FromResult(false); // cancelled meanwhile
+        public bool MarkReadyResult { get; set; } // false = cancelled meanwhile
+        public Task<bool> MarkReadyAsync(long id, CancellationToken ct = default) => Task.FromResult(MarkReadyResult);
         public Task DeleteAsync(long id, CancellationToken ct = default) { Row = null; return Task.CompletedTask; }
 
         public Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime before, int limit, CancellationToken ct = default)
@@ -138,7 +184,8 @@ public class ReviewRegressionTests
 
         public Task<string> StartMultipartUploadAsync(string key, string contentType, string contentDisposition, CancellationToken ct = default) => Task.FromResult("u1");
         public string GetPartUploadUrl(string key, string uploadId, int partNumber, TimeSpan lifetime) => "";
-        public Task<IReadOnlyList<UploadedPart>> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default) => throw new NotSupportedException();
+        public IReadOnlyList<UploadedPart>? Parts { get; set; } = Array.Empty<UploadedPart>();
+        public Task<IReadOnlyList<UploadedPart>?> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default) => Task.FromResult(Parts);
         public Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct = default) => Task.CompletedTask;
         public Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default) { Aborted.Add(key); return Task.CompletedTask; }
         public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default) => Task.FromResult(StoredSize);

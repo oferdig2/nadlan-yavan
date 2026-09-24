@@ -9,15 +9,20 @@
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
-  // Same rules as TextNormalize.ParseDecimal on the server: "120,000" / "1,234.5" = thousands separators,
-  // a single comma with no dot ("0,8") = decimal comma. Returns null when empty, NaN when unreadable.
+  // English or Greek number input; same rules as TextNormalize.ParseDecimal on the server (see there).
+  // Returns null when empty, NaN when unreadable.
   function parseNumber(text) {
-    var t = String(text === null || text === undefined ? "" : text).trim();
+    var t = String(text === null || text === undefined ? "" : text).replace(/\s/g, "");
     if (t === "") { return null; }
-    if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) {
-      t = t.replace(/,/g, "");
-    } else if ((t.match(/,/g) || []).length === 1 && t.indexOf(".") < 0) {
-      t = t.replace(",", ".");
+    var lastDot = t.lastIndexOf("."), lastComma = t.lastIndexOf(",");
+    if (lastDot >= 0 && lastComma >= 0) {
+      // Both present: the last one is the decimal separator ("1,234.5" / "1.234,5").
+      t = lastComma > lastDot ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+    } else if (lastComma >= 0) {
+      if (/^-?[1-9]\d{0,2}(,\d{3})+$/.test(t)) { t = t.replace(/,/g, ""); }          // 120,000
+      else if ((t.match(/,/g) || []).length === 1) { t = t.replace(",", "."); }      // 0,8 · 0,800 · 12,5
+    } else if ((t.match(/\./g) || []).length > 1 && /^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) {
+      t = t.replace(/\./g, "");                                                       // 1.250.000
     }
     return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
   }
