@@ -41,6 +41,11 @@
       return symbol + Number(amount).toLocaleString("en-US", { maximumFractionDigits: 0 });
     },
 
+    // An Asset summary's price; "hidden" when the user may not see it (the server leaves it out).
+    assetPrice: function (summary) {
+      return summary.priceHidden ? "<span class=\"muted\">Price hidden</span>" : this.price(summary.askPrice, summary.currencyCode);
+    },
+
     statusBadge: function (name, color) {
       var safeColor = /^#[0-9a-fA-F]{6}$/.test(color || "") ? color : "#64748b";
       return "<span class=\"badge\" style=\"background:" + safeColor + "22;color:" + safeColor + "\">" + escapeHtml(name) + "</span>";

@@ -6,6 +6,7 @@ using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Portfolios;
 using Nadlan.Core.Reference;
+using Nadlan.Core.Security;
 using Nadlan.Persistence.MySql;
 using Nadlan.Persistence.MySql.Activity;
 using Nadlan.Persistence.MySql.Assets;
@@ -15,6 +16,7 @@ using Nadlan.Persistence.MySql.GeographicAreas;
 using Nadlan.Persistence.MySql.Parcels;
 using Nadlan.Persistence.MySql.Portfolios;
 using Nadlan.Persistence.MySql.Reference;
+using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Host.Composition;
 
@@ -34,10 +36,17 @@ public static class PersistenceRegistration
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
         services.AddSingleton<MySqlActivityLog>();
         services.AddSingleton<IActivityLog>(sp => new Nadlan.Host.Activity.BestEffortActivityLog(
-            sp.GetRequiredService<MySqlActivityLog>(), sp.GetRequiredService<ILogger<Nadlan.Host.Activity.BestEffortActivityLog>>()));
+            sp.GetRequiredService<MySqlActivityLog>(), sp.GetRequiredService<ILogger<Nadlan.Host.Activity.BestEffortActivityLog>>(),
+            sp.GetRequiredService<IHttpContextAccessor>()));
         services.AddSingleton<IParcelLegalOwnerStore, MySqlParcelLegalOwnerStore>();
         services.AddSingleton<IAssetContactStore, MySqlAssetContactStore>();
         services.AddSingleton<IReferenceAdminStore, MySqlReferenceAdminStore>();
+        services.AddSingleton<IUserStore, MySqlUserStore>();
+        services.AddSingleton<IRoleStore, MySqlRoleStore>();
+        services.AddSingleton<IResourceAccessStore, MySqlResourceAccessStore>();
+        services.AddSingleton<IPasswordTokenStore, MySqlPasswordTokenStore>();
+        services.AddSingleton<IAccessStore, MySqlAccessStore>();
+        services.AddSingleton<IApiTokenStore, MySqlApiTokenStore>();
         return services;
     }
 
@@ -50,6 +59,9 @@ public static class PersistenceRegistration
         services.AddSingleton<LegalOwnerService>();
         services.AddSingleton<AssetContactService>();
         services.AddSingleton<ReferenceAdminService>();
+        services.AddSingleton<AccessPolicy>();
+        services.AddSingleton<AuthService>();
+        services.AddSingleton<UserAdminService>();
         return services;
     }
 }

@@ -18,10 +18,11 @@ Map-first GIS real-estate platform (Parcels → Assets → Portfolios). ASP.NET 
 |---|---|
 | `update-db.ps1` | Create/upgrade the `nadlanyavan` schema from `src/Nadlan.Persistence.MySql/Sql/NNN_*.sql` (`-Status`, `-Reset` for dev) |
 | `config.ps1` | Read/write `app_config` (`list`, `show ms:host`, `set ms:host <path> <value>`) |
+| `user-password.ps1` | Set a user's password in the DB (first sign-in before Google is set up, or lock-out rescue); `-List` shows users |
 | `load-demo-parcels.ps1` | Load legacy Airtable polygons as demo Parcels (needs the legacy CSV, not in the repo) |
 | `aws/setup-s3.ps1` | One-time bucket + CORS + lifecycle + least-privilege IAM user (run with an admin AWS profile) |
 
-> **Local / private network only for now:** there is no login yet (auth is a later slice), so every API is open.
+**Sign-in:** users are created by an Admin (no registration) and sign in with Google and/or a password. Permissions come from roles, own Assets and per-object grants. First sign-in, Google setup, roles and API tokens are covered in `code/AUTH.md`.
 
 ## Configuration
 

@@ -17,6 +17,7 @@ public sealed record Asset
     public string? Remarks { get; init; }
     public bool? IsExclusive { get; init; }
     public IReadOnlyList<long> ParcelIds { get; init; } = Array.Empty<long>();
+    public long? CreatedByUserId { get; init; }
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
 }
@@ -40,6 +41,9 @@ public sealed record AssetQuery
     public IReadOnlyList<int> StatusIds { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> PropertyTypeIds { get; init; } = Array.Empty<int>();
     public int Limit { get; init; } = 2000;
+
+    /// <summary>What the caller may see. Required: the store refuses to run a query without it.</summary>
+    public Security.AccessScope? Scope { get; init; }
 }
 
 /// <summary>One Asset on one of its Parcels, with what the map, card and results list show.</summary>
@@ -59,6 +63,12 @@ public sealed record AssetMapItem
     public string StatusName { get; init; } = "";
     public string StatusColor { get; init; } = "";
     public string? PropertyTypeName { get; init; }
+
+    /// <summary>False when the caller may not see this Asset's price (the API then leaves it out).</summary>
+    public bool PriceVisible { get; init; } = true;
+
+    /// <summary>The caller may edit this Asset (for the UI; writes are checked again).</summary>
+    public bool CanEdit { get; init; } = true;
 }
 
 public sealed record AssetPortfolioMembership(long PortfolioId, string Name);
@@ -69,6 +79,6 @@ public interface IAssetStore
     Task<long> InsertAsync(Asset asset, CancellationToken ct = default);
     Task UpdateAsync(Asset asset, CancellationToken ct = default);
     Task<IReadOnlyList<AssetMapItem>> QueryAsync(AssetQuery query, CancellationToken ct = default);
-    Task<IReadOnlyList<AssetMapItem>> ListByParcelAsync(long parcelId, CancellationToken ct = default);
+    Task<IReadOnlyList<AssetMapItem>> ListByParcelAsync(long parcelId, Security.AccessScope scope, CancellationToken ct = default);
     Task<IReadOnlyList<AssetPortfolioMembership>> ListPortfoliosAsync(long assetId, CancellationToken ct = default);
 }

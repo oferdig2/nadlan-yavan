@@ -23,11 +23,32 @@ public static class ActivityActions
     public const string ContactEdited = "ContactEdited";
     public const string FileUploaded = "FileUploaded";
     public const string FileDeleted = "FileDeleted";
+    public const string UserCreated = "UserCreated";
+    public const string UserEdited = "UserEdited";
+    public const string UserDeleted = "UserDeleted";
+    public const string UserSignedOut = "UserSignedOut";
+    public const string UserUnlocked = "UserUnlocked";
+    public const string PasswordChanged = "PasswordChanged";
+    public const string PasswordReset = "PasswordReset";
+    public const string PasswordSetByAdmin = "PasswordSetByAdmin";
+    public const string PasswordRemoved = "PasswordRemoved";
+    public const string ResetLinkCreated = "ResetLinkCreated";
+    public const string AccessGranted = "AccessGranted";
+    public const string AccessRevoked = "AccessRevoked";
+    public const string RoleChanged = "RoleChanged";
 }
 
-public sealed record ActivityEntry(string EntityType, long EntityId, string ActionType, string Summary, object? Metadata = null);
+public sealed record ActivityEntry(string EntityType, long EntityId, string ActionType, string Summary, object? Metadata = null)
+{
+    /// <summary>Who did it. Filled in by the host from the signed-in user; null for tools/imports.</summary>
+    public long? UserId { get; init; }
+}
 
-public sealed record ActivityItem(long ActivityId, string EntityType, long EntityId, string ActionType, string Summary, string? MetadataJson, DateTime CreatedUtc);
+public sealed record ActivityItem(long ActivityId, string EntityType, long EntityId, string ActionType, string Summary, string? MetadataJson, DateTime CreatedUtc)
+{
+    public long? UserId { get; init; }
+    public string? UserName { get; init; }
+}
 
 public interface IActivityLog
 {

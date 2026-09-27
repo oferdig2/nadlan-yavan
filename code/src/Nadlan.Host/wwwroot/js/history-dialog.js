@@ -25,7 +25,7 @@
     Nadlan.api.get("/api/activity", { entityType: options.entityType, entityId: options.entityId, limit: shown + 1 }).then(function (items) {
       if (!items.length) { $body.html("<div class=\"muted\">No history yet.</div>"); return; }
       $body.html("<ul class=\"history-list\">" + items.slice(0, shown).map(function (a) {
-        return "<li><div class=\"history-when muted\">" + esc(when(a.createdUtc)) + "</div>" +
+        return "<li><div class=\"history-when muted\">" + esc(when(a.createdUtc)) + (a.userName ? " · " + esc(a.userName) : "") + "</div>" +
           "<div class=\"history-what\">" + esc(a.summary) + "</div></li>";
       }).join("") + "</ul>" +
         (items.length > shown ? "<div class=\"muted meta-note\">Showing the latest " + shown + " entries; older ones are not listed.</div>" : ""));

@@ -19,7 +19,7 @@ public static class Program
           --api <url>            Nadlan web app (default http://localhost:5515)
           --offline              run without Nadlan: the whole process is shown, but nothing is saved
                                  (also used automatically when the Nadlan server cannot be reached)
-          --token <token>        API token (sent as Bearer; not required yet)
+          --token <token>        API token (Nadlan: Admin > Users > API tokens), sent as Bearer; required by the server
           --delay <min-max>      seconds to wait after each new parcel (default 4-10)
           --miss-delay <min-max> seconds to wait after a click with nothing new (default 2-5)
           --max-view <metres>    largest view width/height allowed (default 2000)
@@ -58,7 +58,9 @@ public static class Program
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
             {
-                offlineReason = $"The Nadlan server at {options.Api} cannot be reached.";
+                offlineReason = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden }
+                    ? $"The Nadlan server at {options.Api} refused the API token. Create one in Nadlan (Admin > Users > the user > API tokens) and pass it with --token or \"Token\" in importer.json."
+                    : $"The Nadlan server at {options.Api} cannot be reached.";
                 Console.WriteLine($"{offlineReason} ({ex.Message}) Running offline: nothing will be saved.");
             }
         }

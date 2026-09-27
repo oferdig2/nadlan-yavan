@@ -96,7 +96,7 @@ public class ReviewGapTests
     {
         public Contact? Existing { get; init; }
         public Task<Contact?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Existing?.ContactId == id ? Existing : null);
-        public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, CancellationToken ct = default, bool inactive = false) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, Nadlan.Core.Security.AccessScope s, CancellationToken ct = default, bool inactive = false) => throw new NotSupportedException();
         public Task<long> InsertAsync(Contact c, CancellationToken ct = default) => Task.FromResult(1L);
         public Task UpdateAsync(Contact c, CancellationToken ct = default) => Task.CompletedTask;
     }

@@ -1,11 +1,13 @@
 using Nadlan.Core.Reference;
+using Nadlan.Core.Security;
+using Nadlan.Host.Auth;
 using Nadlan.Core.Validation;
 
 namespace Nadlan.Host.Admin;
 
 /// <summary>
 /// Admin-only maintenance of lookup tables (Appendix 1 §9.1).
-/// TODO(auth slice): RequireAuthorization(Admin) on the whole group.
+/// The whole group requires MANAGE_METADATA.
 /// </summary>
 public static class AdminEndpoints
 {
@@ -24,7 +26,10 @@ public static class AdminEndpoints
 
     public static void MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin/reference");
+        var group = app.MapGroup("/api/admin/reference").AddEndpointFilter(async (context, next) =>
+            context.HttpContext.GetUserAccess()?.Has(Permissions.ManageMetadata) == true
+                ? await next(context)
+                : Results.Json(new { error = "METADATA_FORBIDDEN", message = "Only an administrator can change lookup lists." }, statusCode: StatusCodes.Status403Forbidden));
 
         group.MapGet("/{table}", async (string table, IReferenceAdminStore store, CancellationToken ct) =>
             Results.Ok(await store.ListAsync(Resolve(table), ct)));

@@ -40,3 +40,17 @@ public sealed class OverlapCheckFailedException : Exception
     {
     }
 }
+
+/// <summary>
+/// The user may see the entity but not do this with it. The API returns it as 403.
+/// (An entity the user may not even see is reported as <see cref="EntityNotFoundException"/>, so it can't be discovered.)
+/// </summary>
+public sealed class ForbiddenException : Exception
+{
+    public string Code { get; }
+
+    public ForbiddenException(string code, string message) : base(message)
+    {
+        Code = code;
+    }
+}

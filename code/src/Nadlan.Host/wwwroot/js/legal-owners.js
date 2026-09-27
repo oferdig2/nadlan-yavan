@@ -54,8 +54,8 @@
     });
   }
 
-  /** Renders the owners of a Parcel into $slot and keeps it up to date after add/remove. */
-  function render($slot, parcelId) {
+  /** Renders the owners of a Parcel into $slot and keeps it up to date after add/remove. canEdit=false hides Remove. */
+  function render($slot, parcelId, canEdit) {
     var esc = Nadlan.format.escapeHtml;
 
     function load() {
@@ -64,7 +64,7 @@
           return "<li><div class=\"row-body\"><div>" + esc(o.displayName) +
             (o.ownershipPercent !== null ? " <span class=\"muted\">" + esc(o.ownershipPercent) + "%</span>" : "") + "</div>" +
             (o.notes ? "<div class=\"muted\">" + esc(o.notes) + "</div>" : "") + "</div>" +
-            "<button type=\"button\" class=\"btn btn-small\" data-remove-owner=\"" + o.contactId + "\">Remove</button></li>";
+            (canEdit === false ? "" : "<button type=\"button\" class=\"btn btn-small\" data-remove-owner=\"" + o.contactId + "\">Remove</button>") + "</li>";
         }).join("") + "</ul>" : "<div class=\"muted\">No legal owner recorded.</div>");
       }, function (err) { $slot.html("<span class=\"error\">" + esc(err.message) + "</span>"); });
     }

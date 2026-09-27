@@ -2,14 +2,16 @@ using Microsoft.AspNetCore.Mvc;
 using Nadlan.Core.Assets;
 using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Parcels;
+using Nadlan.Core.Security;
+using Nadlan.Core.Validation;
 using Nadlan.Host.Assets;
 using Nadlan.Host.Geo;
 
 namespace Nadlan.Host.Parcels;
 
 /// <summary>
-/// Parcel API for the map.
-/// TODO(auth slice): open for now; gets RequireAuthorization + permission checks with login.
+/// Parcel API for the map. Lists are filtered in SQL to what the caller may see; single reads and writes go through
+/// <see cref="AccessPolicy"/>. A Parcel the caller may not see answers 404.
 /// </summary>
 public static class ParcelEndpoints
 {
@@ -34,7 +36,7 @@ public static class ParcelEndpoints
     {
         var group = app.MapGroup("/api/parcels");
 
-        group.MapGet("/", async ([AsParameters] ParcelQueryParams q, IParcelStore parcels, IGeographicAreaStore areas, CancellationToken ct) =>
+        group.MapGet("/", async ([AsParameters] ParcelQueryParams q, UserAccess me, IParcelStore parcels, IGeographicAreaStore areas, CancellationToken ct) =>
         {
             var found = await parcels.QueryAsync(new ParcelQuery
             {
@@ -42,6 +44,7 @@ public static class ParcelEndpoints
                 RegistryId = q.RegistryId,
                 GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),
                 Limit = MaxResults,
+                Scope = me.Scope,
             }, ct);
             var areaNames = await AreaNamesAsync(areas, ct);
             return Results.Ok(new
@@ -51,13 +54,11 @@ public static class ParcelEndpoints
             });
         });
 
-        group.MapGet("/{parcelId:long}", async (long parcelId, IParcelStore parcels, IGeographicAreaStore areas, CancellationToken ct) =>
+        group.MapGet("/{parcelId:long}", async (long parcelId, UserAccess me, AccessPolicy policy, IParcelStore parcels,
+            IGeographicAreaStore areas, CancellationToken ct) =>
         {
-            var parcel = await parcels.GetAsync(parcelId, ct);
-            if (parcel is null)
-            {
-                return Results.NotFound(new { error = "PARCEL_NOT_FOUND", message = $"Parcel {parcelId} was not found." });
-            }
+            var rights = await policy.RequireParcelViewAsync(me, parcelId, ct);
+            var parcel = await parcels.GetAsync(parcelId, ct) ?? throw new EntityNotFoundException("Parcel", parcelId);
 
             return Results.Ok(new
             {
@@ -74,15 +75,31 @@ public static class ParcelEndpoints
                     otExt = parcel.OTExt, parcel.PlotNumber, parcel.PlotExt, parcel.OfficialAreaSqm,
                     parcel.Inclination, parcel.BuildFactor, parcel.Notes,
                 },
+                // What the UI may offer; every write is checked again.
+                rights = new
+                {
+                    rights.CanEdit,
+                    rights.CanSeeLegalOwners,
+                    rights.CanCreateAsset,
+                    canUploadFiles = rights.CanEdit,
+                },
             });
         });
 
-        // Business Assets on this Parcel. TODO(auth slice): filter to Assets the caller may see (Scenario 17/28).
-        group.MapGet("/{parcelId:long}/assets", async (long parcelId, IAssetStore assets, CancellationToken ct) =>
-            Results.Ok((await assets.ListByParcelAsync(parcelId, ct)).Select(AssetEndpoints.Summary)));
-
-        group.MapPost("/", async (CreateParcelDto dto, ParcelService service, CancellationToken ct) =>
+        // Business Assets on this Parcel - only those the caller may see (Scenario 17/28: competing Assets stay hidden).
+        group.MapGet("/{parcelId:long}/assets", async (long parcelId, UserAccess me, AccessPolicy policy, IAssetStore assets, CancellationToken ct) =>
         {
+            await policy.RequireParcelViewAsync(me, parcelId, ct);
+            return Results.Ok((await assets.ListByParcelAsync(parcelId, me.Scope, ct)).Select(AssetEndpoints.Summary));
+        });
+
+        group.MapPost("/", async (CreateParcelDto dto, UserAccess me, ParcelService service, CancellationToken ct) =>
+        {
+            if (!me.Has(Permissions.EditAllParcels))
+            {
+                throw new ForbiddenException("PARCEL_CREATE_FORBIDDEN", "You may not create Parcels.");
+            }
+
             var result = await service.CreateAsync(new CreateParcelRequest
             {
                 RegistryId = dto.RegistryId,
@@ -97,14 +114,17 @@ public static class ParcelEndpoints
                 BuildFactor = dto.BuildFactor,
                 Notes = dto.Notes,
                 AcceptOverlaps = dto.AcceptOverlaps,
+                CreatedByUserId = me.UserId,
             }, ct);
 
             return ToResult(result);
         });
 
         // Edit: attributes, real KAEK for a provisional one, and (optionally) the polygon.
-        group.MapPut("/{parcelId:long}", async (long parcelId, CreateParcelDto dto, ParcelService service, CancellationToken ct) =>
-            ToResult(await service.UpdateAsync(new UpdateParcelRequest
+        group.MapPut("/{parcelId:long}", async (long parcelId, CreateParcelDto dto, UserAccess me, AccessPolicy policy, ParcelService service, CancellationToken ct) =>
+        {
+            await policy.RequireParcelEditAsync(me, parcelId, ct);
+            return ToResult(await service.UpdateAsync(new UpdateParcelRequest
             {
                 ParcelId = parcelId,
                 RegistryId = dto.RegistryId,
@@ -119,21 +139,33 @@ public static class ParcelEndpoints
                 BuildFactor = dto.BuildFactor,
                 Notes = dto.Notes,
                 AcceptOverlaps = dto.AcceptOverlaps,
-            }, ct)));
+            }, ct));
+        });
 
-        // Legal Owners. TODO(auth slice): visible only with permission (spec §3.4 "Legal Owners if permitted").
-        group.MapGet("/{parcelId:long}/legal-owners", async (long parcelId, IParcelLegalOwnerStore owners, CancellationToken ct) =>
-            Results.Ok(await owners.ListAsync(parcelId, ct)));
+        // Legal Owners: visible only with VIEW_LEGAL_OWNERS or edit rights (spec §3.4 "Legal Owners if permitted").
+        group.MapGet("/{parcelId:long}/legal-owners", async (long parcelId, UserAccess me, AccessPolicy policy, IParcelLegalOwnerStore owners, CancellationToken ct) =>
+        {
+            var rights = await policy.RequireParcelViewAsync(me, parcelId, ct);
+            if (!rights.CanSeeLegalOwners)
+            {
+                throw new ForbiddenException("LEGAL_OWNERS_FORBIDDEN", "You may not see the legal owners of this Parcel.");
+            }
+
+            return Results.Ok(await owners.ListAsync(parcelId, ct));
+        });
 
         group.MapPut("/{parcelId:long}/legal-owners/{contactId:long}", async (long parcelId, long contactId, LegalOwnerDto dto,
-            LegalOwnerService service, CancellationToken ct) =>
+            UserAccess me, AccessPolicy policy, LegalOwnerService service, CancellationToken ct) =>
         {
+            await policy.RequireParcelEditAsync(me, parcelId, ct);
             await service.SetAsync(parcelId, contactId, dto.OwnershipPercent, dto.Notes, ct);
             return Results.NoContent();
         });
 
-        group.MapDelete("/{parcelId:long}/legal-owners/{contactId:long}", async (long parcelId, long contactId, LegalOwnerService service, CancellationToken ct) =>
+        group.MapDelete("/{parcelId:long}/legal-owners/{contactId:long}", async (long parcelId, long contactId, UserAccess me,
+            AccessPolicy policy, LegalOwnerService service, CancellationToken ct) =>
         {
+            await policy.RequireParcelEditAsync(me, parcelId, ct);
             await service.RemoveAsync(parcelId, contactId, ct);
             return Results.NoContent();
         });

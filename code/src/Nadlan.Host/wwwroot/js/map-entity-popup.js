@@ -33,10 +33,10 @@
       return "<ul class=\"card-assets\">" + assets.map(function (a) {
         return "<li>" +
           "<label class=\"check\"><input type=\"checkbox\" data-select=\"" + a.assetId + "\"" + (options.selection.has(a.assetId) ? " checked" : "") + "></label>" +
-          "<div class=\"row-body\"><div>" + f.price(a.askPrice, a.currencyCode) + " " + f.statusBadge(a.statusName, a.statusColor) + "</div>" +
+          "<div class=\"row-body\"><div>" + f.assetPrice(a) + " " + f.statusBadge(a.statusName, a.statusColor) + "</div>" +
           "<div class=\"muted\">" + f.text(a.managingContactName) + (a.propertyType ? " · " + f.escapeHtml(a.propertyType) : "") + " · #" + a.assetId + "</div></div>" +
           "<span class=\"row-actions\">" +
-            "<button type=\"button\" class=\"btn btn-small\" data-edit=\"" + a.assetId + "\">Edit</button>" +
+            (a.canEdit ? "<button type=\"button\" class=\"btn btn-small\" data-edit=\"" + a.assetId + "\">Edit</button>" : "") +
             "<button type=\"button\" class=\"btn btn-small\" data-files=\"" + a.assetId + "\">Files</button>" +
             "<button type=\"button\" class=\"btn btn-small\" data-history=\"" + a.assetId + "\">History</button>" +
           "</span>" +
@@ -57,7 +57,7 @@
           "<header class=\"card-header\">" +
             "<span class=\"card-title\">Parcel</span>" +
             "<span class=\"card-actions\">" +
-              "<button type=\"button\" data-action=\"edit-parcel\">Edit</button>" +
+              "<button type=\"button\" data-action=\"edit-parcel\" hidden>Edit</button>" +
               "<button type=\"button\" data-action=\"history\">History</button>" +
               "<button type=\"button\" data-action=\"expand\">Expand</button>" +
               "<button type=\"button\" data-action=\"pin\">Pin</button>" +
@@ -66,14 +66,14 @@
           "</header>" +
           "<div class=\"card-body\">" + parcelHtml(initial) + "</div>" +
           "<div class=\"card-details\" hidden></div>" +
-          "<div class=\"card-section\"><div class=\"card-section-head\"><span>Legal owners</span>" +
-            "<button type=\"button\" class=\"btn btn-small\" data-action=\"add-owner\">+ Add</button></div>" +
+          "<div class=\"card-section card-owners\" hidden><div class=\"card-section-head\"><span>Legal owners</span>" +
+            "<button type=\"button\" class=\"btn btn-small\" data-action=\"add-owner\" hidden>+ Add</button></div>" +
             "<div class=\"card-owners-slot\"></div></div>" +
           "<div class=\"card-section\"><div class=\"card-section-head\"><span>Parcel files</span>" +
             "<button type=\"button\" class=\"btn btn-small\" data-action=\"parcel-files\">Files</button></div>" +
             "<div class=\"card-thumbs\"></div></div>" +
           "<div class=\"card-section\"><div class=\"card-section-head\"><span>Assets</span>" +
-            "<button type=\"button\" class=\"btn btn-small btn-primary\" data-action=\"create-asset\">+ Create asset</button></div>" +
+            "<button type=\"button\" class=\"btn btn-small btn-primary\" data-action=\"create-asset\" hidden>+ Create asset</button></div>" +
             "<div class=\"card-assets-slot muted\">Loading…</div></div>" +
         "</section>");
 
@@ -82,6 +82,15 @@
           state.parcel = d.summary;
           state.details = d;
           $card.find(".card-body").html(parcelHtml(d.summary));
+          // What this user may do here (the server decides; buttons only follow).
+          var rights = d.rights || {};
+          $card.find("[data-action=edit-parcel]").prop("hidden", !rights.canEdit);
+          $card.find("[data-action=create-asset]").prop("hidden", !rights.canCreateAsset);
+          $card.find(".card-owners").prop("hidden", !rights.canSeeLegalOwners);
+          $card.find("[data-action=add-owner]").prop("hidden", !rights.canEdit);
+          if (rights.canSeeLegalOwners) {
+            if (owners) { owners.reload(); } else { owners = Nadlan.legalOwners.render($card.find(".card-owners-slot"), state.parcelId, !!rights.canEdit); }
+          }
           if (state.expanded) { $card.find(".card-details").html(detailsHtml(d)); }
         }, function (err) { $card.find(".card-body").append("<div class=\"error\">" + f.escapeHtml(err.message) + "</div>"); });
 
@@ -125,7 +134,7 @@
       });
       $card.on("click", "[data-action=create-asset]", function () { options.onCreateAsset(state.parcel); });
       $card.on("click", "[data-action=edit-parcel]", function () { options.onEditParcel(state.parcelId); });
-      var owners = Nadlan.legalOwners.render($card.find(".card-owners-slot"), state.parcelId);
+      var owners = null; // rendered once the rights say legal owners may be shown
       $card.on("click", "[data-action=add-owner]", function () {
         owners.add().catch(function (err) { Nadlan.dialog.showError("Could not open", err); });
       });

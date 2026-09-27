@@ -1,4 +1,5 @@
 using Nadlan.Core.Files;
+using Nadlan.Core.Security;
 using Nadlan.Core.Validation;
 
 namespace Nadlan.Host.Files;
@@ -6,7 +7,7 @@ namespace Nadlan.Host.Files;
 /// <summary>
 /// File API. Bytes never pass through here: the browser gets presigned part URLs, PUTs parts straight to S3,
 /// then reports the part ETags so we can complete the upload.
-/// TODO(auth slice): open for now; file-category permissions (Legal/Engineering/...) filter lists and URLs later.
+/// Rights come from the entity the file belongs to; file categories (Legal, Engineering, ...) filter lists and URLs.
 /// </summary>
 public static class FileEndpoints
 {
@@ -22,19 +23,34 @@ public static class FileEndpoints
     {
         var group = app.MapGroup("/api/files");
 
-        group.MapGet("/", async (string? attachedToType, long attachedToId, IFileAttachmentStore files, IFileUrlProvider urls, CancellationToken ct) =>
+        // Files of one entity, only in the categories the caller may see (Scenario 23: hidden files are not even listed).
+        group.MapGet("/", async (string? attachedToType, long attachedToId, UserAccess me, AccessPolicy policy,
+            IFileAttachmentStore files, IFileUrlProvider urls, CancellationToken ct) =>
         {
             var type = FileTargetTypes.Normalize(attachedToType)
                 ?? throw new DomainValidationException("FILE_TARGET_INVALID", "Unknown attachedToType.");
+            await policy.RequireFileTargetViewAsync(me, type, attachedToId, ct);
             var items = await files.ListReadyAsync(type, attachedToId, ct);
-            return Results.Ok(items.Select(f => ToDto(f, urls)));
+            return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls)));
+        });
+
+        // What the Files dialog may offer for this entity.
+        group.MapGet("/rights", async (string? attachedToType, long attachedToId, UserAccess me, AccessPolicy policy, CancellationToken ct) =>
+        {
+            var type = FileTargetTypes.Normalize(attachedToType)
+                ?? throw new DomainValidationException("FILE_TARGET_INVALID", "Unknown attachedToType.");
+            var rights = await policy.RequireFileTargetViewAsync(me, type, attachedToId, ct);
+            return Results.Ok(new { canUpload = rights.CanEdit, categories = me.VisibleFileCategories });
         });
 
         // Opens the file in a new tab / as an <img src>: short-lived signed URL behind a stable app URL.
-        group.MapGet("/{fileAttachmentId:long}/content", async (long fileAttachmentId, IFileAttachmentStore files, IFileUrlProvider urls, CancellationToken ct) =>
+        group.MapGet("/{fileAttachmentId:long}/content", async (long fileAttachmentId, UserAccess me, AccessPolicy policy,
+            IFileAttachmentStore files, FileService service, IFileUrlProvider urls, CancellationToken ct) =>
         {
             var file = await files.GetAsync(fileAttachmentId, ct);
-            if (file is not { UploadStatus: FileUploadStatus.Ready })
+            if (file is not { UploadStatus: FileUploadStatus.Ready }
+                || !(await policy.FileTargetAsync(me, file.AttachedToType, file.AttachedToId, ct)).CanView
+                || !me.CanSeeFileCategory(await service.CategoryOfAsync(file.FileTypeId, ct)))
             {
                 return Results.NotFound(new { error = "FILE_NOT_FOUND", message = "File not found." });
             }
@@ -45,41 +61,92 @@ public static class FileEndpoints
                 : Results.Redirect(url);
         });
 
-        group.MapPut("/{fileAttachmentId:long}", async (long fileAttachmentId, MetadataDto dto, FileService service, CancellationToken ct) =>
+        group.MapPut("/{fileAttachmentId:long}", async (long fileAttachmentId, MetadataDto dto, UserAccess me, AccessPolicy policy,
+            IFileAttachmentStore files, FileService service, CancellationToken ct) =>
         {
+            var file = await GetVisibleFileAsync(fileAttachmentId, me, policy, files, service, ct);
+            await policy.RequireFileUploadAsync(me, file.AttachedToType, file.AttachedToId, await service.CategoryOfAsync(file.FileTypeId, ct), ct);
+            if (dto.FileTypeId != file.FileTypeId && !me.CanSeeFileCategory(await service.CategoryOfAsync(dto.FileTypeId, ct)))
+            {
+                throw new ForbiddenException("FILE_CATEGORY_FORBIDDEN", "You may not move a file into that category.");
+            }
+
             await service.UpdateMetadataAsync(fileAttachmentId, dto.FileTypeId, dto.Caption, dto.Notes, dto.SortOrder, ct);
             return Results.Ok(new { fileAttachmentId });
         });
 
-        group.MapDelete("/{fileAttachmentId:long}", async (long fileAttachmentId, FileService service, CancellationToken ct) =>
+        group.MapDelete("/{fileAttachmentId:long}", async (long fileAttachmentId, UserAccess me, AccessPolicy policy,
+            IFileAttachmentStore files, FileService service, CancellationToken ct) =>
         {
+            var file = await GetVisibleFileAsync(fileAttachmentId, me, policy, files, service, ct);
+            await policy.RequireFileUploadAsync(me, file.AttachedToType, file.AttachedToId, await service.CategoryOfAsync(file.FileTypeId, ct), ct);
             await service.DeleteAsync(fileAttachmentId, ct);
             return Results.NoContent();
         });
 
         var uploads = group.MapGroup("/uploads");
 
-        uploads.MapPost("/", async (StartUploadDto dto, FileService service, CancellationToken ct) =>
-            Results.Ok(await service.StartUploadAsync(new StartUploadRequest(
-                dto.AttachedToType ?? "", dto.AttachedToId, dto.FileTypeId, dto.FileName ?? "", dto.MimeType, dto.FileSize), ct)));
-
-        uploads.MapPost("/{fileAttachmentId:long}/part-urls", async (long fileAttachmentId, PartNumbersDto dto, FileService service, CancellationToken ct) =>
-            Results.Ok(await service.GetPartUrlsAsync(fileAttachmentId, dto.PartNumbers ?? Array.Empty<int>(), ct)));
-
-        uploads.MapGet("/{fileAttachmentId:long}/parts", async (long fileAttachmentId, FileService service, CancellationToken ct) =>
-            Results.Ok(await service.ListUploadedPartsAsync(fileAttachmentId, ct)));
-
-        uploads.MapPost("/{fileAttachmentId:long}/complete", async (long fileAttachmentId, CompleteDto dto, FileService service, CancellationToken ct) =>
+        uploads.MapPost("/", async (StartUploadDto dto, UserAccess me, AccessPolicy policy, FileService service, CancellationToken ct) =>
         {
+            await policy.RequireFileUploadAsync(me, dto.AttachedToType ?? "", dto.AttachedToId, await service.CategoryOfAsync(dto.FileTypeId, ct), ct);
+            return Results.Ok(await service.StartUploadAsync(new StartUploadRequest(
+                dto.AttachedToType ?? "", dto.AttachedToId, dto.FileTypeId, dto.FileName ?? "", dto.MimeType, dto.FileSize, me.UserId), ct));
+        });
+
+        // The rest of an upload session belongs to whoever started it.
+        uploads.MapPost("/{fileAttachmentId:long}/part-urls", async (long fileAttachmentId, PartNumbersDto dto, UserAccess me,
+            IFileAttachmentStore files, FileService service, CancellationToken ct) =>
+        {
+            await RequireOwnUploadAsync(fileAttachmentId, me, files, ct);
+            return Results.Ok(await service.GetPartUrlsAsync(fileAttachmentId, dto.PartNumbers ?? Array.Empty<int>(), ct));
+        });
+
+        uploads.MapGet("/{fileAttachmentId:long}/parts", async (long fileAttachmentId, UserAccess me, IFileAttachmentStore files,
+            FileService service, CancellationToken ct) =>
+        {
+            await RequireOwnUploadAsync(fileAttachmentId, me, files, ct);
+            return Results.Ok(await service.ListUploadedPartsAsync(fileAttachmentId, ct));
+        });
+
+        uploads.MapPost("/{fileAttachmentId:long}/complete", async (long fileAttachmentId, CompleteDto dto, UserAccess me,
+            IFileAttachmentStore files, FileService service, CancellationToken ct) =>
+        {
+            await RequireOwnUploadAsync(fileAttachmentId, me, files, ct);
             var file = await service.CompleteUploadAsync(fileAttachmentId, dto.Parts ?? Array.Empty<UploadedPart>(), ct);
             return Results.Ok(new { file.FileAttachmentId });
         });
 
-        uploads.MapDelete("/{fileAttachmentId:long}", async (long fileAttachmentId, FileService service, CancellationToken ct) =>
+        uploads.MapDelete("/{fileAttachmentId:long}", async (long fileAttachmentId, UserAccess me, IFileAttachmentStore files,
+            FileService service, CancellationToken ct) =>
         {
+            await RequireOwnUploadAsync(fileAttachmentId, me, files, ct);
             await service.AbortUploadAsync(fileAttachmentId, ct);
             return Results.NoContent();
         });
+    }
+
+    /// <summary>The file, if the caller may see its entity and its category; otherwise "not found".</summary>
+    private static async Task<FileAttachment> GetVisibleFileAsync(long fileAttachmentId, UserAccess me, AccessPolicy policy,
+        IFileAttachmentStore files, FileService service, CancellationToken ct)
+    {
+        var file = await files.GetAsync(fileAttachmentId, ct);
+        if (file is null
+            || !(await policy.FileTargetAsync(me, file.AttachedToType, file.AttachedToId, ct)).CanView
+            || !me.CanSeeFileCategory(await service.CategoryOfAsync(file.FileTypeId, ct)))
+        {
+            throw new EntityNotFoundException("File", fileAttachmentId);
+        }
+
+        return file;
+    }
+
+    private static async Task RequireOwnUploadAsync(long fileAttachmentId, UserAccess me, IFileAttachmentStore files, CancellationToken ct)
+    {
+        var file = await files.GetAsync(fileAttachmentId, ct);
+        if (file is null || (file.UploadedByUserId != me.UserId && !me.IsAdmin))
+        {
+            throw new EntityNotFoundException("File", fileAttachmentId);
+        }
     }
 
     private static object ToDto(FileListItem f, IFileUrlProvider urls) => new

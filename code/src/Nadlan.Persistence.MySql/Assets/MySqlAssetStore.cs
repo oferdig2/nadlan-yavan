@@ -2,6 +2,8 @@ using Dapper;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Geo;
 using Nadlan.Core.Parcels;
+using Nadlan.Core.Security;
+using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Persistence.MySql.Assets;
 
@@ -9,11 +11,13 @@ public sealed class MySqlAssetStore : IAssetStore
 {
     private const string FromWkt = "ST_GeomFromText(@Wkt, 4326, 'axis-order=long-lat')";
 
-    private const string MapItemSelect = """
+    // {0} = price-visible expression, {1} = can-edit expression (AccessSql, per caller).
+    private const string MapItemSelectFormat = """
         SELECT a.asset_id, p.parcel_id, p.registry_id, p.registry_id_is_provisional, ga.name AS geographic_area,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt,
                a.managing_contact_id, c.display_name AS managing_contact_name, a.ask_price, a.currency_code,
-               a.asset_status_id, s.name AS status_name, s.map_color AS status_color, pt.name AS property_type_name
+               a.asset_status_id, s.name AS status_name, s.map_color AS status_color, pt.name AS property_type_name,
+               ({0}) AS price_visible, ({1}) AS can_edit
         FROM asset a
         JOIN asset_parcel ap ON ap.asset_id = a.asset_id
         JOIN parcel p ON p.parcel_id = ap.parcel_id
@@ -55,9 +59,9 @@ public sealed class MySqlAssetStore : IAssetStore
         await using var tx = await conn.BeginTransactionAsync(ct);
         var assetId = await conn.ExecuteScalarAsync<long>(new CommandDefinition("""
             INSERT INTO asset (managing_contact_id, property_type_id, asset_status_id, ask_price, currency_code,
-                               house_sqm, special_conditions, remarks, is_exclusive)
+                               house_sqm, special_conditions, remarks, is_exclusive, created_by_user_id)
             VALUES (@ManagingContactId, @PropertyTypeId, @AssetStatusId, @AskPrice, @CurrencyCode,
-                    @HouseSqm, @SpecialConditions, @Remarks, @IsExclusive);
+                    @HouseSqm, @SpecialConditions, @Remarks, @IsExclusive, @CreatedByUserId);
             SELECT LAST_INSERT_ID();
             """, asset, tx, cancellationToken: ct));
 
@@ -87,8 +91,10 @@ public sealed class MySqlAssetStore : IAssetStore
 
     public async Task<IReadOnlyList<AssetMapItem>> QueryAsync(AssetQuery query, CancellationToken ct = default)
     {
+        var scope = query.Scope ?? throw new InvalidOperationException("AssetQuery.Scope is required (use AccessScope.Everything for tools).");
         var where = new List<string>();
         var args = new DynamicParameters();
+        where.Add(AccessSql.AssetVisible("a", scope, args));
 
         if (query.Area is GeoBounds area)
         {
@@ -106,6 +112,12 @@ public sealed class MySqlAssetStore : IAssetStore
         {
             where.Add("a.ask_price <= @priceMax");
             args.Add("priceMax", max);
+        }
+
+        // A price filter must not reveal hidden prices: it only matches Assets whose price the caller may see.
+        if (query.PriceMin is not null || query.PriceMax is not null)
+        {
+            where.Add(AccessSql.PriceVisible("a", scope, args));
         }
 
         if (!string.IsNullOrWhiteSpace(query.RegistryId))
@@ -126,20 +138,25 @@ public sealed class MySqlAssetStore : IAssetStore
         }
 
         args.Add("limit", query.Limit);
-        var sql = $"{MapItemSelect} {(where.Count > 0 ? "WHERE " + string.Join(" AND ", where) : "")} ORDER BY a.asset_id LIMIT @limit";
+        var sql = $"{MapItemSelect(scope, args)} WHERE {string.Join(" AND ", where)} ORDER BY a.asset_id LIMIT @limit";
 
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<AssetMapRow>(new CommandDefinition(sql, args, cancellationToken: ct));
         return rows.Select(r => r.ToItem()).ToList();
     }
 
-    public async Task<IReadOnlyList<AssetMapItem>> ListByParcelAsync(long parcelId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<AssetMapItem>> ListByParcelAsync(long parcelId, AccessScope scope, CancellationToken ct = default)
     {
+        var args = new DynamicParameters();
+        args.Add("parcelId", parcelId);
+        var sql = $"{MapItemSelect(scope, args)} WHERE p.parcel_id = @parcelId AND {AccessSql.AssetVisible("a", scope, args)} ORDER BY a.asset_id";
         await using var conn = await _db.OpenAsync(ct);
-        var rows = await conn.QueryAsync<AssetMapRow>(new CommandDefinition(
-            $"{MapItemSelect} WHERE p.parcel_id = @parcelId ORDER BY a.asset_id", new { parcelId }, cancellationToken: ct));
+        var rows = await conn.QueryAsync<AssetMapRow>(new CommandDefinition(sql, args, cancellationToken: ct));
         return rows.Select(r => r.ToItem()).ToList();
     }
+
+    private static string MapItemSelect(AccessScope scope, DynamicParameters args)
+        => string.Format(MapItemSelectFormat, AccessSql.PriceVisible("a", scope, args), AccessSql.CanEditAsset("a", scope, args));
 
     public async Task<IReadOnlyList<AssetPortfolioMembership>> ListPortfoliosAsync(long assetId, CancellationToken ct = default)
     {
@@ -181,6 +198,8 @@ public sealed class MySqlAssetStore : IAssetStore
         public string StatusName { get; init; } = "";
         public string StatusColor { get; init; } = "";
         public string? PropertyTypeName { get; init; }
+        public bool PriceVisible { get; init; }
+        public bool CanEdit { get; init; }
 
         public AssetMapItem ToItem() => new()
         {
@@ -198,6 +217,8 @@ public sealed class MySqlAssetStore : IAssetStore
             StatusName = StatusName,
             StatusColor = StatusColor,
             PropertyTypeName = PropertyTypeName,
+            PriceVisible = PriceVisible,
+            CanEdit = CanEdit,
         };
     }
 }

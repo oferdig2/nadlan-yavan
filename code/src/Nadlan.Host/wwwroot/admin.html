@@ -10,19 +10,22 @@
   <link rel="stylesheet" href="/css/map.css" />
   <link rel="stylesheet" href="/css/files.css" />
   <link rel="stylesheet" href="/css/admin.css" />
+  <link rel="stylesheet" href="/css/auth.css" />
 </head>
 <body class="admin-body">
   <header class="app-header">
     <span class="app-title">Nadlan</span>
     <a class="btn" href="/">← Map</a>
     <nav class="view-switch admin-tabs" aria-label="Admin sections">
-      <button type="button" class="active" data-tab="contacts">Contacts</button>
-      <button type="button" data-tab="asset-statuses">Statuses</button>
-      <button type="button" data-tab="property-types">Property types</button>
-      <button type="button" data-tab="portfolio-types">Portfolio types</button>
-      <button type="button" data-tab="contact-roles">Contact roles</button>
-      <button type="button" data-tab="file-types">File types</button>
-      <button type="button" data-tab="geographic-areas">Areas</button>
+      <button type="button" data-tab="users" data-requires="MANAGE_USERS" hidden>Users</button>
+      <button type="button" data-tab="roles" data-requires="MANAGE_USERS" hidden>Roles</button>
+      <button type="button" data-tab="contacts" data-requires="MANAGE_CONTACTS VIEW_ALL_CONTACTS" hidden>Contacts</button>
+      <button type="button" data-tab="asset-statuses" data-requires="MANAGE_METADATA" hidden>Statuses</button>
+      <button type="button" data-tab="property-types" data-requires="MANAGE_METADATA" hidden>Property types</button>
+      <button type="button" data-tab="portfolio-types" data-requires="MANAGE_METADATA" hidden>Portfolio types</button>
+      <button type="button" data-tab="contact-roles" data-requires="MANAGE_METADATA" hidden>Contact roles</button>
+      <button type="button" data-tab="file-types" data-requires="MANAGE_METADATA" hidden>File types</button>
+      <button type="button" data-tab="geographic-areas" data-requires="MANAGE_METADATA" hidden>Areas</button>
     </nav>
   </header>
 
@@ -32,9 +35,11 @@
   <script src="https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/jquery-ui.min.js" integrity="sha384-SStJQoPipVtHHnIgUfDI+jTAbSyU+HMbhwt2XRRNpLIRFg9VguopT6Y4+cdOlkqg" crossorigin="anonymous"></script>
   <script src="/js/api.js"></script>
   <script src="/js/formatters.js"></script>
+  <script src="/js/session.js"></script>
   <script src="/js/reference-data.js"></script>
   <script src="/js/dialog.js"></script>
   <script src="/js/entity-selector.js"></script>
+  <script src="/js/entity-relation-editor.js"></script>
   <script src="/js/contact-editor.js"></script>
   <script src="/js/history-dialog.js"></script>
   <script src="/js/file-upload.js"></script>
@@ -44,6 +49,10 @@
   <script src="/js/files-dialog.js"></script>
   <script src="/js/metadata-table-editor.js"></script>
   <script src="/js/admin-contacts.js"></script>
+  <script src="/js/resource-access-editor.js"></script>
+  <script src="/js/user-editor.js"></script>
+  <script src="/js/admin-users.js"></script>
+  <script src="/js/admin-roles.js"></script>
   <script src="/js/admin-page.js"></script>
 </body>
 </html>

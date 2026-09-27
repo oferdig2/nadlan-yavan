@@ -11,6 +11,9 @@ public sealed record CreateParcelRequest
     /// <summary>Real KAEK. Leave empty when unknown; a provisional TMP- id is generated and flagged.</summary>
     public string? RegistryId { get; init; }
 
+    /// <summary>The signed-in user who creates it (null for imports).</summary>
+    public long? CreatedByUserId { get; init; }
+
     public int? GeographicAreaId { get; init; }
     public required GeoPolygon Geometry { get; init; }
     public decimal? OfficialAreaSqm { get; init; }
@@ -123,6 +126,7 @@ public sealed class ParcelService
             id = await _parcels.InsertAsync(new Parcel
             {
                 CountryId = countryId,
+                CreatedByUserId = request.CreatedByUserId,
                 RegistryId = registryId,
                 RegistryIdIsProvisional = provisional,
                 GeographicAreaId = area?.GeographicAreaId,

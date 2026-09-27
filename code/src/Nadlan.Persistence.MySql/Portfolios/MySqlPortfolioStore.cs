@@ -1,5 +1,7 @@
 using Dapper;
 using Nadlan.Core.Portfolios;
+using Nadlan.Core.Security;
+using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Persistence.MySql.Portfolios;
 
@@ -21,23 +23,23 @@ public sealed class MySqlPortfolioStore : IPortfolioStore
             """, new { portfolioId }, cancellationToken: ct));
     }
 
-    public async Task<IReadOnlyList<PortfolioSummary>> SearchAsync(string? text, int limit, CancellationToken ct = default)
+    public async Task<IReadOnlyList<PortfolioSummary>> SearchAsync(string? text, int limit, AccessScope scope, CancellationToken ct = default)
     {
+        var args = new DynamicParameters();
+        args.Add("text", string.IsNullOrWhiteSpace(text) ? null : text);
+        args.Add("contains", $"%{SqlLike.Escape(text?.Trim() ?? "")}%");
+        args.Add("limit", limit);
+        var visible = AccessSql.PortfolioVisible("p", scope, args);
         await using var conn = await _db.OpenAsync(ct);
-        var rows = await conn.QueryAsync<PortfolioSummary>(new CommandDefinition("""
+        var rows = await conn.QueryAsync<PortfolioSummary>(new CommandDefinition($"""
             SELECT p.portfolio_id AS PortfolioId, p.name AS Name, t.name AS TypeName,
                    (SELECT COUNT(*) FROM portfolio_asset pa WHERE pa.portfolio_id = p.portfolio_id) AS AssetCount
             FROM portfolio p
             JOIN portfolio_type t ON t.portfolio_type_id = p.portfolio_type_id
-            WHERE @text IS NULL OR p.name LIKE @contains
+            WHERE (@text IS NULL OR p.name LIKE @contains) AND {visible}
             ORDER BY p.name
             LIMIT @limit
-            """, new
-            {
-                text = string.IsNullOrWhiteSpace(text) ? null : text,
-                contains = $"%{SqlLike.Escape(text?.Trim() ?? "")}%",
-                limit,
-            }, cancellationToken: ct));
+            """, args, cancellationToken: ct));
         return rows.ToList();
     }
 

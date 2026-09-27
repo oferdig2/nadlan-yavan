@@ -1,0 +1,44 @@
+/* Sign-in / password pages and the header user menu. */
+
+.auth-body { display: flex; align-items: center; justify-content: center; min-height: 100%; padding: 16px; }
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+}
+
+.auth-card h1 { margin: 0 0 4px; font-size: 22px; }
+.auth-card .auth-sub { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
+.auth-card .form { font-size: 14px; }
+.auth-card .btn { font-size: 14px; padding: 8px 12px; }
+.auth-card .btn-block { width: 100%; }
+.auth-card .auth-links { display: flex; justify-content: space-between; margin-top: 12px; font-size: 13px; }
+.auth-card a { color: var(--accent); text-decoration: none; }
+.auth-card a:hover { text-decoration: underline; }
+.auth-card .auth-ok { color: #166534; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+
+.auth-divider { display: flex; align-items: center; gap: 10px; margin: 16px 0; color: var(--muted); font-size: 12px; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+
+.btn-google { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.btn-google svg { width: 18px; height: 18px; }
+
+/* Header user menu (session.js) */
+.user-menu { margin-left: auto; position: relative; }
+.user-menu > button { border: 1px solid var(--border); background: var(--surface); border-radius: 16px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+.user-menu > button:hover { border-color: var(--accent); }
+.user-menu .user-role { color: var(--muted); font-size: 11px; margin-left: 4px; }
+.user-menu ul {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 1000; min-width: 190px; margin: 0; padding: 4px 0; list-style: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.user-menu li { padding: 0; }
+.user-menu li > span { display: block; padding: 6px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--border); }
+.user-menu li > button { width: 100%; text-align: left; border: 0; background: none; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+.user-menu li > button:hover { background: var(--bg); }
+.map-status { flex: 1; min-width: 0; }

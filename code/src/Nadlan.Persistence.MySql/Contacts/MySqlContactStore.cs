@@ -1,6 +1,8 @@
 using Dapper;
 using MySqlConnector;
 using Nadlan.Core.Contacts;
+using Nadlan.Core.Security;
+using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Persistence.MySql.Contacts;
 
@@ -31,10 +33,11 @@ public sealed class MySqlContactStore : IContactStore
         return contact with { RoleIds = roleIds.ToList() };
     }
 
-    public async Task<IReadOnlyList<ContactSummary>> SearchAsync(string? text, int? roleId, int limit, CancellationToken ct = default, bool includeInactive = false)
+    public async Task<IReadOnlyList<ContactSummary>> SearchAsync(string? text, int? roleId, int limit, AccessScope scope, CancellationToken ct = default, bool includeInactive = false)
     {
         var where = new List<string> { includeInactive ? "1 = 1" : "c.is_active = 1" };
         var args = new DynamicParameters();
+        where.Add(AccessSql.ContactVisible("c", scope, args));
         if (!string.IsNullOrWhiteSpace(text))
         {
             // Name matches from the start of any word are the useful ones; email/phone are "contains".

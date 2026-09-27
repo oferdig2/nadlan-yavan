@@ -42,7 +42,10 @@
    * @param {{ attachedToType: "Parcel"|"Asset", attachedToId: number, title: string, onChanged?: function(): void }} options
    */
   function open(options) {
-    return Nadlan.reference.load().then(function (ref) {
+    return Promise.all([Nadlan.reference.load(),
+      Nadlan.api.get("/api/files/rights", { attachedToType: options.attachedToType, attachedToId: options.attachedToId })]).then(function (loaded) {
+      var ref = loaded[0];
+      var rights = loaded[1]; // { canUpload, categories } - the server filters and checks anyway
       var config = Nadlan.clientConfig || {};
       var $body = $("<div class=\"files-dialog\"></div>");
       var changed = false;
@@ -66,12 +69,19 @@
       var $gallery = $("<div class=\"gallery\"><div class=\"muted\">Loading…</div></div>").appendTo($body);
       var files = [];
 
-      (ZONES[options.attachedToType] || ZONES.Asset).forEach(function (zone) {
+      // Drop zones only where the user may add files, and only for document kinds they may see.
+      var categoryOf = {};
+      ref.fileTypes.forEach(function (t) { categoryOf[t.code] = t.category; });
+      var zones = rights.canUpload ? (ZONES[options.attachedToType] || ZONES.Asset).filter(function (zone) {
+        return rights.categories.indexOf(categoryOf[zone.types.other]) >= 0;
+      }) : [];
+      $zones.prop("hidden", zones.length === 0);
+      zones.forEach(function (zone) {
         Nadlan.initializeFileUploadZone($("<div></div>").appendTo($zones), {
           attachedToType: options.attachedToType,
           attachedToId: options.attachedToId,
           zone: zone,
-          fileTypes: ref.fileTypes,
+          fileTypes: ref.fileTypes.filter(function (t) { return rights.categories.indexOf(t.category) >= 0; }),
           maxFileSizeBytes: config.maxFileSizeBytes,
           onUploaded: function () { changed = true; loadSoon(); }
         });
@@ -91,7 +101,7 @@
       }
 
       function render() {
-        if (!files.length) { $gallery.html("<div class=\"muted\">No files yet - drop some above.</div>"); return; }
+        if (!files.length) { $gallery.html("<div class=\"muted\">" + (rights.canUpload ? "No files yet - drop some above." : "No files you can see here.") + "</div>"); return; }
         var esc = Nadlan.format.escapeHtml;
         var byCategory = {};
         files.forEach(function (f) { (byCategory[f.category] = byCategory[f.category] || []).push(f); });
@@ -105,7 +115,8 @@
         var id = Number($(this).data("fileId"));
         var file = files.filter(function (f) { return f.fileAttachmentId === id; })[0];
         if (!file) { return; }
-        Nadlan.fileMetadataEditor.open(file, ref.fileTypes).then(function (result) {
+        if (!rights.canUpload) { window.open("/api/files/" + id + "/content", "_blank", "noopener"); return; } // view only
+        Nadlan.fileMetadataEditor.open(file, ref.fileTypes.filter(function (t) { return rights.categories.indexOf(t.category) >= 0; })).then(function (result) {
           if (result) { changed = true; load(); }
         });
       });

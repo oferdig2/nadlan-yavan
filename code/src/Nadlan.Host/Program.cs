@@ -2,6 +2,7 @@ using Nadlan.Config.MySql;
 using Nadlan.Host.Activity;
 using Nadlan.Host.Admin;
 using Nadlan.Host.Assets;
+using Nadlan.Host.Auth;
 using Nadlan.Host.Composition;
 using Nadlan.Host.Configuration;
 using Nadlan.Host.Contacts;
@@ -26,13 +27,15 @@ builder.Services.Configure<NadlanOptions>(builder.Configuration.GetSection(Nadla
 builder.Services.AddNadlanPersistence(db);
 builder.Services.AddNadlanServices();
 builder.Services.AddNadlanFileStorage(builder.Configuration);
+builder.Services.AddNadlanAuth(builder.Configuration, db);
 
 var app = builder.Build();
 
 app.UseMiddleware<ApiErrorMiddleware>();
-app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseNadlanAuth(); // default files, page guard, static files, authentication, authorization, CSRF, forced password change
 
+app.MapAuthEndpoints();
+app.MapUserAdminEndpoints();
 app.MapClientConfigEndpoints();
 app.MapReferenceEndpoints();
 app.MapParcelEndpoints();

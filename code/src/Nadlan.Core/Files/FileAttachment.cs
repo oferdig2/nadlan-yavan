@@ -37,6 +37,7 @@ public sealed record FileAttachment
     public int? SortOrder { get; init; }
     public string UploadStatus { get; init; } = FileUploadStatus.Pending;
     public string? S3UploadId { get; init; }
+    public long? UploadedByUserId { get; init; }
     public DateTime UploadedUtc { get; init; }
 }
 

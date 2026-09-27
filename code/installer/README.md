@@ -20,6 +20,7 @@ Each package includes `INSTALL.txt` with these steps for the end user.
 ## How it runs on the customer machine
 
 - **Browser:** the importer uses the installed Edge (Windows) or Chrome (Mac). It downloads Playwright's Chromium (~150 MB, once) only if neither is found. Override with `"browser": "chromium"` in `importer.json`, or with `--browser`.
+- **API token:** Nadlan requires one. Create it in Nadlan under Admin → Users → the user → API tokens, then set `token` in `importer.json` (or pass `--token`). Without it, Nadlan refuses the requests and the importer runs offline.
 - **Settings:** `importer.json` next to the program (from the package) is read first. The user's own `importer.json` then takes priority: `%LOCALAPPDATA%\Nadlan\` on Windows, `~/Library/Application Support/Nadlan/` on Mac. Command-line options override both. Supported keys: `apiUrl`, `token`, `delay`, `missDelay`, `maxViewMetres`, `browser`, `offline`.
 - **Offline (demo) mode:** if the Nadlan server can't be reached within 8 seconds, or with `--offline` / `"offline": true`, the importer runs the whole process but saves nothing. The panel says so, found parcels are drawn in purple, and the CSV report lists them. The server can be given with `--api <url>` (default `http://localhost:5515`) or `apiUrl` in `importer.json`.
 - **Logs:** daily files in the same user folder under `logs/`. A startup failure (e.g. a bad settings file, or no browser could be started) is shown in a dialog on Mac, or in the console on Windows.

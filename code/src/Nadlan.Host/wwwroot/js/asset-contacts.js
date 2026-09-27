@@ -74,11 +74,11 @@
     });
   }
 
-  /** Renders the Asset's professionals into $slot, with its own Add button. */
-  function render($slot, assetId) {
+  /** Renders the Asset's professionals into $slot, with its own Add button (hidden, like Remove, when canEdit is false). */
+  function render($slot, assetId, canEdit) {
     var esc = Nadlan.format.escapeHtml;
     $slot.html("<div class=\"card-section-head\"><span>Professionals</span>" +
-      "<button type=\"button\" class=\"btn btn-small\" data-add-prof>+ Add</button></div><div class=\"prof-list muted\">Loading…</div>");
+      (canEdit === false ? "" : "<button type=\"button\" class=\"btn btn-small\" data-add-prof>+ Add</button>") + "</div><div class=\"prof-list muted\">Loading…</div>");
     var $list = $slot.find(".prof-list");
 
     function load() {
@@ -86,7 +86,7 @@
         $list.removeClass("muted").html(links.length ? "<ul class=\"card-assets\">" + links.map(function (l) {
           return "<li><div class=\"row-body\"><div><strong>" + esc(label(l.relationshipType)) + "</strong> " + esc(l.displayName) + "</div>" +
             "<div class=\"muted\">" + esc([l.phone, l.email].filter(Boolean).join(" · ")) + (l.notes ? " · " + esc(l.notes) : "") + "</div></div>" +
-            "<button type=\"button\" class=\"btn btn-small\" data-remove-prof=\"" + l.assetContactId + "\">Remove</button></li>";
+            (canEdit === false ? "" : "<button type=\"button\" class=\"btn btn-small\" data-remove-prof=\"" + l.assetContactId + "\">Remove</button>") + "</li>";
         }).join("") + "</ul>" : "<span class=\"muted\">No professionals linked.</span>");
       }, function (err) { $list.html("<span class=\"error\">" + esc(err.message) + "</span>"); });
     }

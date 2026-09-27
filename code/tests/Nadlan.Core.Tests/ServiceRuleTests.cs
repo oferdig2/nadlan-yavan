@@ -197,7 +197,7 @@ public class ServiceRuleTests
         public Task<long> InsertAsync(Asset a, CancellationToken ct = default) { Inserted.Add(a); return Task.FromResult((long)Inserted.Count); }
         public Task UpdateAsync(Asset a, CancellationToken ct = default) { Updated.Add(a); return Task.CompletedTask; }
         public Task<IReadOnlyList<AssetMapItem>> QueryAsync(AssetQuery q, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<AssetMapItem>> ListByParcelAsync(long p, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<AssetMapItem>> ListByParcelAsync(long p, Nadlan.Core.Security.AccessScope s, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<AssetPortfolioMembership>> ListPortfoliosAsync(long a, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
@@ -209,7 +209,7 @@ public class ServiceRuleTests
             2 => new Contact { ContactId = 2, DisplayName = "Old Agent", IsActive = false },
             _ => null,
         });
-        public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, CancellationToken ct = default, bool inactive = false) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, Nadlan.Core.Security.AccessScope s, CancellationToken ct = default, bool inactive = false) => throw new NotSupportedException();
         public Task<long> InsertAsync(Contact c, CancellationToken ct = default) => throw new NotSupportedException();
         public Task UpdateAsync(Contact c, CancellationToken ct = default) => throw new NotSupportedException();
     }

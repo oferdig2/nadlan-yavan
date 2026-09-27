@@ -10,11 +10,20 @@
         method: method,
         url: url,
         contentType: body === undefined ? undefined : "application/json",
+        // Required on every write (CSRF guard, see AuthRegistration); harmless on reads.
+        headers: { "X-Nadlan-Request": "1" },
         data: body === undefined ? undefined : JSON.stringify(body),
         dataType: "json"
       }).done(resolve).fail(function (xhr) {
         // Extra fields in the error body (e.g. overlaps, existingParcelId) stay available to the caller.
         var payload = xhr.responseJSON || {};
+        // Session ended (signed out elsewhere, revoked, expired): to the login page, which brings the user back here.
+        var here = window.location.pathname + window.location.search;
+        if (xhr.status === 401 && payload.error === "NOT_SIGNED_IN" && !/\/(login|password)\.html$/.test(window.location.pathname)) {
+          window.location.href = "/login.html?returnUrl=" + encodeURIComponent(here);
+        } else if (xhr.status === 403 && payload.error === "PASSWORD_CHANGE_REQUIRED" && !/\/password\.html$/.test(window.location.pathname)) {
+          window.location.href = "/password.html?returnUrl=" + encodeURIComponent(here);
+        }
         reject($.extend({}, payload, {
           status: xhr.status,
           code: payload.error || "HTTP_" + xhr.status,

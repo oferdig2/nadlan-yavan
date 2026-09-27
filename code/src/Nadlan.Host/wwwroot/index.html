@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/css/forms.css" />
   <link rel="stylesheet" href="/css/map.css" />
   <link rel="stylesheet" href="/css/files.css" />
+  <link rel="stylesheet" href="/css/auth.css" />
 </head>
 <body>
   <header class="app-header">
@@ -17,9 +18,9 @@
       <button type="button" class="active" data-view="parcels">Parcels</button>
       <button type="button" data-view="assets">Assets</button>
     </nav>
-    <button type="button" class="btn" data-tool="new-parcel">+ New parcel</button>
+    <button type="button" class="btn" data-tool="new-parcel" data-requires="EDIT_ALL_PARCELS" hidden>+ New parcel</button>
     <button type="button" class="btn" data-tool="portfolios">Portfolios</button>
-    <a class="btn" href="/admin.html">Admin</a>
+    <a class="btn" href="/admin.html" data-requires="MANAGE_USERS MANAGE_METADATA MANAGE_CONTACTS VIEW_ALL_CONTACTS" hidden>Admin</a>
     <span id="map-status" class="map-status"></span>
   </header>
 
@@ -37,6 +38,7 @@
   <!-- shared -->
   <script src="/js/api.js"></script>
   <script src="/js/formatters.js"></script>
+  <script src="/js/session.js"></script>
   <script src="/js/reference-data.js"></script>
   <script src="/js/dialog.js"></script>
   <!-- reusable components -->

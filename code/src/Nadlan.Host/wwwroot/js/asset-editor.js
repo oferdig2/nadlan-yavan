@@ -58,14 +58,20 @@
         var done = false;
         if (options.assetId) { Nadlan.assetContacts.render($form.find(".prof-slot"), options.assetId); }
 
-        var relation = Nadlan.initializeEntityRelationEditor($form.find(".relation-slot"), {
+        // Only EDIT_ALL_ASSETS may pick the Managing Contact; an Agent's own Assets always stay theirs (the server enforces it).
+        var canChoose = detail ? !!(detail.rights && detail.rights.canChangeManagingContact) : Nadlan.session.can("EDIT_ALL_ASSETS");
+        var relation = canChoose ? Nadlan.initializeEntityRelationEditor($form.find(".relation-slot"), {
           label: "Managing contact",
           emptyText: "No contact assigned",
           source: Nadlan.entitySources.contact,
           value: contact,
           renderSummary: Nadlan.contactEditor.summaryHtml,
           edit: function (current) { return Nadlan.contactEditor.open(current ? current.contactId : null); }
-        });
+        }) : null;
+        if (!canChoose) {
+          $form.find(".relation-slot").html("<div class=\"form-static\"><span class=\"card-label\">Managing contact</span> " +
+            Nadlan.format.escapeHtml(contact ? contact.displayName : "You (your own Contact)") + "</div>");
+        }
 
         var d = Nadlan.dialog.open({
           title: options.assetId ? "Edit asset #" + options.assetId : "Create asset",
@@ -81,7 +87,7 @@
 
         function save() {
           var data = Nadlan.dialog.readForm($form);
-          var managing = relation.getValue();
+          var managing = relation ? relation.getValue() : (contact || { contactId: (Nadlan.session.user() || {}).contactId || 0 });
           var body = {
             parcelId: options.parcel.parcelId,
             managingContactId: managing ? managing.contactId : 0,

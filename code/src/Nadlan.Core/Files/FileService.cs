@@ -12,7 +12,8 @@ public sealed record FileStorageSettings
     public TimeSpan PartUrlLifetime { get; init; } = TimeSpan.FromHours(1);
 }
 
-public sealed record StartUploadRequest(string AttachedToType, long AttachedToId, int FileTypeId, string FileName, string? MimeType, long FileSize);
+public sealed record StartUploadRequest(string AttachedToType, long AttachedToId, int FileTypeId, string FileName, string? MimeType, long FileSize,
+    long? UploadedByUserId = null);
 
 /// <summary>What the browser needs to upload the bytes: parts of PartSizeBytes (the last one may be smaller).</summary>
 public sealed record UploadSession(long FileAttachmentId, long PartSizeBytes, int PartCount);
@@ -45,10 +46,15 @@ public sealed class FileService
         _activity = activity ?? NullActivityLog.Instance;
     }
 
-    // History goes on the entity the file belongs to (the Asset or Parcel page shows it).
-    private Task RecordAsync(FileAttachment file, string action, string verb, CancellationToken ct)
-        => _activity.RecordAsync(new ActivityEntry(file.AttachedToType, file.AttachedToId, action,
-            $"{verb} {file.OriginalFileName}.", new { file.FileAttachmentId, file.FileSize }), ct);
+    // History goes on the entity the file belongs to (the Asset or Parcel page shows it). The category is kept so the
+    // history only shows file entries to users who may see that category.
+    private async Task RecordAsync(FileAttachment file, string action, string verb, CancellationToken ct)
+        => await _activity.RecordAsync(new ActivityEntry(file.AttachedToType, file.AttachedToId, action,
+            $"{verb} {file.OriginalFileName}.", new { file.FileAttachmentId, file.FileSize, category = await CategoryOfAsync(file.FileTypeId, ct) }), ct);
+
+    /// <summary>The file_type.category (Legal, Marketing, ...) of a type id, or null if unknown.</summary>
+    public async Task<string?> CategoryOfAsync(int fileTypeId, CancellationToken ct = default)
+        => (await _files.ListTypesAsync(ct)).FirstOrDefault(t => t.Id == fileTypeId)?.Category;
 
     public async Task<UploadSession> StartUploadAsync(StartUploadRequest request, CancellationToken ct = default)
     {
@@ -88,6 +94,7 @@ public sealed class FileService
             FileSize = request.FileSize,
             UploadStatus = FileUploadStatus.Pending,
             S3UploadId = uploadId,
+            UploadedByUserId = request.UploadedByUserId,
         }, ct);
 
         return new UploadSession(id, partSize, (int)((request.FileSize + partSize - 1) / partSize));

@@ -23,3 +23,18 @@
   .admin-main { padding: 12px; }
   .meta-table { font-size: 12px; }
 }
+
+/* Users & roles */
+.done-note { color: #166534; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 6px 8px; }
+.done-note:empty { display: none; }
+.roles-layout { display: flex; gap: 16px; align-items: flex-start; }
+.roles-list { list-style: none; margin: 0; padding: 0; flex: 0 0 240px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.roles-list li { padding: 8px 10px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+.roles-list li:last-child { border-bottom: none; }
+.roles-list li.active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.roles-list li.inactive > div:first-child { color: var(--muted); text-decoration: line-through; }
+.role-detail { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.role-perms { margin-top: 6px; }
+.role-perms .check { min-width: 220px; font-size: 13px; }
+.access-editor .meta-table { margin: 8px 0; }
+@media (max-width: 700px) { .roles-layout { flex-direction: column; } .roles-list { flex-basis: auto; width: 100%; } }

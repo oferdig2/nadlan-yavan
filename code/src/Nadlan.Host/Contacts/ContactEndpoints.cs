@@ -1,8 +1,10 @@
 using Nadlan.Core.Contacts;
+using Nadlan.Core.Security;
+using Nadlan.Core.Validation;
 
 namespace Nadlan.Host.Contacts;
 
-/// <summary>TODO(auth slice): open for now; MANAGE_CONTACTS gates writes.</summary>
+/// <summary>Contacts: visible with VIEW_ALL_CONTACTS / MANAGE_CONTACTS, one's own Contact, or a grant. MANAGE_CONTACTS writes.</summary>
 public static class ContactEndpoints
 {
     public sealed record ContactDto(
@@ -13,21 +15,41 @@ public static class ContactEndpoints
     {
         var group = app.MapGroup("/api/contacts");
 
-        // Autocomplete for EntitySelector: short, limited result set.
+        // Autocomplete for EntitySelector: short, limited result set, only Contacts the caller may see.
         // includeInactive: the Admin Contacts list; pickers leave it off so inactive Contacts can't be chosen.
-        group.MapGet("/", async (string? q, int? roleId, int? limit, bool? includeInactive, IContactStore contacts, CancellationToken ct) =>
-            Results.Ok(await contacts.SearchAsync(q, roleId, Math.Clamp(limit ?? 20, 1, 200), ct, includeInactive ?? false)));
+        group.MapGet("/", async (string? q, int? roleId, int? limit, bool? includeInactive, UserAccess me, IContactStore contacts, CancellationToken ct) =>
+            Results.Ok(await contacts.SearchAsync(q, roleId, Math.Clamp(limit ?? 20, 1, 200), me.Scope, ct, includeInactive ?? false)));
 
-        group.MapGet("/{contactId:long}", async (long contactId, IContactStore contacts, CancellationToken ct) =>
-            await contacts.GetAsync(contactId, ct) is { } c
-                ? Results.Ok(c)
-                : Results.NotFound(new { error = "CONTACT_NOT_FOUND", message = $"Contact {contactId} was not found." }));
-
-        group.MapPost("/", async (ContactDto dto, ContactService service, CancellationToken ct) =>
-            Results.Ok(await service.CreateAsync(ToContact(dto, 0), ct)));
-
-        group.MapPut("/{contactId:long}", async (long contactId, ContactDto dto, ContactService service, IContactStore contacts, CancellationToken ct) =>
+        group.MapGet("/{contactId:long}", async (long contactId, UserAccess me, AccessPolicy policy, IContactStore contacts, CancellationToken ct) =>
         {
+            var rights = await policy.RequireContactViewAsync(me, contactId, ct);
+            var contact = await contacts.GetAsync(contactId, ct) ?? throw new EntityNotFoundException("Contact", contactId);
+            return Results.Ok(new
+            {
+                contact.ContactId, contact.ContactType, contact.DisplayName, contact.FirstName, contact.LastName, contact.CompanyName,
+                contact.Email, contact.Phone, contact.CellPhone, contact.Notes, contact.IsActive, contact.RoleIds,
+                rights = new { rights.CanEdit },
+            });
+        });
+
+        group.MapPost("/", async (ContactDto dto, UserAccess me, ContactService service, CancellationToken ct) =>
+        {
+            if (!me.Has(Permissions.ManageContacts))
+            {
+                throw new ForbiddenException("CONTACT_CREATE_FORBIDDEN", "You may not create Contacts.");
+            }
+
+            return Results.Ok(await service.CreateAsync(ToContact(dto, 0), ct));
+        });
+
+        group.MapPut("/{contactId:long}", async (long contactId, ContactDto dto, UserAccess me, AccessPolicy policy,
+            ContactService service, IContactStore contacts, CancellationToken ct) =>
+        {
+            if (!(await policy.RequireContactViewAsync(me, contactId, ct)).CanEdit)
+            {
+                throw new ForbiddenException("CONTACT_EDIT_FORBIDDEN", "You may view this Contact but not change it.");
+            }
+
             // A client that doesn't send contactType must not turn an Organization into a Person.
             var type = dto.ContactType ?? (await contacts.GetAsync(contactId, ct))?.ContactType;
             return Results.Ok(await service.UpdateAsync(ToContact(dto with { ContactType = type }, contactId), ct));

@@ -51,6 +51,7 @@
     return Promise.all([Nadlan.reference.load(), Nadlan.api.get("/api/portfolios/" + portfolioId)]).then(function (loaded) {
       var ref = loaded[0];
       var p = loaded[1];
+      var canEdit = !!(p.rights && p.rights.canEdit); // viewers (e.g. a customer with a Portfolio grant) get it read-only
       var f = Nadlan.format;
       var esc = f.escapeHtml;
       var $form = $(
@@ -72,14 +73,18 @@
         $form.find(".portfolio-assets").html(p.assets.length ? p.assets.map(function (it) {
           var s = it.summary;
           return "<li data-asset-id=\"" + s.assetId + "\"><span class=\"drag-handle\" title=\"Drag to reorder\">⋮⋮</span>" +
-            "<div class=\"row-body\"><div>" + f.price(s.askPrice, s.currencyCode) + " " + f.statusBadge(s.statusName, s.statusColor) + "</div>" +
+            "<div class=\"row-body\"><div>" + f.assetPrice(s) + " " + f.statusBadge(s.statusName, s.statusColor) + "</div>" +
             "<div class=\"row-sub muted\">" + esc(s.registryId || "") + " · " + f.text(s.managingContactName) + " · #" + s.assetId + "</div></div>" +
-            "<button type=\"button\" class=\"btn btn-small\" data-remove=\"" + s.assetId + "\">Remove</button></li>";
+            (canEdit ? "<button type=\"button\" class=\"btn btn-small\" data-remove=\"" + s.assetId + "\">Remove</button>" : "") + "</li>";
         }).join("") : "<li class=\"muted\">No Assets. Select Assets on the map and use \"Add to portfolio\".</li>");
         $form.find(".card-section-head span:first").text("Assets (" + p.assets.length + ")");
       }
 
       renderAssets();
+      if (!canEdit) {
+        $form.find("input, select, textarea").prop("disabled", true);
+        $form.find(".drag-handle").remove(); // sorting only works by the handle
+      }
       $form.find(".portfolio-assets").sortable({
         handle: ".drag-handle",
         items: "li[data-asset-id]",
@@ -124,10 +129,7 @@
         content: $form,
         width: 560,
         modal: false,
-        buttons: [
-          { text: "Save", primary: true, click: save },
-          { text: "Close", click: function () { d.close(); } }
-        ]
+        buttons: (canEdit ? [{ text: "Save", primary: true, click: save }] : []).concat([{ text: "Close", click: function () { d.close(); } }])
       });
 
       function save() {

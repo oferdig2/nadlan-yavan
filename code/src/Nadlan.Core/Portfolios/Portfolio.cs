@@ -13,7 +13,7 @@ public sealed record PortfolioSummary(long PortfolioId, string Name, string Type
 public interface IPortfolioStore
 {
     Task<Portfolio?> GetAsync(long portfolioId, CancellationToken ct = default);
-    Task<IReadOnlyList<PortfolioSummary>> SearchAsync(string? text, int limit, CancellationToken ct = default);
+    Task<IReadOnlyList<PortfolioSummary>> SearchAsync(string? text, int limit, Security.AccessScope scope, CancellationToken ct = default);
     Task<long> InsertAsync(Portfolio portfolio, CancellationToken ct = default);
     Task UpdateAsync(Portfolio portfolio, CancellationToken ct = default);
 

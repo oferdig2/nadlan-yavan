@@ -259,9 +259,11 @@
 
     filters.setMode("parcels");
     results.setMode("parcels");
+    // Without all Parcels (Attorney, Buyer, ...) the Parcels view shows little: start where their Assets are.
+    if (!Nadlan.session.canAny(["VIEW_ALL_PARCELS", "EDIT_ALL_PARCELS"])) { setMode("assets"); }
   }
 
-  Promise.all([Nadlan.api.get("/api/config/client"), Nadlan.reference.load()])
+  Promise.all([Nadlan.api.get("/api/config/client"), Nadlan.reference.load(), Nadlan.session.ready])
     .then(function (loaded) {
       return loadGoogleMaps(loaded[0].googleMapsApiKey).then(function () { start(loaded[0], loaded[1]); });
     })

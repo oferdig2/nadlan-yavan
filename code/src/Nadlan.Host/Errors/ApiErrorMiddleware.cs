@@ -33,6 +33,10 @@ public sealed class ApiErrorMiddleware
         {
             await WriteAsync(context, StatusCodes.Status404NotFound, ex.Code, ex.Message);
         }
+        catch (ForbiddenException ex)
+        {
+            await WriteAsync(context, StatusCodes.Status403Forbidden, ex.Code, ex.Message);
+        }
         catch (BadHttpRequestException ex)
         {
             await WriteAsync(context, ex.StatusCode, ex.StatusCode == StatusCodes.Status413PayloadTooLarge ? "PAYLOAD_TOO_LARGE" : "BAD_REQUEST", ex.Message);

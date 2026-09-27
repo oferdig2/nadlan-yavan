@@ -29,7 +29,7 @@ public sealed class NadlanApiClient : IDisposable
         _http = new HttpClient { BaseAddress = baseUrl, Timeout = TimeSpan.FromSeconds(60) };
         if (!string.IsNullOrWhiteSpace(token))
         {
-            // Not enforced by the server yet (auth slice); sent now so the tool needs no change when it is.
+            // Nadlan API token (Admin > Users > API tokens): the importer acts as that user, with its permissions.
             _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
     }

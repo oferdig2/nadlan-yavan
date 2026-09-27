@@ -3,6 +3,7 @@ using MySqlConnector;
 using Nadlan.Core.Geo;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Validation;
+using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Persistence.MySql.Parcels;
 
@@ -85,8 +86,10 @@ public sealed class MySqlParcelStore : IParcelStore
 
     public async Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery query, CancellationToken ct = default)
     {
+        var scope = query.Scope ?? throw new InvalidOperationException("ParcelQuery.Scope is required (use AccessScope.Everything for tools).");
         var where = new List<string>();
         var args = new DynamicParameters();
+        where.Add(AccessSql.ParcelVisible("p", scope, args));
         if (query.Area is GeoBounds area)
         {
             where.Add($"ST_Intersects(p.geometry, {FromWkt})");
@@ -106,7 +109,7 @@ public sealed class MySqlParcelStore : IParcelStore
         }
 
         args.Add("limit", query.Limit);
-        var sql = $"{SelectColumns} {(where.Count > 0 ? "WHERE " + string.Join(" AND ", where) : "")} ORDER BY p.parcel_id LIMIT @limit";
+        var sql = $"{SelectColumns} WHERE {string.Join(" AND ", where)} ORDER BY p.parcel_id LIMIT @limit";
 
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<ParcelRow>(new CommandDefinition(sql, args, cancellationToken: ct));

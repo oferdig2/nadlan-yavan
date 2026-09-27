@@ -10,6 +10,48 @@ public sealed class NadlanOptions
 
     public MapsOptions Maps { get; set; } = new();
 
+    public AuthOptions Auth { get; set; } = new();
+
+    /// <summary>Sign-in. Everything here lives in app_config (ms:host) like the rest; secrets are set with config.ps1.</summary>
+    public sealed class AuthOptions
+    {
+        /// <summary>Google sign-in (OAuth client of type "Web application"). Both empty = the Google button is hidden.</summary>
+        public GoogleSsoOptions Google { get; set; } = new();
+
+        public int SessionHours { get; set; } = 12;
+        public int MaxFailedLogins { get; set; } = 5;
+        public int LockoutMinutes { get; set; } = 15;
+        public int ResetLinkHours { get; set; } = 2;
+        public int InviteLinkHours { get; set; } = 72;
+
+        /// <summary>Base of links in emails, e.g. https://nadlan.example.com. Empty = taken from the request.</summary>
+        public string PublicBaseUrl { get; set; } = "";
+
+        /// <summary>Behind a load balancer / CloudFront that terminates HTTPS: honour X-Forwarded-Proto/For.</summary>
+        public bool TrustForwardedHeaders { get; set; }
+
+        /// <summary>SMTP for "forgot password" emails (e.g. Amazon SES SMTP). Empty host = Admins hand out links instead.</summary>
+        public EmailOptions Email { get; set; } = new();
+    }
+
+    public sealed class GoogleSsoOptions
+    {
+        public string ClientId { get; set; } = "";
+        public string ClientSecret { get; set; } = "";
+
+        public bool IsConfigured => !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientSecret);
+    }
+
+    public sealed class EmailOptions
+    {
+        public string SmtpHost { get; set; } = "";
+        public int SmtpPort { get; set; } = 587;
+        public string SmtpUser { get; set; } = "";
+        public string SmtpPassword { get; set; } = "";
+        public string From { get; set; } = "";
+        public bool EnableSsl { get; set; } = true;
+    }
+
     public sealed class MapsOptions
     {
         /// <summary>Browser key for the Maps JavaScript API. Public by nature; restrict it by HTTP referrer in Google Cloud.</summary>

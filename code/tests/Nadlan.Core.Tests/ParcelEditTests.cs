@@ -171,7 +171,7 @@ public class ParcelEditTests
     {
         public HashSet<long> InactiveIds { get; } = new();
         public Task<Contact?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult<Contact?>(new Contact { ContactId = id, DisplayName = "Owner " + id, IsActive = !InactiveIds.Contains(id) });
-        public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, CancellationToken ct = default, bool inactive = false) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, Nadlan.Core.Security.AccessScope s, CancellationToken ct = default, bool inactive = false) => throw new NotSupportedException();
         public Task<long> InsertAsync(Contact c, CancellationToken ct = default) => throw new NotSupportedException();
         public Task UpdateAsync(Contact c, CancellationToken ct = default) => throw new NotSupportedException();
     }

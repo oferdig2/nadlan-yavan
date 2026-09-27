@@ -71,8 +71,8 @@ Uploads don't change: the browser still uploads straight to S3; CloudFront only 
 
 ## 4. Production (EC2 / Fargate)
 
-> **Not before the auth slice:** the API has no login yet, so anyone who can reach the app can list, open and delete
-> files. Keep it on localhost / a private network until authentication and permissions are in.
+> Every file call needs a signed-in user with rights on the entity and the file's category (see `../AUTH.md`). Serve over
+> HTTPS in production so the session cookie is `Secure`.
 
 No access keys: give the instance/task an IAM role with `iam-policy-app.json` (bucket + root folder filled in), keep
 `AwsProfile` empty (the default), and run `setup-s3.ps1 -RootFolder nadlan/prod -AllowedOrigins https://your-domain`

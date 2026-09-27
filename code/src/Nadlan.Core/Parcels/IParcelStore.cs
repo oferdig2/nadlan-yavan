@@ -48,6 +48,9 @@ public sealed record ParcelQuery
 
     public IReadOnlyList<int> GeographicAreaIds { get; init; } = Array.Empty<int>();
     public int Limit { get; init; } = 2000;
+
+    /// <summary>What the caller may see. Required: the store refuses to run a query without it.</summary>
+    public Security.AccessScope? Scope { get; init; }
 }
 
 public interface IParcelStore

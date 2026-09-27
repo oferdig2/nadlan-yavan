@@ -17,9 +17,9 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         await using var conn = await _db.OpenAsync(ct);
         return await conn.ExecuteScalarAsync<long>(new CommandDefinition("""
             INSERT INTO file_attachment (file_type_id, attached_to_type, attached_to_id, storage_key, original_file_name,
-                                         mime_type, file_size, upload_status, s3_upload_id)
+                                         mime_type, file_size, upload_status, s3_upload_id, uploaded_by_user_id)
             VALUES (@FileTypeId, @AttachedToType, @AttachedToId, @StorageKey, @OriginalFileName,
-                    @MimeType, @FileSize, @UploadStatus, @S3UploadId);
+                    @MimeType, @FileSize, @UploadStatus, @S3UploadId, @UploadedByUserId);
             SELECT LAST_INSERT_ID();
             """, file, cancellationToken: ct));
     }
@@ -29,7 +29,7 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         await using var conn = await _db.OpenAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<FileAttachment>(new CommandDefinition("""
             SELECT file_attachment_id, file_type_id, attached_to_type, attached_to_id, storage_key, original_file_name,
-                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_utc
+                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_by_user_id, uploaded_utc
             FROM file_attachment WHERE file_attachment_id = @fileAttachmentId
             """, new { fileAttachmentId }, cancellationToken: ct));
     }
@@ -89,7 +89,7 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<FileAttachment>(new CommandDefinition("""
             SELECT file_attachment_id, file_type_id, attached_to_type, attached_to_id, storage_key, original_file_name,
-                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_utc
+                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_by_user_id, uploaded_utc
             FROM file_attachment
             WHERE upload_status = 'Pending' AND uploaded_utc < @startedBeforeUtc
             ORDER BY uploaded_utc
@@ -111,13 +111,14 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
 
 public sealed class MySqlFileTargetResolver : IFileTargetResolver
 {
-    // Fixed map: the table name never comes from input. User has no table yet (auth comes later).
+    // Fixed map: the table name never comes from input.
     private static readonly Dictionary<string, (string Table, string Id)> Targets = new(StringComparer.Ordinal)
     {
         [FileTargetTypes.Parcel] = ("parcel", "parcel_id"),
         [FileTargetTypes.Asset] = ("asset", "asset_id"),
         [FileTargetTypes.Portfolio] = ("portfolio", "portfolio_id"),
         [FileTargetTypes.Contact] = ("contact", "contact_id"),
+        [FileTargetTypes.User] = ("app_user", "user_id"),
     };
 
     private readonly MySqlDatabase _db;
