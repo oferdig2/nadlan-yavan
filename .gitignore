@@ -20,3 +20,6 @@ TestResults/
 # Local output
 *.log
 import-reports/
+
+# Installer packages built by code/installer/Publish-KaekImporter.ps1
+code/dist/

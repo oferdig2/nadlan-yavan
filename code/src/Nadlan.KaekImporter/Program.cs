@@ -22,20 +22,22 @@ public static class Program
           --miss-delay <min-max> seconds to wait after a click with nothing new (default 2-5)
           --max-view <metres>    largest view width/height allowed (default 2000)
           --max-parcels <n>      stop after n new parcels (for trying it out)
+          --browser <name>       auto (installed Edge/Chrome, else Chromium), msedge, chrome or chromium
           --debug-port <port>    open the browser to automation on localhost:<port> (testing)
+        Defaults can also be set in importer.json next to the program or in the user's Nadlan folder.
         """;
 
     public static async Task<int> Main(string[] args)
     {
+        var logPath = AppHost.StartLog();
         Options options;
         try
         {
-            options = Options.Parse(args);
+            options = Options.Parse(args, AppHost.LoadSettings());
         }
         catch (ArgumentException ex)
         {
-            Console.Error.WriteLine(ex.Message);
-            Console.Error.WriteLine(Usage);
+            AppHost.ShowFatal(ex.Message + Environment.NewLine + Usage);
             return 2;
         }
 
@@ -47,23 +49,24 @@ public static class Program
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
-            Console.Error.WriteLine($"Cannot reach Nadlan at {options.Api}: {ex.Message}");
-            return 1;
-        }
-
-        // First run on a machine downloads Chromium (~150 MB); afterwards this is a quick no-op.
-        Console.WriteLine("Checking the browser...");
-        var installExit = Microsoft.Playwright.Program.Main(new[] { "install", "--no-shell", "chromium" });
-        if (installExit != 0)
-        {
-            Console.Error.WriteLine("Could not install the browser (Playwright exit code " + installExit + ").");
+            AppHost.ShowFatal($"Cannot reach Nadlan at {options.Api}: {ex.Message}\n\n" +
+                $"Check the address in {Path.Combine(AppHost.UserFolder, AppHost.SettingsFileName)} (\"apiUrl\"). Log: {logPath}");
             return 1;
         }
 
         using var playwright = await Playwright.CreateAsync();
-        await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = false, Args = options.DebugPort is int port
-            ? new[] { "--start-maximized", $"--remote-debugging-port={port}" }
-            : new[] { "--start-maximized" } });
+        IBrowser browser;
+        try
+        {
+            browser = await LaunchBrowserAsync(playwright, options);
+        }
+        catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException)
+        {
+            AppHost.ShowFatal($"Could not start a browser: {ex.Message}\n\nLog: {logPath}");
+            return 1;
+        }
+
+        await using var _ = browser;
         var context = await browser.NewContextAsync(new() { ViewportSize = ViewportSize.NoViewport, Locale = "el-GR" });
 
         var areaJson = JsonSerializer.Serialize(areas.Select(a => new { id = a.Id, name = a.Name }));
@@ -163,6 +166,46 @@ public static class Program
         return 0;
     }
 
+    /// <summary>
+    /// The browser already on the machine if there is one (Edge is on every Windows PC; Chrome on most Macs), so a
+    /// customer does not download ~150 MB first. Otherwise Playwright's own Chromium, downloaded once.
+    /// </summary>
+    private static async Task<IBrowser> LaunchBrowserAsync(IPlaywright playwright, Options options)
+    {
+        var args = options.DebugPort is int port
+            ? new[] { "--start-maximized", $"--remote-debugging-port={port}" }
+            : new[] { "--start-maximized" };
+        var channels = options.Browser switch
+        {
+            "auto" => OperatingSystem.IsWindows() ? new[] { "msedge", "chrome" } : new[] { "chrome", "msedge" },
+            "chromium" => Array.Empty<string>(),
+            var name => new[] { name },
+        };
+
+        foreach (var channel in channels)
+        {
+            try
+            {
+                var browser = await playwright.Chromium.LaunchAsync(new() { Headless = false, Channel = channel, Args = args });
+                Console.WriteLine($"Using the installed {channel} browser.");
+                return browser;
+            }
+            catch (PlaywrightException)
+            {
+                // not installed; try the next one
+            }
+        }
+
+        Console.WriteLine("No Edge or Chrome found; getting Chromium (first time only, ~150 MB)...");
+        var installExit = Microsoft.Playwright.Program.Main(new[] { "install", "--no-shell", "chromium" });
+        if (installExit != 0)
+        {
+            throw new InvalidOperationException("Chromium could not be downloaded (Playwright exit code " + installExit + ").");
+        }
+
+        return await playwright.Chromium.LaunchAsync(new() { Headless = false, Args = args });
+    }
+
     private static int? AreaId(string value) =>
         int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
 
@@ -174,38 +217,53 @@ public static class Program
         return reader.ReadToEnd();
     }
 
-    private sealed record Options(Uri Api, string? Token, ImportSettings Settings, int? DebugPort)
+    private sealed record Options(Uri Api, string? Token, ImportSettings Settings, int? DebugPort, string Browser)
     {
-        public static Options Parse(string[] args)
+        /// <summary>Built-in defaults, then importer.json, then the command line.</summary>
+        public static Options Parse(string[] args, ImporterSettingsFile file)
         {
-            var api = new Uri("http://localhost:5515/");
-            string? token = null;
-            (double Min, double Max) delay = (4, 10), missDelay = (2, 5);
-            double maxView = 2000;
+            var api = Url(file.ApiUrl ?? "http://localhost:5515");
+            var token = file.Token;
+            var delay = file.Delay is null ? (4.0, 10.0) : Range(file.Delay);
+            var missDelay = file.MissDelay is null ? (2.0, 5.0) : Range(file.MissDelay);
+            var maxView = file.MaxViewMetres ?? 2000;
+            var browser = BrowserName(file.Browser ?? "auto");
             int? maxParcels = null;
             int? debugPort = null;
 
             for (var i = 0; i < args.Length; i++)
             {
                 string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value.");
+                if (args[i].StartsWith("-psn_", StringComparison.Ordinal)) continue; // added by older macOS Finder launches
                 switch (args[i])
                 {
-                    case "--api": api = new Uri(Next().TrimEnd('/') + "/"); break;
+                    case "--api": api = Url(Next()); break;
                     case "--token": token = Next(); break;
                     case "--delay": delay = Range(Next()); break;
                     case "--miss-delay": missDelay = Range(Next()); break;
                     case "--max-view": maxView = Number(Next()); break;
                     case "--max-parcels": maxParcels = (int)Number(Next()); break;
+                    case "--browser": browser = BrowserName(Next()); break;
                     case "--debug-port": debugPort = (int)Number(Next()); break;
                     default: throw new ArgumentException($"Unknown option {args[i]}.");
                 }
             }
 
             return new Options(api, token, new ImportSettings(
-                TimeSpan.FromSeconds(delay.Min), TimeSpan.FromSeconds(delay.Max),
-                TimeSpan.FromSeconds(missDelay.Min), TimeSpan.FromSeconds(missDelay.Max),
-                maxView, maxParcels), debugPort);
+                TimeSpan.FromSeconds(delay.Item1), TimeSpan.FromSeconds(delay.Item2),
+                TimeSpan.FromSeconds(missDelay.Item1), TimeSpan.FromSeconds(missDelay.Item2),
+                maxView, maxParcels), debugPort, browser);
         }
+
+        private static Uri Url(string value) =>
+            Uri.TryCreate(value.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https")
+                ? uri : throw new ArgumentException($"Bad Nadlan address {value}; expected e.g. https://nadlan.example.com");
+
+        private static string BrowserName(string value) => value.ToLowerInvariant() switch
+        {
+            "auto" or "msedge" or "chrome" or "chromium" => value.ToLowerInvariant(),
+            _ => throw new ArgumentException($"Unknown browser {value}; use auto, msedge, chrome or chromium."),
+        };
 
         private static (double, double) Range(string value)
         {

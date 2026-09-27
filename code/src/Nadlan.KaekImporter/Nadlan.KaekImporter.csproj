@@ -3,7 +3,7 @@
   <!--
     Customer-side tool: opens gis.ktimanet.gr in a visible browser and imports the parcels in the user's view
     into Nadlan through its HTTP API. Standalone on purpose (no server projects) so it can be published per
-    platform: dotnet publish -c Release -r win-x64 (or osx-arm64, osx-x64) with self-contained on
+    platform; install packages for Windows and Mac: code/installer/Publish-KaekImporter.ps1
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -11,6 +11,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>NadlanKaekImporter</AssemblyName>
+    <Version>1.0.0</Version>
+    <!-- Show "1.0.0" to users (Apps list, logs), not "1.0.0+<git commit>". -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>

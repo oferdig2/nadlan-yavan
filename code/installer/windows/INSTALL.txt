@@ -1,0 +1,26 @@
+Nadlan KAEK Importer - Windows
+==============================
+
+Install
+1. Right-click the downloaded zip > "Extract All...", then open the extracted folder.
+2. Double-click Install.cmd.
+   If Windows shows "Windows protected your PC": click "More info" > "Run anyway".
+3. Start "Nadlan KAEK Importer" from the Start Menu or the desktop shortcut.
+
+It installs for your Windows user only; no administrator rights are needed.
+It uses Microsoft Edge (already on every Windows PC) to open the Greek Cadastre map.
+
+Use
+- Zoom in on the map until the yellow parcel lines show, choose the geographic area in the Nadlan panel,
+  then click "Acquire polygons". Or tick "Import each parcel I click on the map" and click parcels yourself.
+- Close the browser window to quit.
+- A report of every run is saved in Documents\Nadlan\KAEK imports.
+
+Settings
+The Nadlan address comes with the package. To change it, create
+%LOCALAPPDATA%\Nadlan\importer.json with:
+    { "apiUrl": "https://your-nadlan-address" }
+Logs: %LOCALAPPDATA%\Nadlan\logs
+
+Uninstall
+Settings > Apps > Installed apps > Nadlan KAEK Importer > Uninstall.
