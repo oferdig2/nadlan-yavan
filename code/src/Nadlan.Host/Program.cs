@@ -1,5 +1,6 @@
 using Nadlan.Config.MySql;
 using Nadlan.Host.Activity;
+using Nadlan.Host.Admin;
 using Nadlan.Host.Assets;
 using Nadlan.Host.Composition;
 using Nadlan.Host.Configuration;
@@ -40,5 +41,6 @@ app.MapContactEndpoints();
 app.MapPortfolioEndpoints();
 app.MapFileEndpoints();
 app.MapActivityEndpoints();
+app.MapAdminEndpoints();
 
 app.Run();

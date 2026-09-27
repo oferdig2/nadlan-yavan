@@ -14,8 +14,9 @@ public static class ContactEndpoints
         var group = app.MapGroup("/api/contacts");
 
         // Autocomplete for EntitySelector: short, limited result set.
-        group.MapGet("/", async (string? q, int? roleId, int? limit, IContactStore contacts, CancellationToken ct) =>
-            Results.Ok(await contacts.SearchAsync(q, roleId, Math.Clamp(limit ?? 20, 1, 50), ct)));
+        // includeInactive: the Admin Contacts list; pickers leave it off so inactive Contacts can't be chosen.
+        group.MapGet("/", async (string? q, int? roleId, int? limit, bool? includeInactive, IContactStore contacts, CancellationToken ct) =>
+            Results.Ok(await contacts.SearchAsync(q, roleId, Math.Clamp(limit ?? 20, 1, 200), ct, includeInactive ?? false)));
 
         group.MapGet("/{contactId:long}", async (long contactId, IContactStore contacts, CancellationToken ct) =>
             await contacts.GetAsync(contactId, ct) is { } c

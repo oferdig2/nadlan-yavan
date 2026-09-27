@@ -72,3 +72,4 @@
 .ui-dialog .ui-dialog-buttonpane button.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ui-autocomplete { max-height: 280px; overflow-y: auto; z-index: 1100 !important; font-family: inherit; font-size: 13px; }
 .ui-autocomplete .ac-detail { display: block; color: var(--muted); font-size: 11px; }
+a.btn { text-decoration: none; display: inline-block; }

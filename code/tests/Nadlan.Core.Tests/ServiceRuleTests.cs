@@ -209,7 +209,7 @@ public class ServiceRuleTests
             2 => new Contact { ContactId = 2, DisplayName = "Old Agent", IsActive = false },
             _ => null,
         });
-        public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, CancellationToken ct = default, bool inactive = false) => throw new NotSupportedException();
         public Task<long> InsertAsync(Contact c, CancellationToken ct = default) => throw new NotSupportedException();
         public Task UpdateAsync(Contact c, CancellationToken ct = default) => throw new NotSupportedException();
     }

@@ -35,6 +35,7 @@ public static class PersistenceRegistration
         services.AddSingleton<IActivityLog, MySqlActivityLog>();
         services.AddSingleton<IParcelLegalOwnerStore, MySqlParcelLegalOwnerStore>();
         services.AddSingleton<IAssetContactStore, MySqlAssetContactStore>();
+        services.AddSingleton<IReferenceAdminStore, MySqlReferenceAdminStore>();
         return services;
     }
 
@@ -46,6 +47,7 @@ public static class PersistenceRegistration
         services.AddSingleton<PortfolioService>();
         services.AddSingleton<LegalOwnerService>();
         services.AddSingleton<AssetContactService>();
+        services.AddSingleton<ReferenceAdminService>();
         return services;
     }
 }

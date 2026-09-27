@@ -29,7 +29,8 @@ public sealed record ContactSummary(long ContactId, string DisplayName, string? 
 public interface IContactStore
 {
     Task<Contact?> GetAsync(long contactId, CancellationToken ct = default);
-    Task<IReadOnlyList<ContactSummary>> SearchAsync(string? text, int? roleId, int limit, CancellationToken ct = default);
+    /// <param name="includeInactive">Admin lists show deactivated Contacts too; pickers never offer them.</param>
+    Task<IReadOnlyList<ContactSummary>> SearchAsync(string? text, int? roleId, int limit, CancellationToken ct = default, bool includeInactive = false);
     Task<long> InsertAsync(Contact contact, CancellationToken ct = default);
     Task UpdateAsync(Contact contact, CancellationToken ct = default);
 }

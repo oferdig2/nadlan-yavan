@@ -31,9 +31,9 @@ public sealed class MySqlContactStore : IContactStore
         return contact with { RoleIds = roleIds.ToList() };
     }
 
-    public async Task<IReadOnlyList<ContactSummary>> SearchAsync(string? text, int? roleId, int limit, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ContactSummary>> SearchAsync(string? text, int? roleId, int limit, CancellationToken ct = default, bool includeInactive = false)
     {
-        var where = new List<string> { "c.is_active = 1" };
+        var where = new List<string> { includeInactive ? "1 = 1" : "c.is_active = 1" };
         var args = new DynamicParameters();
         if (!string.IsNullOrWhiteSpace(text))
         {

@@ -1,0 +1,23 @@
+/* Admin page */
+.admin-body { overflow: auto; }
+.admin-tabs { flex-wrap: wrap; }
+.admin-main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+
+.meta-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.meta-toolbar h3 { margin: 0 12px 0 0; font-size: 16px; }
+.meta-toolbar .input { width: auto; min-width: 180px; }
+.meta-toolbar .check { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+
+.meta-table { width: 100%; border-collapse: collapse; background: var(--surface); font-size: 13px; border: 1px solid var(--border); }
+.meta-table th, .meta-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.meta-table th { background: var(--bg); color: var(--muted); font-weight: 600; }
+.meta-table tr.inactive td { color: var(--muted); }
+.meta-table .row-buttons { white-space: nowrap; }
+.meta-table .row-buttons .btn { margin-left: 4px; }
+.meta-note { margin-top: 6px; font-size: 12px; }
+.swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; border: 1px solid rgba(0, 0, 0, 0.15); }
+
+@media (max-width: 600px) {
+  .admin-main { padding: 12px; }
+  .meta-table { font-size: 12px; }
+}
