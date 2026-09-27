@@ -90,13 +90,8 @@ public sealed class ParcelService
     {
         var countryId = await _countries.GetIdByCodeAsync("GR", ct) ?? throw new InvalidOperationException("Country GR is missing.");
 
-        GeographicArea? area = null;
-        if (request.GeographicAreaId is int areaId)
-        {
-            area = (await _areas.ListAsync(ct)).FirstOrDefault(a => a.GeographicAreaId == areaId)
-                   ?? throw new DomainValidationException("PARCEL_AREA_INVALID", "Unknown geographic area.");
-        }
-
+        EnsureMeasures(request.OfficialAreaSqm, request.BuildFactor, request.Inclination);
+        var area = await ResolveAreaAsync(request.GeographicAreaId, currentAreaId: null, ct);
         var (registryId, provisional) = ResolveRegistryId(request, area);
 
         // Scenario 13: never silently duplicate a KAEK; point the user at the existing Parcel instead.
@@ -155,12 +150,8 @@ public sealed class ParcelService
     {
         var existing = await _parcels.GetAsync(request.ParcelId, ct) ?? throw new EntityNotFoundException("Parcel", request.ParcelId);
 
-        GeographicArea? area = null;
-        if (request.GeographicAreaId is int areaId)
-        {
-            area = (await _areas.ListAsync(ct)).FirstOrDefault(a => a.GeographicAreaId == areaId)
-                   ?? throw new DomainValidationException("PARCEL_AREA_INVALID", "Unknown geographic area.");
-        }
+        EnsureMeasures(request.OfficialAreaSqm, request.BuildFactor, request.Inclination);
+        var area = await ResolveAreaAsync(request.GeographicAreaId, existing.GeographicAreaId, ct);
 
         // KAEK: empty keeps the current id; a new real KAEK replaces it (and ends "provisional").
         var (registryId, provisional) = (existing.RegistryId, existing.RegistryIdIsProvisional);
@@ -253,6 +244,26 @@ public sealed class ParcelService
         {
             await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelEdited,
                 $"Parcel details edited: {string.Join(", ", fields)}."), ct);
+        }
+    }
+
+    /// <summary>An inactive area can't be newly chosen; a Parcel that already uses one keeps it.</summary>
+    private async Task<GeographicArea?> ResolveAreaAsync(int? areaId, int? currentAreaId, CancellationToken ct)
+    {
+        if (areaId is not int id)
+        {
+            return null;
+        }
+
+        return (await _areas.ListAsync(ct)).FirstOrDefault(a => a.GeographicAreaId == id && (a.IsActive || currentAreaId == id))
+               ?? throw new DomainValidationException("PARCEL_AREA_INVALID", "Unknown or inactive geographic area.");
+    }
+
+    private static void EnsureMeasures(decimal? officialAreaSqm, decimal? buildFactor, decimal? inclination)
+    {
+        if (officialAreaSqm is < 0 || buildFactor is < 0 || inclination is < 0)
+        {
+            throw new DomainValidationException("PARCEL_MEASURE_NEGATIVE", "Area, build factor and inclination cannot be negative.");
         }
     }
 

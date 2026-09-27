@@ -38,8 +38,8 @@ public static class ProvisionalRegistryId
         return $"{Prefix}{area}-OT{otPart}{Ext(otExt)}-P{plotPart}{Ext(plotExt)}";
     }
 
-    /// <summary>For Parcels drawn without area/OT/Plot: TMP-NEW-{8 hex chars}.</summary>
-    public static string CreateUnique() => $"{Prefix}NEW-{Guid.NewGuid():N}"[..(Prefix.Length + 12)].ToUpperInvariant();
+    /// <summary>For Parcels drawn without area/OT/Plot: TMP-NEW-{16 hex chars} (64 random bits; collisions are negligible).</summary>
+    public static string CreateUnique() => $"{Prefix}NEW-{Guid.NewGuid():N}"[..(Prefix.Length + 20)].ToUpperInvariant();
 
     private static string Ext(string? ext)
     {

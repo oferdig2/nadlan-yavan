@@ -96,9 +96,10 @@ public sealed class FileService
     public async Task<IReadOnlyList<PartUrl>> GetPartUrlsAsync(long fileAttachmentId, IReadOnlyList<int> partNumbers, CancellationToken ct = default)
     {
         var file = await GetPendingAsync(fileAttachmentId, ct);
-        if (partNumbers.Count is 0 or > MaxPartUrlsPerCall || partNumbers.Any(n => n is < 1 or > MaxParts))
+        var partCount = (int)((file.FileSize + PartSizeFor(file.FileSize) - 1) / PartSizeFor(file.FileSize));
+        if (partNumbers.Count is 0 or > MaxPartUrlsPerCall || partNumbers.Any(n => n < 1 || n > partCount))
         {
-            throw new DomainValidationException("FILE_PARTS_INVALID", $"Ask for 1-{MaxPartUrlsPerCall} part numbers between 1 and {MaxParts}.");
+            throw new DomainValidationException("FILE_PARTS_INVALID", $"Ask for 1-{MaxPartUrlsPerCall} part numbers between 1 and {partCount} (this file's parts).");
         }
 
         return partNumbers.Distinct()
@@ -119,16 +120,34 @@ public sealed class FileService
         // The multipart upload is gone. Either S3 completed it and our side failed afterwards (size check / DB),
         // or it was aborted (e.g. by the 1-day lifecycle rule). Decide from the object itself, so a finished
         // multi-GB file is never uploaded twice or left orphaned.
-        if (await _storage.GetObjectSizeAsync(file.StorageKey, ct) == file.FileSize && await _files.MarkReadyAsync(fileAttachmentId, ct))
+        if (await _storage.GetObjectSizeAsync(file.StorageKey, ct) == file.FileSize)
         {
-            await RecordAsync(file, ActivityActions.FileUploaded, "Uploaded", ct);
+            if (await _files.MarkReadyAsync(fileAttachmentId, ct))
+            {
+                await RecordAsync(file, ActivityActions.FileUploaded, "Uploaded", ct);
+            }
+            else if (!await IsReadyAsync(fileAttachmentId, ct))
+            {
+                // Row removed by a cancel meanwhile: the object is unreferenced.
+                await _storage.DeleteObjectAsync(file.StorageKey, ct);
+                throw new DomainValidationException("FILE_UPLOAD_CANCELLED", "The upload was cancelled.");
+            }
+
+            throw new DomainValidationException("FILE_NOT_UPLOADING", "This file is already fully uploaded.");
+        }
+
+        // Only a row that is still Pending is cleared; a concurrent complete that already made it Ready wins.
+        if (!await _files.DeletePendingAsync(fileAttachmentId, ct))
+        {
             throw new DomainValidationException("FILE_NOT_UPLOADING", "This file is already fully uploaded.");
         }
 
         await _storage.DeleteObjectAsync(file.StorageKey, ct); // a partial/unknown object must not linger
-        await _files.DeleteAsync(fileAttachmentId, ct);
         throw new EntityNotFoundException("File", fileAttachmentId); // the browser starts a fresh upload
     }
+
+    private async Task<bool> IsReadyAsync(long fileAttachmentId, CancellationToken ct)
+        => (await _files.GetAsync(fileAttachmentId, ct))?.UploadStatus == FileUploadStatus.Ready;
 
     public async Task<FileAttachment> CompleteUploadAsync(long fileAttachmentId, IReadOnlyList<UploadedPart> parts, CancellationToken ct = default)
     {
@@ -144,15 +163,23 @@ public sealed class FileService
         var size = await _storage.GetObjectSizeAsync(file.StorageKey, ct);
         if (size != file.FileSize)
         {
-            await _storage.DeleteObjectAsync(file.StorageKey, ct);
-            await _files.DeleteAsync(fileAttachmentId, ct);
+            if (await _files.DeletePendingAsync(fileAttachmentId, ct))
+            {
+                await _storage.DeleteObjectAsync(file.StorageKey, ct);
+            }
+
             throw new DomainValidationException("FILE_SIZE_MISMATCH", $"Upload incomplete: stored {size?.ToString() ?? "nothing"} of {file.FileSize} bytes. Please upload again.");
         }
 
         if (!await _files.MarkReadyAsync(fileAttachmentId, ct))
         {
-            // The upload was cancelled while S3 was completing it: the row is gone, so remove the object too
-            // rather than leave a file in the bucket that nothing points to.
+            // Not Pending any more. Either a concurrent resume already marked it Ready (fine: same file, done),
+            // or a cancel removed the row - then remove the object too, so nothing is left unreferenced.
+            if (await IsReadyAsync(fileAttachmentId, ct))
+            {
+                return file with { UploadStatus = FileUploadStatus.Ready, S3UploadId = null };
+            }
+
             await _storage.DeleteObjectAsync(file.StorageKey, ct);
             throw new DomainValidationException("FILE_UPLOAD_CANCELLED", "The upload was cancelled.");
         }
@@ -161,12 +188,16 @@ public sealed class FileService
         return file with { UploadStatus = FileUploadStatus.Ready, S3UploadId = null };
     }
 
-    /// <summary>Cancel: abort the multipart upload in S3 and forget the row.</summary>
+    /// <summary>Cancel: abort the multipart upload in S3 and forget the row - unless it completed meanwhile.</summary>
     public async Task AbortUploadAsync(long fileAttachmentId, CancellationToken ct = default)
     {
         var file = await GetPendingAsync(fileAttachmentId, ct);
         await _storage.AbortMultipartUploadAsync(file.StorageKey, file.S3UploadId!, ct);
-        await _files.DeleteAsync(fileAttachmentId, ct);
+        if (!await _files.DeletePendingAsync(fileAttachmentId, ct))
+        {
+            // A concurrent complete made it Ready first: the file exists and stays (delete it from the gallery if unwanted).
+            throw new DomainValidationException("FILE_NOT_UPLOADING", "The upload had already finished; the file was kept.");
+        }
     }
 
     public async Task UpdateMetadataAsync(long fileAttachmentId, int fileTypeId, string? caption, string? notes, int? sortOrder, CancellationToken ct = default)
@@ -210,13 +241,26 @@ public sealed class FileService
         var swept = 0;
         foreach (var file in await _files.ListStalePendingAsync(DateTime.UtcNow - olderThan, limit: 500, ct))
         {
+            // S3 may hold the complete file (completed, then our Ready step failed): keep it, don't orphan it.
+            if (await _storage.GetObjectSizeAsync(file.StorageKey, ct) == file.FileSize)
+            {
+                if (await _files.MarkReadyAsync(file.FileAttachmentId, ct))
+                {
+                    await RecordAsync(file, ActivityActions.FileUploaded, "Uploaded (recovered)", ct);
+                }
+
+                continue;
+            }
+
             if (file.S3UploadId is not null)
             {
                 await _storage.AbortMultipartUploadAsync(file.StorageKey, file.S3UploadId, ct); // NoSuchUpload is fine
             }
 
-            await _files.DeleteAsync(file.FileAttachmentId, ct);
-            swept++;
+            if (await _files.DeletePendingAsync(file.FileAttachmentId, ct))
+            {
+                swept++;
+            }
         }
 
         return swept;

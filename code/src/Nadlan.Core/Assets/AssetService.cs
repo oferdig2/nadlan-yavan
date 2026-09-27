@@ -118,9 +118,15 @@ public sealed class AssetService
             throw new DomainValidationException("ASSET_STATUS_REQUIRED", "Select a status.");
         }
 
-        if (a.PropertyTypeId is int typeId && !(await _reference.ListAsync(ReferenceList.PropertyType, ct)).Any(t => t.Id == typeId))
+        if (a.PropertyTypeId is int typeId
+            && !(await _reference.ListAsync(ReferenceList.PropertyType, ct)).Any(t => t.Id == typeId && (t.IsActive || existing?.PropertyTypeId == typeId)))
         {
-            throw new DomainValidationException("ASSET_PROPERTY_TYPE_INVALID", "Unknown property type.");
+            throw new DomainValidationException("ASSET_PROPERTY_TYPE_INVALID", "Unknown or inactive property type.");
+        }
+
+        if (a.HouseSqm is < 0)
+        {
+            throw new DomainValidationException("ASSET_HOUSE_SQM_NEGATIVE", "House m² cannot be negative.");
         }
 
         if (a.AskPrice is < 0)

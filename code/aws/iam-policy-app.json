@@ -12,6 +12,13 @@
         "s3:ListMultipartUploadParts"
       ],
       "Resource": "arn:aws:s3:::__BUCKET__/__ROOT_PREFIX__*"
+    },
+    {
+      "Sid": "NadlanListOwnFolder",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::__BUCKET__",
+      "Condition": { "StringLike": { "s3:prefix": ["__ROOT_PREFIX__*"] } }
     }
   ]
 }

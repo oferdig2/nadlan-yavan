@@ -25,6 +25,8 @@ public sealed class MySqlDatabase
             throw new ArgumentException("Connection string must name a database (e.g. database=nadlan).", nameof(connectionString));
         }
 
+        // All DATETIME columns hold UTC; read them as Kind=Utc so JSON carries the "Z" and no one guesses the zone.
+        b.DateTimeKind = MySqlDateTimeKind.Utc;
         DatabaseName = b.Database;
         ConnectionString = b.ConnectionString;
     }

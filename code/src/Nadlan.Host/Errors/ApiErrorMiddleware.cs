@@ -1,16 +1,22 @@
+using MySqlConnector;
 using Nadlan.Core.Files;
 using Nadlan.Core.Validation;
 
 namespace Nadlan.Host.Errors;
 
-/// <summary>Turns domain exceptions into the JSON error shape the browser expects: { error, message }.</summary>
+/// <summary>
+/// Turns exceptions into the JSON error shape the browser expects: { error, message }.
+/// Anything unexpected is logged and returned as a JSON 500 - never an HTML page or an empty body.
+/// </summary>
 public sealed class ApiErrorMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly ILogger<ApiErrorMiddleware> _log;
 
-    public ApiErrorMiddleware(RequestDelegate next)
+    public ApiErrorMiddleware(RequestDelegate next, ILogger<ApiErrorMiddleware> log)
     {
         _next = next;
+        _log = log;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -35,12 +41,23 @@ public sealed class ApiErrorMiddleware
         {
             await WriteAsync(context, StatusCodes.Status503ServiceUnavailable, "STORAGE_ERROR", ex.Message);
         }
-        catch (MySqlConnector.MySqlException ex) when (ex.ErrorCode is MySqlConnector.MySqlErrorCode.DataTooLong
-                                                       or MySqlConnector.MySqlErrorCode.WarningDataOutOfRange)
+        catch (MySqlException ex) when (ex.ErrorCode is MySqlErrorCode.DataTooLong or MySqlErrorCode.WarningDataOutOfRange)
         {
             // Strict-mode column limits (e.g. caption VARCHAR(300)): a user input problem, not a server crash.
             await WriteAsync(context, StatusCodes.Status400BadRequest, "VALUE_TOO_LONG",
                 "A value is too long or too large for its field. Shorten it and try again.");
+        }
+        catch (MySqlException ex) when (ex.ErrorCode is MySqlErrorCode.NoReferencedRow or MySqlErrorCode.NoReferencedRow2)
+        {
+            // A referenced row doesn't exist (stale id from another tab, deleted meanwhile).
+            await WriteAsync(context, StatusCodes.Status400BadRequest, "REFERENCE_NOT_FOUND",
+                "Something this refers to no longer exists. Reload and try again.");
+        }
+        catch (Exception ex) when (!context.Response.HasStarted && ex is not OperationCanceledException)
+        {
+            _log.LogError(ex, "Unhandled error on {Method} {Path}", context.Request.Method, context.Request.Path);
+            await WriteAsync(context, StatusCodes.Status500InternalServerError, "SERVER_ERROR",
+                "Something went wrong on the server. It has been logged.");
         }
     }
 

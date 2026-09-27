@@ -37,7 +37,7 @@
         "<input type=\"checkbox\" data-asset-id=\"" + s.assetId + "\"" + (options.selection.has(s.assetId) ? " checked" : "") + ">" +
         "<div class=\"row-body\"><div class=\"row-main\">" + f.price(s.askPrice, s.currencyCode) + " " + f.statusBadge(s.statusName, s.statusColor) + "</div>" +
         "<div class=\"row-sub\">" + f.text(s.managingContactName) + "</div>" +
-        "<div class=\"row-sub muted\">" + f.escapeHtml(s.registryId || "") + (s.geographicArea ? " · " + f.escapeHtml(s.geographicArea) : "") + "</div></div></li>";
+        "<div class=\"row-sub muted\">" + f.registryId(s.registryId, s.registryIdIsProvisional) + (s.geographicArea ? " · " + f.escapeHtml(s.geographicArea) : "") + "</div></div></li>";
     }
 
     function renderSelection() {

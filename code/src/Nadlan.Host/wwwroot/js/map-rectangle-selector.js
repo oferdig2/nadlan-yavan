@@ -40,6 +40,8 @@
 
     return {
       start: function () {
+        if (listeners.length) { endDrawing(); } // pressing Draw twice must not stack mouse listeners
+        start = null;
         clear(true);
         options.onDrawingChange(true);
         map.setOptions({ gestureHandling: "none", draggableCursor: "crosshair" });

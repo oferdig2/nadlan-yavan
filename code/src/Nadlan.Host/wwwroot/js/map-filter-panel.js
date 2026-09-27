@@ -61,7 +61,7 @@
     $root.on("click", "[data-role=draw-rect]", function () { options.onDrawRectangle(); });
     $root.on("click", "[data-role=clear-rect]", function () { options.onClearRectangle(); });
     $root.on("click", "[data-role=reset]", function () {
-      $root.find("input[data-filter]").val("");
+      $root.find("input[data-filter]:not(:checkbox)").val(""); // checkbox values are the ids - never blank them
       $root.find(":checkbox[data-filter]").prop("checked", false);
       contacts.clear();
       portfolios.clear();
@@ -101,7 +101,7 @@
       setMode: function (mode) { $root.find("[data-assets-only]").prop("hidden", mode !== "assets"); },
       /** "Show Portfolio on map": clear every other filter and keep only this Portfolio. */
       showOnlyPortfolio: function (portfolio) {
-        $root.find("input[data-filter]").val("");
+        $root.find("input[data-filter]:not(:checkbox)").val(""); // checkbox values are the ids - never blank them
         $root.find(":checkbox[data-filter]").prop("checked", false);
         contacts.clear();
         portfolios.setValue([{ id: portfolio.portfolioId, label: portfolio.name }]);

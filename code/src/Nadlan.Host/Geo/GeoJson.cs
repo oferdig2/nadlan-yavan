@@ -21,6 +21,13 @@ internal static class GeoJson
             throw new DomainValidationException("GEOMETRY_REQUIRED", "Draw or paste the Parcel polygon.");
         }
 
+        // A Parcel is a few dozen corners; cap input so a bad paste can't make the server/DB chew millions of points.
+        const int MaxRings = 20, MaxPoints = 10_000;
+        if (coordinates.Length > MaxRings || coordinates.Sum(r => r?.Length ?? 0) > MaxPoints)
+        {
+            throw new DomainValidationException("GEOMETRY_TOO_LARGE", $"A polygon may have at most {MaxRings} rings and {MaxPoints} points.");
+        }
+
         var rings = new List<IReadOnlyList<GeoPoint>>();
         foreach (var ring in coordinates)
         {

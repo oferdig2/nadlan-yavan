@@ -72,6 +72,9 @@ public interface IFileAttachmentStore
     Task UpdateMetadataAsync(long fileAttachmentId, int fileTypeId, string? caption, string? notes, int? sortOrder, CancellationToken ct = default);
     Task DeleteAsync(long fileAttachmentId, CancellationToken ct = default);
 
+    /// <summary>Deletes the row only while it is still Pending (never a file that completed meanwhile). True if deleted.</summary>
+    Task<bool> DeletePendingAsync(long fileAttachmentId, CancellationToken ct = default);
+
     /// <summary>Uploads still Pending that started before the cutoff (abandoned: tab closed, never cancelled).</summary>
     Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime startedBeforeUtc, int limit, CancellationToken ct = default);
 

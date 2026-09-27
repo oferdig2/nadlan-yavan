@@ -144,6 +144,53 @@ public class ReviewRegressionTests
         Assert.StartsWith("attachment;", FileService.ContentDisposition(name, mime));
     }
 
+    [Fact]
+    public async Task Complete_after_a_concurrent_resume_marked_it_ready_keeps_the_file()
+    {
+        var files = new CancellingStore { MarkReadyResult = false };
+        var storage = new RecordingStorage { StoredSize = 10 };
+        var service = new FileService(files, new AnyTarget(), storage, new FileStorageSettings());
+        var session = await service.StartUploadAsync(new StartUploadRequest("Asset", 1, 1, "a.mp4", "video/mp4", 10));
+        files.FlipToReadyOnNextGet = true; // complete reads Pending, then the concurrent resume makes it Ready
+
+        var result = await service.CompleteUploadAsync(session.FileAttachmentId, new[] { new UploadedPart(1, "\"e\"") });
+
+        Assert.Equal(FileUploadStatus.Ready, result.UploadStatus);
+        Assert.Empty(storage.Deleted); // the finished object must NOT be deleted
+    }
+
+    [Fact]
+    public async Task Abort_after_the_upload_completed_keeps_row_and_file()
+    {
+        var files = new CancellingStore();
+        var service = new FileService(files, new AnyTarget(), new RecordingStorage(), new FileStorageSettings());
+        await service.StartUploadAsync(new StartUploadRequest("Asset", 1, 1, "a.mp4", "video/mp4", 10));
+        var pending = files.Row!;
+
+        // GetPendingAsync sees Pending, then a concurrent complete flips it to Ready before the row delete.
+        files.FlipToReadyOnNextGet = true;
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => service.AbortUploadAsync(pending.FileAttachmentId));
+
+        Assert.Equal("FILE_NOT_UPLOADING", ex.Code);
+        Assert.NotNull(files.Row);
+    }
+
+    [Fact]
+    public async Task Sweeper_recovers_a_completed_file_instead_of_orphaning_it()
+    {
+        var files = new CancellingStore { MarkReadyResult = true };
+        var storage = new RecordingStorage { StoredSize = 10 };
+        var service = new FileService(files, new AnyTarget(), storage, new FileStorageSettings());
+        await service.StartUploadAsync(new StartUploadRequest("Asset", 1, 1, "a.mp4", "video/mp4", 10));
+        files.Row = files.Row! with { UploadedUtc = DateTime.UtcNow.AddDays(-2) };
+
+        var swept = await service.SweepAbandonedUploadsAsync(TimeSpan.FromDays(1));
+
+        Assert.Equal(0, swept);
+        Assert.Empty(storage.Aborted);
+        Assert.NotNull(files.Row);
+    }
+
     // A store whose row is "deleted by a concurrent cancel" by the time the upload completes.
     private sealed class CancellingStore : IFileAttachmentStore
     {
@@ -155,10 +202,29 @@ public class ReviewRegressionTests
             return Task.FromResult(1L);
         }
 
-        public Task<FileAttachment?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Row);
+        public bool FlipToReadyOnNextGet { get; set; } // simulates a concurrent complete right after this read
+
+        public Task<FileAttachment?> GetAsync(long id, CancellationToken ct = default)
+        {
+            var current = Row;
+            if (FlipToReadyOnNextGet && Row is not null)
+            {
+                FlipToReadyOnNextGet = false;
+                Row = Row with { UploadStatus = FileUploadStatus.Ready };
+            }
+
+            return Task.FromResult(current);
+        }
         public bool MarkReadyResult { get; set; } // false = cancelled meanwhile
         public Task<bool> MarkReadyAsync(long id, CancellationToken ct = default) => Task.FromResult(MarkReadyResult);
         public Task DeleteAsync(long id, CancellationToken ct = default) { Row = null; return Task.CompletedTask; }
+
+        public Task<bool> DeletePendingAsync(long id, CancellationToken ct = default)
+        {
+            if (Row is not { UploadStatus: FileUploadStatus.Pending }) { return Task.FromResult(false); }
+            Row = null;
+            return Task.FromResult(true);
+        }
 
         public Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime before, int limit, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<FileAttachment>>(Row is { } r && r.UploadedUtc < before ? new[] { r } : Array.Empty<FileAttachment>());

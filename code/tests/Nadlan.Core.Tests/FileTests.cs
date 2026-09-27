@@ -136,6 +136,9 @@ public class FileTests
             return Task.CompletedTask;
         }
 
+        public Task<bool> DeletePendingAsync(long id, CancellationToken ct = default)
+            => Task.FromResult(Rows.RemoveAll(r => r.FileAttachmentId == id && r.UploadStatus == FileUploadStatus.Pending) > 0);
+
         public Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime before, int limit, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<FileAttachment>>(Rows.Where(r => r.UploadStatus == FileUploadStatus.Pending && r.UploadedUtc < before).Take(limit).ToList());
 

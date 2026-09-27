@@ -76,6 +76,14 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
             "DELETE FROM file_attachment WHERE file_attachment_id = @fileAttachmentId", new { fileAttachmentId }, cancellationToken: ct));
     }
 
+    public async Task<bool> DeletePendingAsync(long fileAttachmentId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM file_attachment WHERE file_attachment_id = @fileAttachmentId AND upload_status = 'Pending'",
+            new { fileAttachmentId }, cancellationToken: ct)) == 1;
+    }
+
     public async Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime startedBeforeUtc, int limit, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);

@@ -16,8 +16,12 @@
         return;
       }
       window.__nadlanMapsReady = resolve;
+      // Google calls this when it rejects the key (wrong key, API not enabled, referrer not allowed).
+      window.gm_authFailure = function () {
+        setStatus("Google Maps rejected the API key - check it is enabled for the Maps JavaScript API and allows " + window.location.origin, true);
+      };
       var script = document.createElement("script");
-      script.src = "https://maps.googleapis.com/maps/api/js?key=" + encodeURIComponent(apiKey) + "&v=weekly&callback=__nadlanMapsReady";
+      script.src = "https://maps.googleapis.com/maps/api/js?key=" + encodeURIComponent(apiKey) + "&v=weekly&loading=async&callback=__nadlanMapsReady";
       script.async = true;
       script.onerror = function () { reject(new Error("Google Maps failed to load.")); };
       document.head.appendChild(script);
@@ -45,14 +49,14 @@
           popups.refreshParcel(parcel.parcelId);
           if (state.mode === "assets") { reload(); }
           setStatus("Asset #" + saved.assetId + " created.");
-        });
+        }).catch(function (err) { setStatus("Could not open the asset editor: " + err.message, true); });
       },
       onEditAsset: function (assetId, parcel) {
         Nadlan.assetEditor.open({ parcel: parcel, assetId: assetId }).then(function (saved) {
           if (!saved) { return; }
           popups.refreshParcel(parcel.parcelId);
           if (state.mode === "assets") { reload(); }
-        });
+        }).catch(function (err) { setStatus("Could not open the asset editor: " + err.message, true); });
       },
       onEditParcel: function (parcelId) { editParcel(parcelId); },
       onOpenFiles: function (type, id, title, parcelId) {
@@ -98,6 +102,7 @@
       onApply: reload,
       onScopeChange: function (scope) {
         state.scope = scope;
+        if (scope !== "rectangle") { rectangle.cancel(); } // leaving rectangle mode must give the map its gestures back
         if (scope === "rectangle" && !state.rectangle) { rectangle.start(); setStatus("Drag on the map to draw the search rectangle."); return; }
         reload();
       },
@@ -181,7 +186,10 @@
       var bounds = new google.maps.LatLngBounds();
       geometry.coordinates[0].forEach(function (p) { bounds.extend({ lng: p[0], lat: p[1] }); });
       map.fitBounds(bounds, 120);
-      google.maps.event.addListenerOnce(map, "idle", function () { if (map.getZoom() > maxZoom) { map.setZoom(maxZoom); } });
+      // If the view didn't change, "idle" never fires for this fit - drop the listener so it can't snap
+      // the zoom on the user's next pan.
+      var once = google.maps.event.addListenerOnce(map, "idle", function () { if (map.getZoom() > maxZoom) { map.setZoom(maxZoom); } });
+      setTimeout(function () { google.maps.event.removeListener(once); }, 1500);
     }
 
     function fitItems(items) {

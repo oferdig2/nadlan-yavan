@@ -22,11 +22,13 @@ Change a value: `.\config.ps1 set ms:host Nadlan:Storage:<Setting> <value>`, the
 .\aws\setup-s3.ps1 -Bucket <bucket> -RootFolder nadlan/dev -Region eu-central-1 -AdminProfile <admin-profile>
 ```
 
-On an existing bucket it changes nothing but its own CORS rule (`nadlan-app`) and lifecycle rule
-(`nadlan-abort-incomplete-uploads`, scoped to the root folder); other rules and bucket settings are kept. The IAM user
+On an existing bucket it changes nothing but its own CORS rule (`nadlan-<root>`, e.g. `nadlan-dev`, placed first) and lifecycle rule
+(`nadlan-abort-uploads-<root>`, scoped to the root folder); other rules and bucket settings are kept. The IAM user
 it creates (`nadlan-<root>`, e.g. `nadlan-dev`) can reach only `s3://<bucket>/<RootFolder>/*`; its key goes into the local AWS
 profile of the same name, and an existing key is reused only if AWS confirms it belongs to that user in that account.
 The printed `config.ps1` commands point the app at it.
+Its policy (`iam-policy-app.json`) also allows `s3:ListBucket` limited to the root folder: without it S3 answers a
+missing file with 403 instead of 404, and the app couldn't tell "gone" (restart the upload) from "denied".
 
 ## 2. Moving to another bucket (e.g. the client's)
 
