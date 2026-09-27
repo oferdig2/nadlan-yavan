@@ -89,49 +89,59 @@ public class KaekImporterTests
         Assert.True(PolygonMath.Contains(new[] { outer, hole }, new LonLat(2, 2)));
     }
 
+    // A 20 x 20 m area centred on (10, 10), sampled every 5 m; clearance = distance to the nearest edge.
+    private static MapArea Square(double originX = 0) => new(400, new AreaPoint(new EgsaPoint(originX + 10, 10), 10),
+        (from x in new[] { 2.5, 7.5, 12.5, 17.5 }
+         from y in new[] { 2.5, 7.5, 12.5, 17.5 }
+         select new AreaPoint(new EgsaPoint(originX + x, y), Math.Min(Math.Min(x, 20 - x), Math.Min(y, 20 - y)))).ToList());
+
     [Fact]
-    public void Sweep_asks_the_coarse_grid_first_then_fills_in()
+    public void Area_is_first_clicked_in_its_middle()
     {
-        var grid = new SweepGrid(new MapExtent(0, 20, 20, 0), 5); // 4 x 4 points
+        var next = AreaProbePlanner.NextProbe(Square(), _ => false, Array.Empty<EgsaPoint>());
 
-        var points = grid.Points().ToList();
-
-        Assert.Equal(16, grid.TotalPoints);
-        Assert.Equal(16, points.Count);
-        Assert.All(points.Take(4), p => Assert.Equal(1, p.Pass));
-        Assert.Equal(new EgsaPoint(2.5, 17.5), points[0].Position); // top-left, half a step inside the view
+        Assert.Equal(new EgsaPoint(10, 10), next);
     }
 
     [Fact]
-    public void Sweep_skips_fine_points_surrounded_by_empty_coarse_points()
+    public void Area_inside_a_known_parcel_needs_no_click()
     {
-        var grid = new SweepGrid(new MapExtent(0, 25, 25, 0), 5); // 5 x 5 points; coarse = cols/rows 0, 2, 4
-
-        var asked = new List<GridPoint>();
-        foreach (var p in grid.Points())
-        {
-            asked.Add(p);
-            if (p.Pass == 1) grid.MarkEmpty(p); // the whole view is sea
-        }
-
-        // Coarse points are all asked; every fine point is surrounded by empty ones, so none is asked.
-        Assert.Equal(9, asked.Count);
-        Assert.All(asked, p => Assert.Equal(1, p.Pass));
+        Assert.Null(AreaProbePlanner.NextProbe(Square(), _ => true, Array.Empty<EgsaPoint>()));
     }
 
     [Fact]
-    public void Sweep_still_asks_fine_points_next_to_land()
+    public void Uncovered_half_of_an_area_gets_its_own_click()
     {
-        var grid = new SweepGrid(new MapExtent(0, 25, 25, 0), 5);
+        // The parcel found covers only the left half: the lines had a gap and joined two parcels into one area.
+        var next = AreaProbePlanner.NextProbe(Square(), p => p.X <= 10, Array.Empty<EgsaPoint>());
 
-        var asked = new List<GridPoint>();
-        foreach (var p in grid.Points())
+        Assert.NotNull(next);
+        Assert.True(next.Value.X > 10);
+    }
+
+    [Fact]
+    public void Slivers_along_the_lines_are_not_clicked()
+    {
+        // Only samples hugging the lines (clearance below 1 m) are uncovered: drawn line vs polygon edge, not a parcel.
+        var area = new MapArea(400, new AreaPoint(new EgsaPoint(10, 10), 10), new[]
         {
-            asked.Add(p);
-            if (p.Pass == 1 && !(p.Col == 4 && p.Row == 4)) grid.MarkEmpty(p); // only the bottom-right corner found land
-        }
+            new AreaPoint(new EgsaPoint(10, 10), 10), new AreaPoint(new EgsaPoint(0.5, 10), 0.5),
+            new AreaPoint(new EgsaPoint(19.5, 10), 0.5), new AreaPoint(new EgsaPoint(10, 0.5), 0.5),
+        });
 
-        var fine = asked.Where(p => p.Pass == 2).Select(p => (p.Col, p.Row)).ToHashSet();
-        Assert.Equal(new HashSet<(int, int)> { (3, 3), (3, 4), (4, 3) }, fine);
+        Assert.Null(AreaProbePlanner.NextProbe(area, p => Math.Abs(p.X - 10) < 1 && Math.Abs(p.Y - 10) < 1, Array.Empty<EgsaPoint>()));
+    }
+
+    [Fact]
+    public void Nothing_is_clicked_within_10_m_of_a_click_that_found_nothing()
+    {
+        var excluded = new[] { new EgsaPoint(10, 10) };
+
+        var next = AreaProbePlanner.NextProbe(Square(), _ => false, excluded);
+
+        Assert.NotNull(next); // the corners are 10.6 m away, so still open
+        Assert.True(Math.Sqrt((next.Value.X - 10) * (next.Value.X - 10) + (next.Value.Y - 10) * (next.Value.Y - 10)) >= AreaProbePlanner.ExclusionMetres);
+        // An area elsewhere is not affected.
+        Assert.Equal(new EgsaPoint(110, 10), AreaProbePlanner.NextProbe(Square(100), _ => false, excluded));
     }
 }

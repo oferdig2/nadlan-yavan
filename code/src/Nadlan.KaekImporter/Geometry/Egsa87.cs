@@ -42,6 +42,9 @@ public static class Egsa87
         return new LonLat(Math.Atan2(y, x) * 180 / Math.PI, outLat * 180 / Math.PI);
     }
 
+    public static IReadOnlyList<IReadOnlyList<LonLat>> ToWgs84(IReadOnlyList<IReadOnlyList<EgsaPoint>> rings) =>
+        rings.Select(r => (IReadOnlyList<LonLat>)r.Select(ToWgs84).ToList()).ToList();
+
     private static (double Lat, double Lon) InverseTransverseMercator(double easting, double northing)
     {
         var ep2 = E2 / (1 - E2);

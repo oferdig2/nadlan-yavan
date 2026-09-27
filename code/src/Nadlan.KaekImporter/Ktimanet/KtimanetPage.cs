@@ -34,17 +34,40 @@ public sealed class KtimanetPage
 
     public KtimanetPage(IPage page) => _page = page;
 
-    public async Task<MapExtent> GetExtentAsync()
+    /// <summary>
+    /// The enclosed areas between the parcel lines in the current view (found by the panel script from the lines
+    /// layer's pixels), or an error for the user. Waits a few seconds for line tiles that are still loading.
+    /// </summary>
+    public async Task<(MapAreas? Areas, string? Error)> ReadAreasAsync(double sampleStepMetres)
     {
-        var e = await _page.EvaluateAsync<JsonElement>("() => typeof MyMap === 'undefined' ? null : MyMap.MapExtents()");
-        if (e.ValueKind != JsonValueKind.Object)
+        for (var attempt = 0; attempt < 20; attempt++)
         {
-            throw new InvalidOperationException("The Ktimatologio map is not loaded yet.");
+            var reply = await _page.EvaluateAsync<JsonElement>(
+                "s => typeof MyMap === 'undefined' || !window.NadlanPanel ? { error: 'The Ktimatologio map is not loaded yet.' } : NadlanPanel.findAreas(s)",
+                sampleStepMetres);
+            var dto = reply.Deserialize<AreasDto>(Json)!;
+            if (dto.Error is not null) return (null, dto.Error);
+            if (dto.Retry)
+            {
+                await Task.Delay(500);
+                continue;
+            }
+
+            var e = dto.Extent!;
+            return (new MapAreas(new MapExtent(e.Left, e.Right, e.Top, e.Bottom), dto.MetresPerPixel,
+                dto.Areas!.Select(a => new MapArea(a.Size, Point(a.Point), a.Samples.Select(Point).ToList())).ToList()), null);
         }
 
-        return new MapExtent(e.GetProperty("left").GetDouble(), e.GetProperty("right").GetDouble(),
-            e.GetProperty("top").GetDouble(), e.GetProperty("bottom").GetDouble());
+        return (null, "The parcel lines did not finish loading. Wait for the map, then try again.");
     }
+
+    private static AreaPoint Point(double[] p) => new(new EgsaPoint(p[0], p[1]), p[2]);
+
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    private sealed record AreasDto(string? Error, bool Retry, ExtentDto? Extent, double MetresPerPixel, List<AreaDto>? Areas);
+    private sealed record ExtentDto(double Left, double Right, double Top, double Bottom);
+    private sealed record AreaDto(int Size, double[] Point, List<double[]> Samples);
 
     /// <summary>The raw reply for one point, e.g. "GETPSTKG|x,y|2@[...]@@120981108035@...".</summary>
     public Task<string> QueryAsync(EgsaPoint p) => _page.EvaluateAsync<string>(QueryScript, new[] { p.X, p.Y });

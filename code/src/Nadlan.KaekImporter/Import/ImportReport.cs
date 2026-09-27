@@ -14,8 +14,8 @@ public sealed class ImportReport
     private readonly HashSet<string> _roads = new(StringComparer.Ordinal);
 
     public int Requests { get; set; }
-    public int PointsDone { get; set; }
-    public int PointsTotal { get; set; }
+    public int AreasDone { get; set; }
+    public int AreasTotal { get; set; }
     public IReadOnlyList<ReportRow> Rows => _rows;
     public int Count(ParcelResult result) => _rows.Count(r => r.Result == result);
     public int Roads => _roads.Count;
@@ -30,8 +30,8 @@ public sealed class ImportReport
         rejected = Count(ParcelResult.Rejected),
         roads = Roads,
         requests = Requests,
-        pointsDone = PointsDone,
-        pointsTotal = PointsTotal,
+        areasDone = AreasDone,
+        areasTotal = AreasTotal,
     };
 
     public string Summary =>

@@ -10,6 +10,7 @@ namespace Nadlan.KaekImporter;
 /// <summary>
 /// Opens gis.ktimanet.gr in a visible browser with a Nadlan panel. The user zooms to an area and clicks
 /// "Acquire polygons"; every land parcel in the view is then imported into Nadlan (KAEK + polygon + area).
+/// Or the user ticks "Import each parcel I click" and every parcel they click on the map is imported.
 /// </summary>
 public static class Program
 {
@@ -17,9 +18,8 @@ public static class Program
         NadlanKaekImporter [options]
           --api <url>            Nadlan web app (default http://localhost:5515)
           --token <token>        API token (sent as Bearer; not required yet)
-          --delay <min-max>      seconds to wait after each new parcel (default 10-30)
-          --miss-delay <min-max> seconds to wait after a point with nothing new (default 2-5)
-          --step <metres>        sweep spacing (default 5)
+          --delay <min-max>      seconds to wait after each new parcel (default 4-10)
+          --miss-delay <min-max> seconds to wait after a click with nothing new (default 2-5)
           --max-view <metres>    largest view width/height allowed (default 2000)
           --max-parcels <n>      stop after n new parcels (for trying it out)
           --debug-port <port>    open the browser to automation on localhost:<port> (testing)
@@ -73,22 +73,27 @@ public static class Program
         var site = new KtimanetPage(page);
         var run = new ImportRun(site, nadlan, options.Settings, Console.Out);
         CancellationTokenSource? current = null;
+        Task? currentRun = null;
+        ClickImport? clicks = null;
 
         await context.ExposeFunctionAsync("nadlanStart", async (string areaId) =>
         {
             if (current is not null) return "An import is already running.";
-            MapExtent extent;
-            try { extent = await site.GetExtentAsync(); }
-            catch (Exception ex) when (ex is InvalidOperationException or PlaywrightException) { return ex.Message; }
-
-            if (run.Validate(extent) is string error) return error;
-            int? geographicAreaId = int.TryParse(areaId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
+            if (clicks is not null) return "Switch off click import first.";
+            MapAreas view;
+            try
+            {
+                var (read, error) = await run.ReadViewAsync();
+                if (read is null) return error ?? "Could not read the map.";
+                view = read;
+            }
+            catch (PlaywrightException ex) { return "Could not read the map: " + ex.Message; }
 
             var cts = current = new CancellationTokenSource();
-            Console.WriteLine($"Import started over {extent.Width:0} x {extent.Height:0} m.");
-            _ = Task.Run(async () =>
+            Console.WriteLine($"Import started over {view.Extent.Width:0} x {view.Extent.Height:0} m, {view.Areas.Count} areas.");
+            currentRun = Task.Run(async () =>
             {
-                try { await run.RunAsync(extent, geographicAreaId, cts.Token); }
+                try { await run.RunAsync(view, AreaId(areaId), cts.Token); }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine("Import failed: " + ex);
@@ -99,17 +104,67 @@ public static class Program
             return "";
         });
         await context.ExposeFunctionAsync("nadlanStop", () => { current?.Cancel(); });
+        await context.ExposeFunctionAsync("nadlanClickMode", async (bool on, string areaId) =>
+        {
+            if (on)
+            {
+                if (current is not null) return "Stop the running import first.";
+                clicks ??= new ClickImport(site, nadlan, AreaId(areaId), Console.Out);
+                Console.WriteLine("Click import on.");
+                return "";
+            }
+
+            var stopping = clicks;
+            clicks = null;
+            if (stopping is not null) await stopping.StopAsync();
+            return "";
+        });
+
+        // Click import: the site's reply to the user's own map click already holds the KAEK and polygon.
+        // Our sweep's requests look the same, so they are ignored while a sweep runs.
+        page.Response += (_, response) =>
+        {
+            var session = clicks;
+            if (session is null || current is not null
+                || !response.Url.EndsWith("/gis/map/PostHandler", StringComparison.OrdinalIgnoreCase)
+                || response.Request.PostData?.Contains("GETPSTKG", StringComparison.Ordinal) != true)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try { session.OnClickReply(await response.TextAsync()); }
+                catch (PlaywrightException) { } // page navigated away meanwhile
+            });
+        };
+
+        // A reload rebuilds the panel with click import off, so end the session to match.
+        page.FrameNavigated += (_, frame) =>
+        {
+            if (frame != page.MainFrame || clicks is not { } session) return;
+            clicks = null;
+            _ = session.StopAsync();
+        };
 
         var closed = new TaskCompletionSource();
         page.Close += (_, _) => closed.TrySetResult();
         browser.Disconnected += (_, _) => closed.TrySetResult();
 
         await page.GotoAsync(KtimanetPage.MapUrl, new() { Timeout = 90_000 });
-        Console.WriteLine("Browser is open. Zoom to the area to import and click 'Acquire polygons'. Close the browser to exit.");
+        Console.WriteLine("Browser is open. Zoom in until the yellow parcel lines show, then click 'Acquire polygons'" +
+                          " (or tick 'Import each parcel I click'). Close the browser to exit.");
         await closed.Task;
+
+        // Let a stopped run or click session write its report before exiting.
         current?.Cancel();
+        if (clicks is not null) await clicks.StopAsync();
+        if (currentRun is not null) await Task.WhenAny(currentRun, Task.Delay(TimeSpan.FromSeconds(10)));
         return 0;
     }
+
+    private static int? AreaId(string value) =>
+        int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
 
     private static string LoadPanelScript()
     {
@@ -125,8 +180,8 @@ public static class Program
         {
             var api = new Uri("http://localhost:5515/");
             string? token = null;
-            (double Min, double Max) delay = (10, 30), missDelay = (2, 5);
-            double step = 5, maxView = 2000;
+            (double Min, double Max) delay = (4, 10), missDelay = (2, 5);
+            double maxView = 2000;
             int? maxParcels = null;
             int? debugPort = null;
 
@@ -139,7 +194,6 @@ public static class Program
                     case "--token": token = Next(); break;
                     case "--delay": delay = Range(Next()); break;
                     case "--miss-delay": missDelay = Range(Next()); break;
-                    case "--step": step = Number(Next()); break;
                     case "--max-view": maxView = Number(Next()); break;
                     case "--max-parcels": maxParcels = (int)Number(Next()); break;
                     case "--debug-port": debugPort = (int)Number(Next()); break;
@@ -147,7 +201,7 @@ public static class Program
                 }
             }
 
-            return new Options(api, token, new ImportSettings(step,
+            return new Options(api, token, new ImportSettings(
                 TimeSpan.FromSeconds(delay.Min), TimeSpan.FromSeconds(delay.Max),
                 TimeSpan.FromSeconds(missDelay.Min), TimeSpan.FromSeconds(missDelay.Max),
                 maxView, maxParcels), debugPort);

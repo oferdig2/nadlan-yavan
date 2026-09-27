@@ -1,6 +1,6 @@
 // Injected into gis.ktimanet.gr/gis/map by NadlanKaekImporter. Draws the control panel and the progress
 // overlay; all the work happens in the .NET tool, which calls window.NadlanPanel.* and receives
-// window.nadlanStart(areaId) / window.nadlanStop() (exposed by Playwright).
+// window.nadlanStart(areaId) / window.nadlanStop() / window.nadlanClickMode(on, areaId) (exposed by Playwright).
 // window.__nadlanAreas ([{ id, name }]) is set by the tool just before this script.
 (function () {
   "use strict";
@@ -28,6 +28,7 @@
       "#nadlan-panel header button{border:none;background:none;cursor:pointer;font-size:14px;color:#64748b}" +
       "#nadlan-panel .body{padding:8px 10px}" +
       "#nadlan-panel label{display:block;margin-bottom:6px}" +
+      "#nadlan-panel label.check{display:flex;gap:6px;align-items:center;margin:4px 0 0}" +
       "#nadlan-panel select{width:100%;padding:4px;margin-top:2px}" +
       "#nadlan-panel .actions{display:flex;gap:6px;margin:8px 0}" +
       "#nadlan-panel .actions button{flex:1;padding:6px;border-radius:6px;border:1px solid #1d4ed8;cursor:pointer;font-weight:600}" +
@@ -51,9 +52,10 @@
       "<label>Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">(none)</option>" +
       areas.map(function (a) { return "<option value=\"" + a.id + "\">" + esc(a.name) + "</option>"; }).join("") +
       "</select></label>" +
+      "<label class=\"check\"><input type=\"checkbox\" id=\"nadlan-click\"> Import each parcel I click on the map</label>" +
       "<div class=\"actions\"><button type=\"button\" id=\"nadlan-start\">Acquire polygons</button>" +
       "<button type=\"button\" id=\"nadlan-stop\" disabled>Stop</button></div>" +
-      "<div class=\"status\" id=\"nadlan-status\">Zoom to the area to import, then click Acquire polygons.</div>" +
+      "<div class=\"status\" id=\"nadlan-status\">Zoom in until the yellow parcel lines show, then click Acquire polygons - or tick the box and click parcels yourself.</div>" +
       "<div class=\"counts\" id=\"nadlan-counts\"></div>" +
       "<div id=\"nadlan-log\"></div></div>";
     document.body.appendChild(panel);
@@ -65,6 +67,15 @@
       window.nadlanStart(areaId).then(function (error) {
         if (error) { setRunning(false); status(error); log(error, "err"); }
       }, function (e) { setRunning(false); status("Could not start: " + e.message); });
+    };
+    document.getElementById("nadlan-click").onchange = function () {
+      var box = this, on = box.checked;
+      box.disabled = true;
+      window.nadlanClickMode(on, document.getElementById("nadlan-area").value).then(function (error) {
+        box.disabled = false;
+        if (error) { box.checked = !on; status(error); log(error, "err"); return; }
+        setClickMode(on);
+      }, function (e) { box.disabled = false; box.checked = !on; status("Could not switch: " + e.message); });
     };
     document.getElementById("nadlan-stop").onclick = function () {
       document.getElementById("nadlan-stop").disabled = true;
@@ -119,6 +130,13 @@
     document.getElementById("nadlan-start").disabled = running;
     document.getElementById("nadlan-stop").disabled = !running;
     document.getElementById("nadlan-area").disabled = running;
+    document.getElementById("nadlan-click").disabled = running;
+  }
+
+  function setClickMode(on) {
+    document.getElementById("nadlan-start").disabled = on;
+    document.getElementById("nadlan-area").disabled = on;
+    if (on) { status("Click parcels on the map; each one you click is imported."); }
   }
 
   function status(text) { document.getElementById("nadlan-status").textContent = text; }
@@ -141,7 +159,86 @@
       "<div>" + sw("rejected") + "Rejected: <b>" + (c.rejected || 0) + "</b></div>" +
       "<div>" + sw("road") + "Roads skipped: <b>" + (c.roads || 0) + "</b></div>" +
       "<div>Requests to site: <b>" + (c.requests || 0) + "</b></div>" +
-      "<div>Points: <b>" + (c.pointsDone || 0) + "</b> / " + (c.pointsTotal || 0) + "</div>";
+      "<div>Areas: <b>" + (c.areasDone || 0) + "</b> / " + (c.areasTotal || 0) + "</div>";
+  }
+
+  // The enclosed areas of the parcel-lines layer ("ΚΤΗΜΑΤΟΓΡΑΦΗΣΗ", yellow lines on a transparent image) in the
+  // current view. Each area is one parcel, road or the sea. For each: the point farthest from any line, and
+  // sample points every sampleStepMetres with their distance to the nearest line. Coordinates are EGSA87 metres.
+  // Returns { error } when the layer is not shown, or { retry: true } while its tiles are still loading.
+  function findAreas(sampleStepMetres) {
+    var canvas = document.getElementById("KT.KTWebMap.0.ContainerDrawingCanvas");
+    var layer = (MyMap.ReturnLayers() || []).filter(function (l) { return l.visible && /ΚΤΗΜΑΤΟΓΡΑΦ/i.test(l.LayerName); })[0];
+    if (!canvas || !layer) { return { error: "The parcel lines layer is not shown on the map. Zoom in until the yellow lines appear." }; }
+    var box = canvas.getBoundingClientRect();
+    var W = Math.round(box.width), H = Math.round(box.height);
+    var tiles = [].slice.call(document.querySelectorAll("img")).filter(function (t) {
+      if (t.id.indexOf("KT.KTWebMap.0.") !== 0 || t.src.indexOf("Layer=" + layer.LayerSource) < 0 || !t.offsetParent) { return false; }
+      var r = t.getBoundingClientRect();
+      return r.right > box.left && r.left < box.right && r.bottom > box.top && r.top < box.bottom;
+    });
+    if (!tiles.length) { return { error: "Zoom in until the yellow parcel lines show, then try again." }; }
+    if (tiles.some(function (t) { return !t.complete || !t.naturalWidth; })) { return { retry: true }; }
+
+    var cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    var g = cv.getContext("2d");
+    tiles.forEach(function (t) { var r = t.getBoundingClientRect(); g.drawImage(t, r.left - box.left, r.top - box.top, r.width, r.height); });
+    var px = g.getImageData(0, 0, W, H).data;
+    var N = W * H, line = new Uint8Array(N), i, x, y;
+    for (i = 0; i < N; i++) { line[i] = px[i * 4 + 3] > 40 ? 1 : 0; }
+
+    // Distance to the nearest line or view edge (chamfer 3-4, so /3 = pixels).
+    var dist = new Float32Array(N);
+    for (y = 0; y < H; y++) {
+      for (x = 0; x < W; x++) {
+        i = y * W + x;
+        dist[i] = line[i] ? 0 : (x === 0 || y === 0 || x === W - 1 || y === H - 1) ? 3 : 1e9;
+      }
+    }
+    function relax(i, j, cost) { if (dist[j] + cost < dist[i]) { dist[i] = dist[j] + cost; } }
+    for (y = 1; y < H - 1; y++) {
+      for (x = 1; x < W - 1; x++) { i = y * W + x; relax(i, i - 1, 3); relax(i, i - W, 3); relax(i, i - W - 1, 4); relax(i, i - W + 1, 4); }
+    }
+    for (y = H - 2; y > 0; y--) {
+      for (x = W - 2; x > 0; x--) { i = y * W + x; relax(i, i + 1, 3); relax(i, i + W, 3); relax(i, i + W + 1, 4); relax(i, i + W - 1, 4); }
+    }
+
+    // Areas = 4-connected runs of non-line pixels.
+    var label = new Int32Array(N), stack = new Int32Array(N), areas = [], n = 0;
+    for (var s = 0; s < N; s++) {
+      if (line[s] || label[s]) { continue; }
+      n++;
+      var top = 0, size = 0, best = s;
+      stack[top++] = s; label[s] = n;
+      while (top) {
+        i = stack[--top]; size++;
+        if (dist[i] > dist[best]) { best = i; }
+        x = i % W;
+        if (x > 0 && !line[i - 1] && !label[i - 1]) { label[i - 1] = n; stack[top++] = i - 1; }
+        if (x < W - 1 && !line[i + 1] && !label[i + 1]) { label[i + 1] = n; stack[top++] = i + 1; }
+        if (i >= W && !line[i - W] && !label[i - W]) { label[i - W] = n; stack[top++] = i - W; }
+        if (i < N - W && !line[i + W] && !label[i + W]) { label[i + W] = n; stack[top++] = i + W; }
+      }
+      areas.push({ size: size, best: best, samples: [] });
+    }
+
+    var e = MyMap.MapExtents();
+    var mx = (e.right - e.left) / W, my = (e.top - e.bottom) / H;
+    function point(i) {
+      return [+(e.left + (i % W + 0.5) * mx).toFixed(2), +(e.top - ((i / W | 0) + 0.5) * my).toFixed(2), +(dist[i] / 3 * mx).toFixed(2)];
+    }
+    var step = Math.max(2, Math.round(sampleStepMetres / mx));
+    for (y = step >> 1; y < H; y += step) {
+      for (x = step >> 1; x < W; x += step) { i = y * W + x; if (!line[i]) { areas[label[i] - 1].samples.push(point(i)); } }
+    }
+
+    return {
+      extent: { left: e.left, right: e.right, top: e.top, bottom: e.bottom },
+      metresPerPixel: mx,
+      // Specks between nearly touching lines are not areas.
+      areas: areas.filter(function (a) { return a.size >= 20 && dist[a.best] >= 3; })
+        .map(function (a) { return { size: a.size, point: point(a.best), samples: a.samples }; })
+    };
   }
 
   window.NadlanPanel = {
@@ -149,6 +246,7 @@
     log: log,
     counts: counts,
     setRunning: setRunning,
+    findAreas: findAreas,
     setSweep: function (extent) { sweep = extent; shapes = []; probe = null; },
     setProbe: function (x, y) { probe = [x, y]; },
     addShape: function (rings, kind) { shapes.push({ rings: rings, kind: kind }); },
