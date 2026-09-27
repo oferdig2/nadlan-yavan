@@ -17,7 +17,7 @@ public sealed class ClickImport
     private readonly Channel<string> _replies = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
     private readonly Task _worker;
 
-    public ClickImport(KtimanetPage site, NadlanApiClient nadlan, int? geographicAreaId, TextWriter console)
+    public ClickImport(KtimanetPage site, NadlanApiClient? nadlan, int? geographicAreaId, TextWriter console)
     {
         _site = site;
         _session = new ImportSession(site, nadlan, geographicAreaId, console);

@@ -5,7 +5,8 @@ using System.Text.Json;
 namespace Nadlan.KaekImporter;
 
 /// <summary>Values from importer.json; anything missing keeps the built-in default.</summary>
-public sealed record ImporterSettingsFile(string? ApiUrl, string? Token, string? Delay, string? MissDelay, double? MaxViewMetres, string? Browser);
+public sealed record ImporterSettingsFile(string? ApiUrl, string? Token, string? Delay, string? MissDelay, double? MaxViewMetres, string? Browser,
+    bool? Offline = null);
 
 /// <summary>
 /// What a double-clicked app on a customer machine needs: settings without a command line, a log file (a Mac app
@@ -35,7 +36,8 @@ public static class AppHost
                     new JsonSerializerOptions(JsonSerializerDefaults.Web) { ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
                 if (s is null) continue;
                 merged = new ImporterSettingsFile(s.ApiUrl ?? merged.ApiUrl, s.Token ?? merged.Token, s.Delay ?? merged.Delay,
-                    s.MissDelay ?? merged.MissDelay, s.MaxViewMetres ?? merged.MaxViewMetres, s.Browser ?? merged.Browser);
+                    s.MissDelay ?? merged.MissDelay, s.MaxViewMetres ?? merged.MaxViewMetres, s.Browser ?? merged.Browser,
+                    s.Offline ?? merged.Offline);
             }
             catch (Exception ex) when (ex is JsonException or IOException)
             {

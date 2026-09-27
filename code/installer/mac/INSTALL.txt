@@ -22,6 +22,11 @@ Use
 - Close the browser window to quit.
 - A report of every run is saved in Documents/Nadlan/KAEK imports.
 
+Offline (demo) mode
+If the Nadlan server cannot be reached, the importer still runs the whole process and shows the parcels it
+finds (in purple), with a yellow "Offline - nothing will be saved" notice. Nothing is stored in Nadlan; the
+report in Documents still lists every parcel found.
+
 Settings
 The Nadlan address comes with the package. To change it, create
 ~/Library/Application Support/Nadlan/importer.json with:

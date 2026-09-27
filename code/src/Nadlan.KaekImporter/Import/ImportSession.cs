@@ -12,20 +12,21 @@ public sealed class StopImportException(string message) : Exception(message);
 /// <summary>
 /// One import (a sweep or a click-to-import session): what to do with each shape the site returns, and the report.
 /// Both modes go through <see cref="HandleAsync"/>, so they skip, save and report the same way.
+/// With no Nadlan client (offline) everything runs the same, but parcels are only reported, never saved.
 /// </summary>
 public sealed class ImportSession
 {
     private const int MaxConsecutiveNadlanErrors = 3;
 
     private readonly KtimanetPage _site;
-    private readonly NadlanApiClient _nadlan;
+    private readonly NadlanApiClient? _nadlan;
     private readonly TextWriter _console;
     private readonly int? _geographicAreaId;
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
     private readonly DateTime _started = DateTime.Now;
     private int _nadlanErrors;
 
-    public ImportSession(KtimanetPage site, NadlanApiClient nadlan, int? geographicAreaId, TextWriter console)
+    public ImportSession(KtimanetPage site, NadlanApiClient? nadlan, int? geographicAreaId, TextWriter console)
     {
         _site = site;
         _nadlan = nadlan;
@@ -61,7 +62,17 @@ public sealed class ImportSession
             return ShapeOutcome.Road;
         }
 
-        var saved = await SaveAsync(shape, rings, ct);
+        if (_nadlan is null)
+        {
+            var area = PolygonMath.AreaSqm(shape.Rings);
+            Report.Add(new ReportRow(shape.Kaek, ParcelResult.NotSaved, null, area, Array.Empty<string>(), "Offline - not saved"));
+            await _site.AddShapeAsync(shape.Rings, "found");
+            await _site.LogAsync($"{shape.Kaek}: found ({area:0} m²) - not saved (offline)", "warn");
+            await _site.CountsAsync(Report.Counts);
+            return ShapeOutcome.Saved; // paced like a real save: same load on the site
+        }
+
+        var saved = await SaveAsync(shape, rings, _nadlan, ct);
         await _site.CountsAsync(Report.Counts);
         _nadlanErrors = saved ? 0 : _nadlanErrors + 1;
         if (_nadlanErrors >= MaxConsecutiveNadlanErrors)
@@ -92,11 +103,11 @@ public sealed class ImportSession
     }
 
     /// <summary>False when Nadlan itself failed (5xx), so the caller can stop if that keeps happening.</summary>
-    private async Task<bool> SaveAsync(KtimanetShape shape, IReadOnlyList<IReadOnlyList<LonLat>> rings, CancellationToken ct)
+    private async Task<bool> SaveAsync(KtimanetShape shape, IReadOnlyList<IReadOnlyList<LonLat>> rings, NadlanApiClient nadlan, CancellationToken ct)
     {
         var area = PolygonMath.AreaSqm(shape.Rings);
         var notes = $"Imported from gis.ktimanet.gr on {_started:yyyy-MM-dd}.";
-        var result = await _nadlan.CreateParcelAsync(shape.Kaek, _geographicAreaId, rings, area, notes, ct);
+        var result = await nadlan.CreateParcelAsync(shape.Kaek, _geographicAreaId, rings, area, notes, ct);
         switch (result.Outcome)
         {
             case CreateOutcome.Created:

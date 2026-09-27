@@ -17,6 +17,8 @@ public static class Program
     private const string Usage = """
         NadlanKaekImporter [options]
           --api <url>            Nadlan web app (default http://localhost:5515)
+          --offline              run without Nadlan: the whole process is shown, but nothing is saved
+                                 (also used automatically when the Nadlan server cannot be reached)
           --token <token>        API token (sent as Bearer; not required yet)
           --delay <min-max>      seconds to wait after each new parcel (default 4-10)
           --miss-delay <min-max> seconds to wait after a click with nothing new (default 2-5)
@@ -41,17 +43,24 @@ public static class Program
             return 2;
         }
 
-        using var nadlan = new NadlanApiClient(options.Api, options.Token);
-        IReadOnlyList<GeographicAreaItem> areas;
-        try
+        // Offline (asked for, or no server reachable): everything runs and is shown, nothing is saved.
+        using var client = new NadlanApiClient(options.Api, options.Token);
+        NadlanApiClient? nadlan = null;
+        IReadOnlyList<GeographicAreaItem> areas = Array.Empty<GeographicAreaItem>();
+        string? offlineReason = options.Offline ? "Offline mode (--offline)." : null;
+        if (!options.Offline)
         {
-            areas = await nadlan.ListActiveAreasAsync(CancellationToken.None);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
-        {
-            AppHost.ShowFatal($"Cannot reach Nadlan at {options.Api}: {ex.Message}\n\n" +
-                $"Check the address in {Path.Combine(AppHost.UserFolder, AppHost.SettingsFileName)} (\"apiUrl\"). Log: {logPath}");
-            return 1;
+            try
+            {
+                using var quick = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                areas = await client.ListActiveAreasAsync(quick.Token);
+                nadlan = client;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+            {
+                offlineReason = $"The Nadlan server at {options.Api} cannot be reached.";
+                Console.WriteLine($"{offlineReason} ({ex.Message}) Running offline: nothing will be saved.");
+            }
         }
 
         using var playwright = await Playwright.CreateAsync();
@@ -70,7 +79,8 @@ public static class Program
         var context = await browser.NewContextAsync(new() { ViewportSize = ViewportSize.NoViewport, Locale = "el-GR" });
 
         var areaJson = JsonSerializer.Serialize(areas.Select(a => new { id = a.Id, name = a.Name }));
-        await context.AddInitScriptAsync($"window.__nadlanAreas = {areaJson};\n{LoadPanelScript()}");
+        var offlineJson = JsonSerializer.Serialize(offlineReason);
+        await context.AddInitScriptAsync($"window.__nadlanAreas = {areaJson};\nwindow.__nadlanOffline = {offlineJson};\n{LoadPanelScript()}");
 
         var page = await context.NewPageAsync();
         var site = new KtimanetPage(page);
@@ -217,7 +227,7 @@ public static class Program
         return reader.ReadToEnd();
     }
 
-    private sealed record Options(Uri Api, string? Token, ImportSettings Settings, int? DebugPort, string Browser)
+    private sealed record Options(Uri Api, string? Token, ImportSettings Settings, int? DebugPort, string Browser, bool Offline)
     {
         /// <summary>Built-in defaults, then importer.json, then the command line.</summary>
         public static Options Parse(string[] args, ImporterSettingsFile file)
@@ -230,6 +240,7 @@ public static class Program
             var browser = BrowserName(file.Browser ?? "auto");
             int? maxParcels = null;
             int? debugPort = null;
+            var offline = file.Offline ?? false;
 
             for (var i = 0; i < args.Length; i++)
             {
@@ -244,6 +255,7 @@ public static class Program
                     case "--max-view": maxView = Number(Next()); break;
                     case "--max-parcels": maxParcels = (int)Number(Next()); break;
                     case "--browser": browser = BrowserName(Next()); break;
+                    case "--offline": offline = true; break;
                     case "--debug-port": debugPort = (int)Number(Next()); break;
                     default: throw new ArgumentException($"Unknown option {args[i]}.");
                 }
@@ -252,7 +264,7 @@ public static class Program
             return new Options(api, token, new ImportSettings(
                 TimeSpan.FromSeconds(delay.Item1), TimeSpan.FromSeconds(delay.Item2),
                 TimeSpan.FromSeconds(missDelay.Item1), TimeSpan.FromSeconds(missDelay.Item2),
-                maxView, maxParcels), debugPort, browser);
+                maxView, maxParcels), debugPort, browser, offline);
         }
 
         private static Uri Url(string value) =>

@@ -1,7 +1,8 @@
 // Injected into gis.ktimanet.gr/gis/map by NadlanKaekImporter. Draws the control panel and the progress
 // overlay; all the work happens in the .NET tool, which calls window.NadlanPanel.* and receives
 // window.nadlanStart(areaId) / window.nadlanStop() / window.nadlanClickMode(on, areaId) (exposed by Playwright).
-// window.__nadlanAreas ([{ id, name }]) is set by the tool just before this script.
+// window.__nadlanAreas ([{ id, name }]) and window.__nadlanOffline (null, or why nothing will be saved) are set by the
+// tool just before this script.
 (function () {
   "use strict";
   if (window.top !== window || !/\/gis\/map/i.test(location.pathname) || window.NadlanPanel) { return; }
@@ -10,8 +11,10 @@
     created: { stroke: "#16a34a", fill: "rgba(22,163,74,0.25)" },
     exists: { stroke: "#2563eb", fill: "rgba(37,99,235,0.18)" },
     rejected: { stroke: "#dc2626", fill: "rgba(220,38,38,0.25)" },
-    road: { stroke: "#9ca3af", fill: "rgba(156,163,175,0.12)" }
+    road: { stroke: "#9ca3af", fill: "rgba(156,163,175,0.12)" },
+    found: { stroke: "#7c3aed", fill: "rgba(124,58,237,0.22)" } // offline: found but not saved
   };
+  var offline = window.__nadlanOffline || null;
   var shapes = [];      // { rings: [[[x,y],...]], kind }
   var sweep = null;     // { left, right, top, bottom }
   var probe = null;     // [x, y]
@@ -28,6 +31,7 @@
       "#nadlan-panel header button{border:none;background:none;cursor:pointer;font-size:14px;color:#64748b}" +
       "#nadlan-panel .body{padding:8px 10px}" +
       "#nadlan-panel label{display:block;margin-bottom:6px}" +
+      "#nadlan-panel [hidden]{display:none!important}" +
       "#nadlan-panel label.check{display:flex;gap:6px;align-items:center;margin:4px 0 0}" +
       "#nadlan-panel select{width:100%;padding:4px;margin-top:2px}" +
       "#nadlan-panel .actions{display:flex;gap:6px;margin:8px 0}" +
@@ -40,7 +44,8 @@
       "#nadlan-log{max-height:180px;overflow:auto;font-size:11px;border-top:1px solid #e2e8f0;padding-top:4px;margin-top:4px}" +
       "#nadlan-log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       "#nadlan-log .err{color:#b91c1c}#nadlan-log .warn{color:#b45309}#nadlan-log .ok{color:#15803d}" +
-      "#nadlan-panel.min .body{display:none}";
+      "#nadlan-panel.min .body{display:none}" +
+      "#nadlan-offline{margin:-8px -10px 8px;padding:8px 10px;background:#fef3c7;color:#92400e;border-bottom:1px solid #fcd34d;font-size:12px}";
     document.head.appendChild(style);
 
     var areas = window.__nadlanAreas || [];
@@ -49,7 +54,11 @@
     panel.innerHTML =
       "<header><span>Nadlan - import parcels</span><button type=\"button\" id=\"nadlan-min\" title=\"Minimise\">_</button></header>" +
       "<div class=\"body\">" +
-      "<label>Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">(none)</option>" +
+      (offline
+        ? "<div id=\"nadlan-offline\"><b>Offline - nothing will be saved.</b> " + esc(offline) +
+          " The whole process runs and parcels are shown and listed in the report, but they are not stored in Nadlan.</div>"
+        : "") +
+      "<label" + (offline ? " hidden" : "") + ">Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">(none)</option>" +
       areas.map(function (a) { return "<option value=\"" + a.id + "\">" + esc(a.name) + "</option>"; }).join("") +
       "</select></label>" +
       "<label class=\"check\"><input type=\"checkbox\" id=\"nadlan-click\"> Import each parcel I click on the map</label>" +
@@ -154,9 +163,11 @@
   function counts(c) {
     function sw(kind) { var k = COLORS[kind]; return "<span class=\"sw\" style=\"border-color:" + k.stroke + ";background:" + k.fill + "\"></span>"; }
     document.getElementById("nadlan-counts").innerHTML =
-      "<div>" + sw("created") + "Created: <b>" + (c.created || 0) + "</b></div>" +
-      "<div>" + sw("exists") + "Already in Nadlan: <b>" + (c.exists || 0) + "</b></div>" +
-      "<div>" + sw("rejected") + "Rejected: <b>" + (c.rejected || 0) + "</b></div>" +
+      (offline
+        ? "<div>" + sw("found") + "Found (not saved): <b>" + (c.found || 0) + "</b></div>"
+        : "<div>" + sw("created") + "Created: <b>" + (c.created || 0) + "</b></div>" +
+          "<div>" + sw("exists") + "Already in Nadlan: <b>" + (c.exists || 0) + "</b></div>" +
+          "<div>" + sw("rejected") + "Rejected: <b>" + (c.rejected || 0) + "</b></div>") +
       "<div>" + sw("road") + "Roads skipped: <b>" + (c.roads || 0) + "</b></div>" +
       "<div>Requests to site: <b>" + (c.requests || 0) + "</b></div>" +
       "<div>Areas: <b>" + (c.areasDone || 0) + "</b> / " + (c.areasTotal || 0) + "</div>";

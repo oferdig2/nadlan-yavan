@@ -22,11 +22,12 @@ public sealed class ImportRun
     private const double SampleStepMetres = 5.0;
 
     private readonly KtimanetPage _site;
-    private readonly NadlanApiClient _nadlan;
+    private readonly NadlanApiClient? _nadlan;
     private readonly ImportSettings _settings;
     private readonly TextWriter _console;
 
-    public ImportRun(KtimanetPage site, NadlanApiClient nadlan, ImportSettings settings, TextWriter console)
+    /// <param name="nadlan">Null = offline: the run is shown in full but nothing is saved.</param>
+    public ImportRun(KtimanetPage site, NadlanApiClient? nadlan, ImportSettings settings, TextWriter console)
     {
         _site = site;
         _nadlan = nadlan;
@@ -60,7 +61,10 @@ public sealed class ImportRun
         await _site.LogAsync($"{areas.Count} areas between the parcel lines in this view.");
         try
         {
-            await PreloadExistingAsync(view.Extent, coverage, session, ct);
+            if (_nadlan is not null)
+            {
+                await PreloadExistingAsync(view.Extent, coverage, session, _nadlan, ct);
+            }
             await _site.CountsAsync(report.Counts);
 
             var siteErrors = 0;
@@ -70,7 +74,7 @@ public sealed class ImportRun
                 for (var probes = 0; ; probes++)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (_settings.MaxParcels is int max && report.Count(ParcelResult.Created) >= max)
+                    if (_settings.MaxParcels is int max && report.Count(ParcelResult.Created) + report.Count(ParcelResult.NotSaved) >= max)
                     {
                         throw new StopImportException($"Stopped after {max} new parcels (--max-parcels).");
                     }
@@ -143,14 +147,14 @@ public sealed class ImportRun
     /// Parcels with a real KAEK that Nadlan already has need no request to the site; they are listed in the report.
     /// Provisional (TMP-) ones are not skipped - the real parcel is imported over them.
     /// </summary>
-    private async Task PreloadExistingAsync(MapExtent extent, Coverage coverage, ImportSession session, CancellationToken ct)
+    private async Task PreloadExistingAsync(MapExtent extent, Coverage coverage, ImportSession session, NadlanApiClient nadlan, CancellationToken ct)
     {
         var corners = new[]
         {
             Egsa87.ToWgs84(new EgsaPoint(extent.Left, extent.Top)), Egsa87.ToWgs84(new EgsaPoint(extent.Right, extent.Top)),
             Egsa87.ToWgs84(new EgsaPoint(extent.Left, extent.Bottom)), Egsa87.ToWgs84(new EgsaPoint(extent.Right, extent.Bottom)),
         };
-        var existing = (await _nadlan.ListParcelsInAsync(corners.Min(c => c.Lon), corners.Min(c => c.Lat),
+        var existing = (await nadlan.ListParcelsInAsync(corners.Min(c => c.Lon), corners.Min(c => c.Lat),
             corners.Max(c => c.Lon), corners.Max(c => c.Lat), ct)).Where(p => !p.IsProvisional).ToList();
 
         foreach (var parcel in existing)
