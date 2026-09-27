@@ -4,12 +4,27 @@
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
 
-  var STYLE_NORMAL = { strokeColor: "#1d4ed8", strokeWeight: 1.5, fillColor: "#3b82f6", fillOpacity: 0.18, zIndex: 1 };
-  // Provisional (TMP-) Parcels sit on top with a light fill and a bold outline, so the real KAEK Parcels
-  // underneath stay visible and it is easy to see how the two overlap.
-  var STYLE_PROVISIONAL = { strokeColor: "#ea580c", strokeWeight: 2.5, fillColor: "#fb923c", fillOpacity: 0.12, zIndex: 2 };
-  var STYLE_HOVER = { strokeWeight: 3, fillOpacity: 0.32 };
-  var STYLE_SELECTED = { strokeColor: "#111827", strokeWeight: 3, fillOpacity: 0.4 };
+  // Provisional (TMP-) Parcels sit on top with a bold outline. Each kind has its own fill opacity (legend sliders):
+  // real Parcels filled and provisional ones as outlines shows exactly where the two disagree.
+  var STYLE_NORMAL = { key: "normal", strokeColor: "#1d4ed8", strokeWeight: 1.5, fillColor: "#3b82f6", zIndex: 1, defaultOpacity: 0.4 };
+  var STYLE_PROVISIONAL = { key: "provisional", strokeColor: "#ea580c", strokeWeight: 2.5, fillColor: "#fb923c", zIndex: 2, defaultOpacity: 0.1 };
+  var STYLE_SELECTED = { strokeColor: "#111827", strokeWeight: 3 };
+
+  function loadOpacity(style) {
+    try {
+      var v = parseFloat(window.localStorage.getItem("nadlan.parcelFill." + style.key));
+      return v >= 0 && v <= 0.8 ? v : style.defaultOpacity;
+    } catch (e) { return style.defaultOpacity; } // storage blocked: just use the default
+  }
+
+  function saveOpacity(style, v) {
+    try { window.localStorage.setItem("nadlan.parcelFill." + style.key, String(v)); } catch (e) { /* per-browser convenience only */ }
+  }
+
+  function rgba(hex, alpha) {
+    var n = parseInt(hex.slice(1), 16);
+    return "rgba(" + (n >> 16) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + alpha + ")";
+  }
 
   /**
    * @param {google.maps.Map} map
@@ -19,17 +34,25 @@
     var layer = new google.maps.Data({ map: map });
     var selectedId = null;
     var interactive = true;
+    var opacity = { normal: loadOpacity(STYLE_NORMAL), provisional: loadOpacity(STYLE_PROVISIONAL) };
 
     layer.setStyle(function (feature) {
       var id = feature.getId();
       var base = feature.getProperty("registryIdIsProvisional") ? STYLE_PROVISIONAL : STYLE_NORMAL;
-      var style = Object.assign({ clickable: interactive }, base);
-      if (id === selectedId) { Object.assign(style, STYLE_SELECTED); }
+      var fill = opacity[base.key];
+      var style = {
+        clickable: interactive, strokeColor: base.strokeColor, strokeWeight: base.strokeWeight,
+        fillColor: base.fillColor, fillOpacity: fill, zIndex: base.zIndex
+      };
+      if (id === selectedId) { Object.assign(style, STYLE_SELECTED, { fillOpacity: Math.min(0.85, fill + 0.25) }); }
       return style;
     });
 
     // Per-feature override (Google's hover pattern): touches one polygon, not a restyle of the whole layer.
-    layer.addListener("mouseover", function (e) { layer.overrideStyle(e.feature, STYLE_HOVER); });
+    layer.addListener("mouseover", function (e) {
+      var fill = opacity[e.feature.getProperty("registryIdIsProvisional") ? "provisional" : "normal"];
+      layer.overrideStyle(e.feature, { strokeWeight: 3, fillOpacity: Math.min(0.85, fill + 0.2) });
+    });
     layer.addListener("mouseout", function (e) { layer.revertStyle(e.feature); });
     layer.addListener("click", function (e) {
       selectedId = e.feature.getId();
@@ -43,10 +66,36 @@
 
     var legend = document.createElement("div");
     legend.className = "map-legend";
-    legend.innerHTML =
-      "<div><span class=\"swatch\" style=\"background:" + STYLE_NORMAL.fillColor + ";border-color:" + STYLE_NORMAL.strokeColor + "\"></span> Real KAEK</div>" +
-      "<div><span class=\"swatch\" style=\"background:" + STYLE_PROVISIONAL.fillColor + ";border-color:" + STYLE_PROVISIONAL.strokeColor + "\"></span> Provisional (TMP-)</div>";
+    function row(style, label) {
+      return "<div class=\"legend-row\"><span class=\"swatch\" data-swatch=\"" + style.key + "\"></span><span>" + label + "</span>" +
+        "<input type=\"range\" min=\"0\" max=\"80\" step=\"5\" data-fill=\"" + style.key + "\" title=\"Fill opacity\">" +
+        "<span class=\"pct\" data-pct=\"" + style.key + "\"></span></div>";
+    }
+    legend.innerHTML = row(STYLE_NORMAL, "Real KAEK") + row(STYLE_PROVISIONAL, "Provisional (TMP-)") +
+      "<div class=\"legend-row\"><span class=\"swatch\" data-swatch=\"overlap\"></span><span>Both (overlap)</span></div>";
     map.controls[google.maps.ControlPosition.LEFT_BOTTOM].push(legend);
+    [STYLE_NORMAL, STYLE_PROVISIONAL].forEach(function (style) {
+      var slider = legend.querySelector("[data-fill=" + style.key + "]");
+      slider.value = Math.round(opacity[style.key] * 100);
+      slider.addEventListener("input", function () {
+        opacity[style.key] = Number(slider.value) / 100;
+        saveOpacity(style, opacity[style.key]);
+        paintLegend();
+        refresh();
+      });
+    });
+    paintLegend();
+
+    // The overlap swatch is the provisional fill laid over the real one, as on the map.
+    function paintLegend() {
+      var normal = rgba(STYLE_NORMAL.fillColor, opacity.normal), provisional = rgba(STYLE_PROVISIONAL.fillColor, opacity.provisional);
+      legend.querySelector("[data-swatch=normal]").style.cssText = "background:" + normal + ";border-color:" + STYLE_NORMAL.strokeColor;
+      legend.querySelector("[data-swatch=provisional]").style.cssText = "background:" + provisional + ";border-color:" + STYLE_PROVISIONAL.strokeColor;
+      legend.querySelector("[data-swatch=overlap]").style.cssText =
+        "background:linear-gradient(" + provisional + "," + provisional + ")," + normal + ";border-color:" + STYLE_PROVISIONAL.strokeColor;
+      legend.querySelector("[data-pct=normal]").textContent = Math.round(opacity.normal * 100) + "%";
+      legend.querySelector("[data-pct=provisional]").textContent = Math.round(opacity.provisional * 100) + "%";
+    }
 
     return {
       /** @param {Array<{ summary: object, geometry: object }>} items  as returned by GET /api/parcels */
