@@ -69,6 +69,17 @@ public class KaekImporterTests
     }
 
     [Fact]
+    public void Wgs84_back_to_egsa87_round_trips_within_millimetres()
+    {
+        var original = new EgsaPoint(444898.799734222, 4262323.14661558);
+
+        var back = Egsa87.FromWgs84(Egsa87.ToWgs84(original));
+
+        Assert.InRange(Math.Abs(original.X - back.X), 0, 0.005); // series formulas: millimetre-level, far below a pixel
+        Assert.InRange(Math.Abs(original.Y - back.Y), 0, 0.005);
+    }
+
+    [Fact]
     public void Coverage_knows_points_inside_an_imported_parcel()
     {
         var shape = KtimanetReply.Parse(ParcelReply)!;

@@ -45,6 +45,49 @@ public static class Egsa87
     public static IReadOnlyList<IReadOnlyList<LonLat>> ToWgs84(IReadOnlyList<IReadOnlyList<EgsaPoint>> rings) =>
         rings.Select(r => (IReadOnlyList<LonLat>)r.Select(ToWgs84).ToList()).ToList();
 
+    /// <summary>WGS84 -> EGSA87: the reverse datum shift, then forward Transverse Mercator. Round trip is within a millimetre or so.</summary>
+    public static EgsaPoint FromWgs84(LonLat p)
+    {
+        var lat = p.Lat * Math.PI / 180;
+        var lon = p.Lon * Math.PI / 180;
+        var n = A / Math.Sqrt(1 - E2 * Sq(Math.Sin(lat)));
+        var x = n * Math.Cos(lat) * Math.Cos(lon) - Dx;
+        var y = n * Math.Cos(lat) * Math.Sin(lon) - Dy;
+        var z = n * (1 - E2) * Math.Sin(lat) - Dz;
+
+        var horizontal = Math.Sqrt(x * x + y * y);
+        var phi = Math.Atan2(z, horizontal * (1 - E2));
+        for (var i = 0; i < 6; i++)
+        {
+            var ni = A / Math.Sqrt(1 - E2 * Sq(Math.Sin(phi)));
+            phi = Math.Atan2(z + E2 * ni * Math.Sin(phi), horizontal);
+        }
+
+        return ForwardTransverseMercator(phi, Math.Atan2(y, x));
+    }
+
+    public static IReadOnlyList<IReadOnlyList<EgsaPoint>> FromWgs84(IReadOnlyList<IReadOnlyList<LonLat>> rings) =>
+        rings.Select(r => (IReadOnlyList<EgsaPoint>)r.Select(FromWgs84).ToList()).ToList();
+
+    private static EgsaPoint ForwardTransverseMercator(double phi, double lambda)
+    {
+        var ep2 = E2 / (1 - E2);
+        var n = A / Math.Sqrt(1 - E2 * Sq(Math.Sin(phi)));
+        var t = Sq(Math.Tan(phi));
+        var c = ep2 * Sq(Math.Cos(phi));
+        var a = (lambda - Lon0) * Math.Cos(phi);
+        var m = A * ((1 - E2 / 4 - 3 * E2 * E2 / 64 - 5 * Math.Pow(E2, 3) / 256) * phi
+            - (3 * E2 / 8 + 3 * E2 * E2 / 32 + 45 * Math.Pow(E2, 3) / 1024) * Math.Sin(2 * phi)
+            + (15 * E2 * E2 / 256 + 45 * Math.Pow(E2, 3) / 1024) * Math.Sin(4 * phi)
+            - 35 * Math.Pow(E2, 3) / 3072 * Math.Sin(6 * phi));
+
+        var easting = FalseEasting + K0 * n * (a + (1 - t + c) * Math.Pow(a, 3) / 6
+            + (5 - 18 * t + t * t + 72 * c - 58 * ep2) * Math.Pow(a, 5) / 120);
+        var northing = K0 * (m + n * Math.Tan(phi) * (a * a / 2 + (5 - t + 9 * c + 4 * c * c) * Math.Pow(a, 4) / 24
+            + (61 - 58 * t + t * t + 600 * c - 330 * ep2) * Math.Pow(a, 6) / 720));
+        return new EgsaPoint(easting, northing);
+    }
+
     private static (double Lat, double Lon) InverseTransverseMercator(double easting, double northing)
     {
         var ep2 = E2 / (1 - E2);

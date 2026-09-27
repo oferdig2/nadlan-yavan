@@ -157,6 +157,7 @@ public sealed class ImportRun
         {
             coverage.Add(parcel.Rings);
             session.MarkAlreadyInNadlan(parcel.RegistryId);
+            await _site.AddShapeAsync(Egsa87.FromWgs84(parcel.Rings), "exists"); // so skipped parcels don't look missed
         }
 
         if (existing.Count > 0)
