@@ -77,6 +77,15 @@
     });
   }
 
+  /** A warning about something that did succeed (e.g. saved, but a check was skipped). */
+  function notice(title, message) {
+    var d = open({
+      title: title,
+      content: $("<div class=\"warn\"></div>").text(message),
+      buttons: [{ text: "OK", primary: true, click: function () { d.close(); } }]
+    });
+  }
+
   // Reads a form's [name] fields into an object; numbers and checkboxes typed by data-type/checkbox.
   function readForm($form) {
     var data = {};
@@ -99,5 +108,5 @@
     return data;
   }
 
-  Nadlan.dialog = { open: open, confirm: confirm, showError: showError, readForm: readForm };
+  Nadlan.dialog = { open: open, confirm: confirm, showError: showError, notice: notice, readForm: readForm };
 })(window, jQuery);

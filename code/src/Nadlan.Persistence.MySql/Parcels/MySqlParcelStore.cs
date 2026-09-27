@@ -116,9 +116,11 @@ public sealed class MySqlParcelStore : IParcelStore
     public async Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon candidate, double minOverlapSqm, CancellationToken ct = default, long? excludeParcelId = null)
     {
         await using var conn = await _db.OpenAsync(ct);
-        var rows = await conn.QueryAsync<ParcelOverlapHit>(new CommandDefinition($"""
+        try
+        {
+            var rows = await conn.QueryAsync<ParcelOverlapHit>(new CommandDefinition($"""
             SELECT p.parcel_id AS ParcelId, p.registry_id AS RegistryId,
-                   ST_Area(ST_Intersection(p.geometry, c.g)) AS OverlapSqm
+                   {OverlapAreaSql("p.geometry", "c.g")} AS OverlapSqm
             FROM (SELECT {FromWkt} AS g) c
             JOIN parcel p ON ST_Intersects(p.geometry, c.g) AND NOT ST_Touches(p.geometry, c.g)
             WHERE @excludeParcelId IS NULL OR p.parcel_id <> @excludeParcelId
@@ -126,7 +128,14 @@ public sealed class MySqlParcelStore : IParcelStore
             ORDER BY OverlapSqm DESC
             LIMIT 20
             """, new { Wkt = candidate.ToWkt(), minOverlapSqm, excludeParcelId }, cancellationToken: ct));
-        return rows.ToList();
+            return rows.ToList();
+        }
+        catch (MySqlException ex) when (!ex.IsTransient)
+        {
+            // The SQL is fixed and only the polygon varies, so a non-transient error here is MySQL failing on this
+            // geometry. Connection drops and deadlocks are transient and still fail the request.
+            throw new OverlapCheckFailedException($"MySQL could not compute overlaps for this polygon: {ex.Message}", ex);
+        }
     }
 
     public async Task UpdateAsync(Parcel parcel, CancellationToken ct = default)
@@ -158,10 +167,10 @@ public sealed class MySqlParcelStore : IParcelStore
     {
         // Interiors intersect = intersects but does not merely touch. Neighbouring parcels share edges; they don't count.
         await using var conn = await _db.OpenAsync(ct);
-        var rows = await conn.QueryAsync<ParcelOverlap>(new CommandDefinition("""
+        var rows = await conn.QueryAsync<ParcelOverlap>(new CommandDefinition($"""
             SELECT a.parcel_id AS ParcelIdA, a.registry_id AS RegistryIdA,
                    b.parcel_id AS ParcelIdB, b.registry_id AS RegistryIdB,
-                   ST_Area(ST_Intersection(a.geometry, b.geometry)) AS OverlapSqm
+                   {OverlapAreaSql("a.geometry", "b.geometry")} AS OverlapSqm
             FROM parcel a
             JOIN parcel b ON a.parcel_id < b.parcel_id
                          AND ST_Intersects(a.geometry, b.geometry)
@@ -171,6 +180,17 @@ public sealed class MySqlParcelStore : IParcelStore
             """, new { minOverlapSqm }, commandTimeout: 300, cancellationToken: ct));
         return rows.ToList();
     }
+
+    /// <summary>
+    /// Overlap area in m². Neighbours sharing a border (e.g. real KAEK parcels) intersect as a mix of slivers, lines and
+    /// points, which ST_Area rejects ("unexpected type MULTIPOINT"); for those, measure what the union is missing.
+    /// </summary>
+    private static string OverlapAreaSql(string a, string b) => $"""
+        CASE
+            WHEN ST_GeometryType(ST_Intersection({a}, {b})) IN ('POLYGON', 'MULTIPOLYGON') THEN ST_Area(ST_Intersection({a}, {b}))
+            ELSE GREATEST(0, ST_Area({a}) + ST_Area({b}) - ST_Area(ST_Union({a}, {b})))
+        END
+        """;
 
     /// <summary>Flat DB shape; Dapper maps snake_case columns onto it (see <see cref="MySqlDatabase"/>).</summary>
     private sealed class ParcelRow

@@ -66,12 +66,16 @@ public sealed record CreateParcelResult(
     string? RegistryId,
     bool RegistryIdIsProvisional,
     long? ExistingParcelId,
-    IReadOnlyList<ParcelOverlapHit> Overlaps);
+    IReadOnlyList<ParcelOverlapHit> Overlaps,
+    string? Warning = null);
 
 public sealed class ParcelService
 {
     /// <summary>Below this, overlap is digitising noise along a shared border.</summary>
     public const double MinOverlapSqm = 1.0;
+
+    public const string OverlapCheckFailedWarning =
+        "Saved, but the overlap check against other Parcels could not run for this polygon. Check it against its neighbours on the map.";
 
     private readonly IParcelStore _parcels;
     private readonly IGeographicAreaStore _areas;
@@ -107,7 +111,7 @@ public sealed class ParcelService
         }
 
         // Scenario 14: overlap is a warning for review, not proof of an error.
-        var overlaps = await _parcels.FindOverlappingAsync(request.Geometry, MinOverlapSqm, ct);
+        var (overlaps, checkError) = await CheckOverlapsAsync(request.Geometry, excludeParcelId: null, ct);
         if (overlaps.Count > 0 && !request.AcceptOverlaps)
         {
             return new CreateParcelResult(CreateParcelOutcome.NeedsOverlapConfirmation, null, registryId, provisional, null, overlaps);
@@ -141,9 +145,10 @@ public sealed class ParcelService
         }
 
         await _activity.RecordAsync(new ActivityEntry("Parcel", id, ActivityActions.ParcelCreated,
-            $"Parcel {registryId} created{(provisional ? " (provisional KAEK)" : "")}{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}.",
-            overlaps.Count > 0 ? new { overlaps } : null), ct);
-        return new CreateParcelResult(CreateParcelOutcome.Created, id, registryId, provisional, null, overlaps);
+            $"Parcel {registryId} created{(provisional ? " (provisional KAEK)" : "")}{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}{(checkError is null ? "" : " - overlap check failed")}.",
+            overlaps.Count > 0 || checkError is not null ? new { overlaps, overlapCheckError = checkError } : null), ct);
+        return new CreateParcelResult(CreateParcelOutcome.Created, id, registryId, provisional, null, overlaps,
+            checkError is null ? null : OverlapCheckFailedWarning);
     }
 
     public async Task<CreateParcelResult> UpdateAsync(UpdateParcelRequest request, CancellationToken ct = default)
@@ -175,6 +180,7 @@ public sealed class ParcelService
         }
 
         IReadOnlyList<ParcelOverlapHit> overlaps = Array.Empty<ParcelOverlapHit>();
+        string? checkError = null;
         if (request.Geometry is not null)
         {
             if (!await _parcels.IsValidGeometryAsync(request.Geometry, ct))
@@ -182,7 +188,7 @@ public sealed class ParcelService
                 throw new DomainValidationException("PARCEL_GEOMETRY_INVALID", "The polygon is not valid (its edges cross, or it has no area).");
             }
 
-            overlaps = await _parcels.FindOverlappingAsync(request.Geometry, MinOverlapSqm, ct, excludeParcelId: existing.ParcelId);
+            (overlaps, checkError) = await CheckOverlapsAsync(request.Geometry, existing.ParcelId, ct);
             if (overlaps.Count > 0 && !request.AcceptOverlaps)
             {
                 return new CreateParcelResult(CreateParcelOutcome.NeedsOverlapConfirmation, existing.ParcelId, registryId, provisional, null, overlaps);
@@ -215,11 +221,13 @@ public sealed class ParcelService
             return new CreateParcelResult(CreateParcelOutcome.DuplicateRegistryId, null, registryId, false, winner?.ParcelId, Array.Empty<ParcelOverlapHit>());
         }
 
-        await RecordParcelChangesAsync(existing, updated, overlaps, ct);
-        return new CreateParcelResult(CreateParcelOutcome.Updated, existing.ParcelId, registryId, provisional, null, overlaps);
+        await RecordParcelChangesAsync(existing, updated, overlaps, checkError, ct);
+        return new CreateParcelResult(CreateParcelOutcome.Updated, existing.ParcelId, registryId, provisional, null, overlaps,
+            checkError is null ? null : OverlapCheckFailedWarning);
     }
 
-    private async Task RecordParcelChangesAsync(Parcel before, Parcel after, IReadOnlyList<ParcelOverlapHit> overlaps, CancellationToken ct)
+    private async Task RecordParcelChangesAsync(Parcel before, Parcel after, IReadOnlyList<ParcelOverlapHit> overlaps, string? overlapCheckError,
+        CancellationToken ct)
     {
         if (before.RegistryId != after.RegistryId)
         {
@@ -231,8 +239,8 @@ public sealed class ParcelService
         if (!ReferenceEquals(before.Geometry, after.Geometry))
         {
             await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelGeometryChanged,
-                $"Polygon edited{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}.",
-                new { oldWkt = before.Geometry.ToWkt() }), ct); // keep the old shape: no geometry versioning in Phase 1
+                $"Polygon edited{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}{(overlapCheckError is null ? "" : " - overlap check failed")}.",
+                new { oldWkt = before.Geometry.ToWkt(), overlapCheckError }), ct); // keep the old shape: no geometry versioning in Phase 1
         }
 
         var fields = new List<string>();
@@ -246,6 +254,24 @@ public sealed class ParcelService
         {
             await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelEdited,
                 $"Parcel details edited: {string.Join(", ", fields)}."), ct);
+        }
+    }
+
+    /// <summary>
+    /// Overlaps with other Parcels. If the database cannot compute them for this polygon, the save goes ahead without
+    /// the check - a GIS edge case must not cost the user their work - and the error comes back so the caller can warn
+    /// the user (<see cref="OverlapCheckFailedWarning"/>) and log it.
+    /// </summary>
+    private async Task<(IReadOnlyList<ParcelOverlapHit> Overlaps, string? CheckError)> CheckOverlapsAsync(GeoPolygon geometry, long? excludeParcelId,
+        CancellationToken ct)
+    {
+        try
+        {
+            return (await _parcels.FindOverlappingAsync(geometry, MinOverlapSqm, ct, excludeParcelId), null);
+        }
+        catch (OverlapCheckFailedException ex)
+        {
+            return (Array.Empty<ParcelOverlapHit>(), ex.Message);
         }
     }
 

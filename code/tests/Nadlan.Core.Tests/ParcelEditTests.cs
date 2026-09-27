@@ -1,3 +1,4 @@
+using Nadlan.Core.Activity;
 using Nadlan.Core.Contacts;
 using Nadlan.Core.Geo;
 using Nadlan.Core.GeographicAreas;
@@ -51,6 +52,46 @@ public class ParcelEditTests
     }
 
     [Fact]
+    public async Task New_parcel_is_saved_with_a_warning_when_the_overlap_check_fails()
+    {
+        var store = new Store { OverlapCheckFails = true };
+        var activity = new Activity();
+
+        var result = await new ParcelService(store, new NoAreas(), new Greece(), activity)
+            .CreateAsync(new CreateParcelRequest { RegistryId = "120981108002", Geometry = Square });
+
+        Assert.Equal(CreateParcelOutcome.Created, result.Outcome);
+        Assert.Equal(ParcelService.OverlapCheckFailedWarning, result.Warning);
+        Assert.Equal("120981108002", store.Parcels.Single().RegistryId);
+        var entry = activity.Entries.Single();
+        Assert.Contains("overlap check failed", entry.Summary);
+        Assert.Contains("MULTIPOINT", System.Text.Json.JsonSerializer.Serialize(entry.Metadata)); // the technical cause is kept for us
+    }
+
+    [Fact]
+    public async Task Edited_polygon_is_saved_with_a_warning_when_the_overlap_check_fails()
+    {
+        var store = new Store { OverlapCheckFails = true };
+        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "120981108002", Geometry = Square });
+        var moved = KmlCoordinates.ParseRing("23.1,38.1 23.3,38.1 23.3,38.2 23.1,38.2").Polygon!;
+
+        var result = await NewService(store).UpdateAsync(new UpdateParcelRequest { ParcelId = 1, Geometry = moved });
+
+        Assert.Equal(CreateParcelOutcome.Updated, result.Outcome);
+        Assert.Equal(ParcelService.OverlapCheckFailedWarning, result.Warning);
+        Assert.Same(moved, store.Updated.Single().Geometry);
+    }
+
+    [Fact]
+    public async Task No_warning_when_the_overlap_check_runs()
+    {
+        var result = await NewService(new Store()).CreateAsync(new CreateParcelRequest { RegistryId = "120981101010", Geometry = Square });
+
+        Assert.Equal(CreateParcelOutcome.Created, result.Outcome);
+        Assert.Null(result.Warning);
+    }
+
+    [Fact]
     public async Task Legal_ownership_cannot_exceed_100_percent()
     {
         var owners = new Owners();
@@ -91,16 +132,31 @@ public class ParcelEditTests
     {
         public List<Parcel> Parcels { get; } = new();
         public List<Parcel> Updated { get; } = new();
+        public bool OverlapCheckFails { get; init; }
 
         public Task<Parcel?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult(Parcels.FirstOrDefault(p => p.ParcelId == id));
         public Task<Parcel?> GetByRegistryIdAsync(int c, string r, CancellationToken ct = default) => Task.FromResult(Parcels.FirstOrDefault(p => p.RegistryId == r));
         public Task<bool> IsValidGeometryAsync(GeoPolygon p, CancellationToken ct = default) => Task.FromResult(true);
         public Task UpdateAsync(Parcel p, CancellationToken ct = default) { Updated.Add(p); return Task.CompletedTask; }
         public Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon c, double m, CancellationToken ct = default, long? exclude = null)
-            => Task.FromResult<IReadOnlyList<ParcelOverlapHit>>(Array.Empty<ParcelOverlapHit>());
-        public Task<long> InsertAsync(Parcel p, CancellationToken ct = default) => throw new NotSupportedException();
+            => OverlapCheckFails
+                ? throw new OverlapCheckFailedException("MySQL could not compute overlaps for this polygon: POLYGON/MULTIPOLYGON value is a geometry of unexpected type MULTIPOINT in st_area.", new Exception())
+                : Task.FromResult<IReadOnlyList<ParcelOverlapHit>>(Array.Empty<ParcelOverlapHit>());
+        public Task<long> InsertAsync(Parcel p, CancellationToken ct = default)
+        {
+            var id = Parcels.Count + 1L;
+            Parcels.Add(p with { ParcelId = id });
+            return Task.FromResult(id);
+        }
         public Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double m, CancellationToken ct = default) => throw new NotSupportedException();
+    }
+
+    private sealed class Activity : IActivityLog
+    {
+        public List<ActivityEntry> Entries { get; } = new();
+        public Task RecordAsync(ActivityEntry entry, CancellationToken ct = default) { Entries.Add(entry); return Task.CompletedTask; }
+        public Task<IReadOnlyList<ActivityItem>> ListAsync(string t, long id, int l, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private sealed class Owners : IParcelLegalOwnerStore

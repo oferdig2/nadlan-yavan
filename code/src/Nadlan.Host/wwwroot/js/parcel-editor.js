@@ -128,6 +128,7 @@
         var call = editing ? Nadlan.api.put("/api/parcels/" + options.parcelId, body) : Nadlan.api.post("/api/parcels", body);
         call.then(function (saved) {
           d.close();
+          if (saved.warning) { Nadlan.dialog.notice("Overlap check skipped", saved.warning); }
           options.onSaved(saved.parcelId);
         }, function (err) {
           d.busy(false);

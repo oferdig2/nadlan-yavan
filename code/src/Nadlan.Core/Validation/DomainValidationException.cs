@@ -29,3 +29,14 @@ public sealed class EntityNotFoundException : Exception
         Code = $"{entity.ToUpperInvariant()}_NOT_FOUND";
     }
 }
+
+/// <summary>
+/// The database could not compute overlaps for a polygon (a GIS edge case, e.g. neighbours touching along a border).
+/// Not the user's fault and not a reason to lose the save: the Parcel is saved and the user is warned.
+/// </summary>
+public sealed class OverlapCheckFailedException : Exception
+{
+    public OverlapCheckFailedException(string message, Exception inner) : base(message, inner)
+    {
+    }
+}

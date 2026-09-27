@@ -145,7 +145,7 @@ public static class ParcelEndpoints
     {
         CreateParcelOutcome.Created or CreateParcelOutcome.Updated => Results.Ok(new
         {
-            result.ParcelId, result.RegistryId, result.RegistryIdIsProvisional, result.Overlaps,
+            result.ParcelId, result.RegistryId, result.RegistryIdIsProvisional, result.Overlaps, result.Warning,
         }),
         CreateParcelOutcome.DuplicateRegistryId => Results.Conflict(new
         {
