@@ -1,3 +1,4 @@
+using Nadlan.Core.Activity;
 using Nadlan.Core.Text;
 using Nadlan.Core.Validation;
 
@@ -6,24 +7,32 @@ namespace Nadlan.Core.Contacts;
 public sealed class ContactService
 {
     private readonly IContactStore _contacts;
+    private readonly IActivityLog _activity;
 
-    public ContactService(IContactStore contacts)
+    public ContactService(IContactStore contacts, IActivityLog? activity = null)
     {
         _contacts = contacts;
+        _activity = activity ?? NullActivityLog.Instance;
     }
 
     public async Task<Contact> CreateAsync(Contact input, CancellationToken ct = default)
     {
         var contact = Normalize(input);
         var id = await _contacts.InsertAsync(contact, ct);
+        await _activity.RecordAsync(new ActivityEntry("Contact", id, ActivityActions.ContactCreated, $"Contact {contact.DisplayName} created."), ct);
         return contact with { ContactId = id };
     }
 
     public async Task<Contact> UpdateAsync(Contact input, CancellationToken ct = default)
     {
-        _ = await _contacts.GetAsync(input.ContactId, ct) ?? throw new EntityNotFoundException("Contact", input.ContactId);
+        var existing = await _contacts.GetAsync(input.ContactId, ct) ?? throw new EntityNotFoundException("Contact", input.ContactId);
         var contact = Normalize(input);
         await _contacts.UpdateAsync(contact, ct);
+
+        var summary = existing.IsActive == contact.IsActive
+            ? $"Contact {contact.DisplayName} edited."
+            : $"Contact {contact.DisplayName} {(contact.IsActive ? "reactivated" : "deactivated")}.";
+        await _activity.RecordAsync(new ActivityEntry("Contact", contact.ContactId, ActivityActions.ContactEdited, summary), ct);
         return contact;
     }
 

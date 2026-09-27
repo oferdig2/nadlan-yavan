@@ -31,7 +31,7 @@
       streetViewControl: false, fullscreenControl: false, gestureHandling: "greedy"
     });
 
-    var state = { mode: "parcels", scope: "view", rectangle: null, items: [] };
+    var state = { mode: "parcels", scope: "view", rectangle: null, items: [], fitAfterLoad: false };
     var selection = Nadlan.createAssetSelection();
     var parcelOverlay, assetOverlay;
 
@@ -161,6 +161,7 @@
         state.items = res.items;
         (mode === "assets" ? assetOverlay : parcelOverlay).setItems(res.items);
         results.setItems(res.items, res.truncated);
+        if (state.fitAfterLoad) { state.fitAfterLoad = false; fitItems(res.items); }
         setStatus("");
       }, function (err) {
         if (seq === requestSeq) { setStatus("Search failed: " + err.message, true); }
@@ -200,6 +201,19 @@
     map.addListener("idle", function () { if (state.scope === "view") { reload(); } });
 
     $("[data-view]").on("click", function () { setMode($(this).data("view")); });
+    // "Show on map" from a Portfolio: Assets view, only that Portfolio, searched everywhere, then zoom to it.
+    function showPortfolio(portfolio) {
+      filters.showOnlyPortfolio(portfolio);
+      setScope("everywhere");
+      state.fitAfterLoad = true;
+      if (state.mode === "assets") { reload(); } else { setMode("assets"); }
+      setStatus("Showing portfolio \"" + portfolio.name + "\".");
+    }
+
+    $("[data-tool=portfolios]").on("click", function () {
+      Nadlan.portfolioPanel.openList({ onShowOnMap: showPortfolio });
+    });
+
     $("[data-tool=new-parcel]").on("click", function () {
       if (state.mode !== "parcels") { setMode("parcels"); }
       Nadlan.parcelEditor.open({

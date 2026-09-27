@@ -1,4 +1,5 @@
 using System.Text;
+using Nadlan.Core.Activity;
 using Nadlan.Core.Text;
 using Nadlan.Core.Validation;
 
@@ -33,14 +34,21 @@ public sealed class FileService
     private readonly IFileTargetResolver _targets;
     private readonly IObjectStorage _storage;
     private readonly FileStorageSettings _settings;
+    private readonly IActivityLog _activity;
 
-    public FileService(IFileAttachmentStore files, IFileTargetResolver targets, IObjectStorage storage, FileStorageSettings settings)
+    public FileService(IFileAttachmentStore files, IFileTargetResolver targets, IObjectStorage storage, FileStorageSettings settings, IActivityLog? activity = null)
     {
         _files = files;
         _targets = targets;
         _storage = storage;
         _settings = settings;
+        _activity = activity ?? NullActivityLog.Instance;
     }
+
+    // History goes on the entity the file belongs to (the Asset or Parcel page shows it).
+    private Task RecordAsync(FileAttachment file, string action, string verb, CancellationToken ct)
+        => _activity.RecordAsync(new ActivityEntry(file.AttachedToType, file.AttachedToId, action,
+            $"{verb} {file.OriginalFileName}.", new { file.FileAttachmentId, file.FileSize }), ct);
 
     public async Task<UploadSession> StartUploadAsync(StartUploadRequest request, CancellationToken ct = default)
     {
@@ -113,6 +121,7 @@ public sealed class FileService
         // multi-GB file is never uploaded twice or left orphaned.
         if (await _storage.GetObjectSizeAsync(file.StorageKey, ct) == file.FileSize && await _files.MarkReadyAsync(fileAttachmentId, ct))
         {
+            await RecordAsync(file, ActivityActions.FileUploaded, "Uploaded", ct);
             throw new DomainValidationException("FILE_NOT_UPLOADING", "This file is already fully uploaded.");
         }
 
@@ -148,6 +157,7 @@ public sealed class FileService
             throw new DomainValidationException("FILE_UPLOAD_CANCELLED", "The upload was cancelled.");
         }
 
+        await RecordAsync(file, ActivityActions.FileUploaded, "Uploaded", ct);
         return file with { UploadStatus = FileUploadStatus.Ready, S3UploadId = null };
     }
 
@@ -180,6 +190,10 @@ public sealed class FileService
         }
 
         await _files.DeleteAsync(fileAttachmentId, ct);
+        if (file.UploadStatus == FileUploadStatus.Ready)
+        {
+            await RecordAsync(file, ActivityActions.FileDeleted, "Deleted", ct);
+        }
     }
 
     /// <summary>

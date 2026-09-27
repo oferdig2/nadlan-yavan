@@ -1,3 +1,4 @@
+using Nadlan.Core.Activity;
 using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Geo;
 using Nadlan.Core.Text;
@@ -48,12 +49,14 @@ public sealed class ParcelService
     private readonly IParcelStore _parcels;
     private readonly IGeographicAreaStore _areas;
     private readonly ICountryStore _countries;
+    private readonly IActivityLog _activity;
 
-    public ParcelService(IParcelStore parcels, IGeographicAreaStore areas, ICountryStore countries)
+    public ParcelService(IParcelStore parcels, IGeographicAreaStore areas, ICountryStore countries, IActivityLog? activity = null)
     {
         _parcels = parcels;
         _areas = areas;
         _countries = countries;
+        _activity = activity ?? NullActivityLog.Instance;
     }
 
     public async Task<CreateParcelResult> CreateAsync(CreateParcelRequest request, CancellationToken ct = default)
@@ -115,6 +118,9 @@ public sealed class ParcelService
             return new CreateParcelResult(CreateParcelOutcome.DuplicateRegistryId, null, registryId, provisional, winner?.ParcelId, Array.Empty<ParcelOverlapHit>());
         }
 
+        await _activity.RecordAsync(new ActivityEntry("Parcel", id, ActivityActions.ParcelCreated,
+            $"Parcel {registryId} created{(provisional ? " (provisional KAEK)" : "")}{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}.",
+            overlaps.Count > 0 ? new { overlaps } : null), ct);
         return new CreateParcelResult(CreateParcelOutcome.Created, id, registryId, provisional, null, overlaps);
     }
 

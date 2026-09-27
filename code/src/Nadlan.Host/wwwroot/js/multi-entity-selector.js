@@ -49,7 +49,9 @@
 
     var api = {
       getValue: function () { return selected.map(function (s) { return s.id; }); },
-      clear: function () { selected = []; changed(); }
+      clear: function () { selected = []; changed(); },
+      /** @param {Array<{ id: *, label: string }>} items */
+      setValue: function (items) { selected = (items || []).slice(); changed(); }
     };
     return api;
   }

@@ -99,6 +99,13 @@
         return f;
       },
       setMode: function (mode) { $root.find("[data-assets-only]").prop("hidden", mode !== "assets"); },
+      /** "Show Portfolio on map": clear every other filter and keep only this Portfolio. */
+      showOnlyPortfolio: function (portfolio) {
+        $root.find("input[data-filter]").val("");
+        $root.find(":checkbox[data-filter]").prop("checked", false);
+        contacts.clear();
+        portfolios.setValue([{ id: portfolio.portfolioId, label: portfolio.name }]);
+      },
       setScope: function (scope) { $scope.val(scope); },
       setRectangleActive: function (active) { $root.find("[data-role=clear-rect]").prop("hidden", !active); }
     };

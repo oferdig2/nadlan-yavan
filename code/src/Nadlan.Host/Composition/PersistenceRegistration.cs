@@ -1,3 +1,4 @@
+using Nadlan.Core.Activity;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Contacts;
 using Nadlan.Core.Files;
@@ -6,6 +7,7 @@ using Nadlan.Core.Parcels;
 using Nadlan.Core.Portfolios;
 using Nadlan.Core.Reference;
 using Nadlan.Persistence.MySql;
+using Nadlan.Persistence.MySql.Activity;
 using Nadlan.Persistence.MySql.Assets;
 using Nadlan.Persistence.MySql.Contacts;
 using Nadlan.Persistence.MySql.Files;
@@ -30,6 +32,7 @@ public static class PersistenceRegistration
         services.AddSingleton<IReferenceDataStore, MySqlReferenceDataStore>();
         services.AddSingleton<IFileAttachmentStore, MySqlFileAttachmentStore>();
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
+        services.AddSingleton<IActivityLog, MySqlActivityLog>();
         return services;
     }
 

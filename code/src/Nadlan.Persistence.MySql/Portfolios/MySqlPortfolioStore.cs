@@ -85,6 +85,40 @@ public sealed class MySqlPortfolioStore : IPortfolioStore
         return added;
     }
 
+    public async Task UpdateAsync(Portfolio portfolio, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE portfolio
+            SET name = @Name, portfolio_type_id = @PortfolioTypeId, description = @Description, updated_utc = UTC_TIMESTAMP(3)
+            WHERE portfolio_id = @PortfolioId
+            """, portfolio, cancellationToken: ct));
+    }
+
+    public async Task<IReadOnlyList<long>> ListAssetIdsAsync(long portfolioId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        var ids = await conn.QueryAsync<long>(new CommandDefinition("""
+            SELECT asset_id FROM portfolio_asset WHERE portfolio_id = @portfolioId
+            ORDER BY COALESCE(sort_order, 2147483647), added_utc, asset_id
+            """, new { portfolioId }, cancellationToken: ct));
+        return ids.ToList();
+    }
+
+    public async Task ReorderAsync(long portfolioId, IReadOnlyList<long> orderedAssetIds, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        for (var i = 0; i < orderedAssetIds.Count; i++)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE portfolio_asset SET sort_order = @sortOrder WHERE portfolio_id = @portfolioId AND asset_id = @assetId",
+                new { portfolioId, assetId = orderedAssetIds[i], sortOrder = i }, tx, cancellationToken: ct));
+        }
+
+        await tx.CommitAsync(ct);
+    }
+
     public async Task<bool> RemoveAssetAsync(long portfolioId, long assetId, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);

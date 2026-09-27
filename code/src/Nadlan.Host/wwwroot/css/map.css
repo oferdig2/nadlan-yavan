@@ -90,3 +90,17 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
   .sidebar { width: auto; max-height: 40%; border-right: none; border-bottom: 1px solid var(--border); }
   .popup-layer { width: auto; left: 12px; top: auto; max-height: 50%; }
 }
+
+/* History dialog */
+.history-list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.history-list li { padding: 6px 0; border-top: 1px solid var(--border); }
+.history-list li:first-child { border-top: none; }
+.history-when { font-size: 11px; }
+
+/* Portfolio panel */
+.portfolio-list .input { margin-bottom: 6px; }
+.portfolio-list .results-list { max-height: 50vh; }
+.portfolio-assets { list-style: none; margin: 0; padding: 0; max-height: 45vh; overflow-y: auto; }
+.portfolio-assets li { display: flex; gap: 8px; align-items: center; padding: 5px 4px; border-top: 1px solid var(--border); background: var(--surface); }
+.portfolio-assets li.ui-sortable-helper { box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2); }
+.drag-handle { cursor: grab; color: var(--muted); user-select: none; padding: 0 2px; }

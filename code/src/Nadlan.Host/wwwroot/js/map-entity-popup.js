@@ -37,6 +37,7 @@
           "<span class=\"row-actions\">" +
             "<button type=\"button\" class=\"btn btn-small\" data-edit=\"" + a.assetId + "\">Edit</button>" +
             "<button type=\"button\" class=\"btn btn-small\" data-files=\"" + a.assetId + "\">Files</button>" +
+            "<button type=\"button\" class=\"btn btn-small\" data-history=\"" + a.assetId + "\">History</button>" +
           "</span>" +
           "</li>";
       }).join("") + "</ul>";
@@ -55,6 +56,7 @@
           "<header class=\"card-header\">" +
             "<span class=\"card-title\">Parcel</span>" +
             "<span class=\"card-actions\">" +
+              "<button type=\"button\" data-action=\"history\">History</button>" +
               "<button type=\"button\" data-action=\"expand\">Expand</button>" +
               "<button type=\"button\" data-action=\"pin\">Pin</button>" +
               "<button type=\"button\" data-action=\"close\" title=\"Close\">×</button>" +
@@ -118,6 +120,14 @@
       });
       $card.on("click", "[data-action=create-asset]", function () { options.onCreateAsset(state.parcel); });
       $card.on("click", "[data-edit]", function () { options.onEditAsset(Number($(this).data("edit")), state.parcel); });
+      $card.on("click", "[data-history]", function () {
+        var assetId = Number($(this).data("history"));
+        Nadlan.historyDialog.open({ entityType: "Asset", entityId: assetId, title: "Asset #" + assetId + " - history" });
+      });
+      $card.on("click", "[data-action=history]", function () {
+        Nadlan.historyDialog.open({ entityType: "Parcel", entityId: state.parcelId,
+          title: "Parcel " + (state.parcel.registryId || "#" + state.parcelId) + " - history" });
+      });
       $card.on("click", "[data-files]", function () {
         var assetId = Number($(this).data("files"));
         options.onOpenFiles("Asset", assetId, "Asset #" + assetId + " - files", state.parcelId);

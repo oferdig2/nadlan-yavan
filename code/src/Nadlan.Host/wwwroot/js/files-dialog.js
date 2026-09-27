@@ -16,6 +16,10 @@
       { label: "Cadastral / plans", types: { other: "CADASTRAL_PLAN" } },
       { label: "Other", types: { other: "OTHER" } }
     ],
+    Portfolio: [
+      { label: "Images", accept: "image/*", types: { image: "PHOTO", other: "PHOTO" } },
+      { label: "Documents", types: { other: "OTHER" } }
+    ],
     Asset: [
       { label: "Images", accept: "image/*", types: { image: "PHOTO", other: "PHOTO" } },
       { label: "Videos", accept: "video/*", types: { video: "VIDEO", other: "VIDEO" } },

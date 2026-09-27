@@ -1,3 +1,4 @@
+using Nadlan.Core.Activity;
 using Nadlan.Core.Contacts;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Reference;
@@ -14,13 +15,15 @@ public sealed class AssetService
     private readonly IParcelStore _parcels;
     private readonly IContactStore _contacts;
     private readonly IReferenceDataStore _reference;
+    private readonly IActivityLog _activity;
 
-    public AssetService(IAssetStore assets, IParcelStore parcels, IContactStore contacts, IReferenceDataStore reference)
+    public AssetService(IAssetStore assets, IParcelStore parcels, IContactStore contacts, IReferenceDataStore reference, IActivityLog? activity = null)
     {
         _assets = assets;
         _parcels = parcels;
         _contacts = contacts;
         _reference = reference;
+        _activity = activity ?? NullActivityLog.Instance;
     }
 
     public async Task<Asset> CreateAsync(Asset input, CancellationToken ct = default)
@@ -31,9 +34,13 @@ public sealed class AssetService
             throw new DomainValidationException("ASSET_ONE_PARCEL", "Select exactly one Parcel for the Asset.");
         }
 
-        _ = await _parcels.GetAsync(input.ParcelIds[0], ct) ?? throw new EntityNotFoundException("Parcel", input.ParcelIds[0]);
+        var parcel = await _parcels.GetAsync(input.ParcelIds[0], ct) ?? throw new EntityNotFoundException("Parcel", input.ParcelIds[0]);
         var asset = await ValidateAsync(input, existing: null, ct);
         var id = await _assets.InsertAsync(asset, ct);
+
+        var contact = await _contacts.GetAsync(asset.ManagingContactId, ct);
+        await _activity.RecordAsync(new ActivityEntry("Asset", id, ActivityActions.AssetCreated,
+            $"Asset created on Parcel {parcel.RegistryId} for {contact?.DisplayName}, {Price(asset)}, {await StatusNameAsync(asset.AssetStatusId, ct)}."), ct);
         return asset with { AssetId = id };
     }
 
@@ -43,8 +50,54 @@ public sealed class AssetService
         var existing = await _assets.GetAsync(input.AssetId, ct) ?? throw new EntityNotFoundException("Asset", input.AssetId);
         var asset = await ValidateAsync(input with { ParcelIds = existing.ParcelIds }, existing, ct);
         await _assets.UpdateAsync(asset, ct);
+        await RecordChangesAsync(existing, asset, ct);
         return asset;
     }
+
+    /// <summary>Spec: price and status changes are audited with old/new values; other edits as one "edited" entry.</summary>
+    private async Task RecordChangesAsync(Asset before, Asset after, CancellationToken ct)
+    {
+        var recorded = false;
+        if (before.AskPrice != after.AskPrice || before.CurrencyCode != after.CurrencyCode)
+        {
+            await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetPriceChanged,
+                $"Price changed from {Price(before)} to {Price(after)}.",
+                new { old = before.AskPrice, @new = after.AskPrice, oldCurrency = before.CurrencyCode, newCurrency = after.CurrencyCode }), ct);
+            recorded = true;
+        }
+
+        if (before.AssetStatusId != after.AssetStatusId)
+        {
+            var (oldName, newName) = (await StatusNameAsync(before.AssetStatusId, ct), await StatusNameAsync(after.AssetStatusId, ct));
+            await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetStatusChanged,
+                $"Status changed from {oldName} to {newName}.", new { old = before.AssetStatusId, @new = after.AssetStatusId }), ct);
+            recorded = true;
+        }
+
+        if (before.ManagingContactId != after.ManagingContactId)
+        {
+            var oldName = (await _contacts.GetAsync(before.ManagingContactId, ct))?.DisplayName;
+            var newName = (await _contacts.GetAsync(after.ManagingContactId, ct))?.DisplayName;
+            await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetManagingContactChanged,
+                $"Managing contact changed from {oldName} to {newName}.", new { old = before.ManagingContactId, @new = after.ManagingContactId }), ct);
+            recorded = true;
+        }
+
+        var otherChange = before.PropertyTypeId != after.PropertyTypeId || before.HouseSqm != after.HouseSqm
+                          || before.IsExclusive != after.IsExclusive || before.Remarks != after.Remarks
+                          || before.SpecialConditions != after.SpecialConditions;
+        if (otherChange || !recorded)
+        {
+            await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetEdited,
+                otherChange ? "Asset details edited." : "Asset saved (no changes)."), ct);
+        }
+    }
+
+    private async Task<string> StatusNameAsync(int statusId, CancellationToken ct)
+        => (await _reference.ListAsync(ReferenceList.AssetStatus, ct)).FirstOrDefault(s => s.Id == statusId)?.Name ?? $"status {statusId}";
+
+    private static string Price(Asset a)
+        => a.AskPrice is decimal p ? $"{a.CurrencyCode} {p:#,0.##}" : "no price";
 
     /// <summary>
     /// Inactive contacts/statuses can't be newly chosen, but an Asset that already uses one keeps it
