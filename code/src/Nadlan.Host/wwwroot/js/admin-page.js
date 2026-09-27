@@ -26,6 +26,10 @@
     try { window.localStorage.setItem("nadlan.adminTab", tab); } catch (e) { /* private mode: fine */ }
   }
 
+  // The Files dialog reads storage on/off and the size limit from here (the map page sets it the same way).
+  Nadlan.clientConfig = {};
+  Nadlan.api.get("/api/config/client").then(function (config) { Nadlan.clientConfig = config; });
+
   $("[data-tab]").on("click", function () { show($(this).data("tab")); });
 
   var last = null;

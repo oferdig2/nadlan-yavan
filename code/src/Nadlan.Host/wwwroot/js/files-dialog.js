@@ -16,6 +16,12 @@
       { label: "Cadastral / plans", types: { other: "CADASTRAL_PLAN" } },
       { label: "Other", types: { other: "OTHER" } }
     ],
+    // Scenario 15: e.g. a signed authorisation from an Agent belongs to the Contact, not to one Asset.
+    Contact: [
+      { label: "Signed permission", types: { other: "SIGNED_PERMISSION" } },
+      { label: "ID / documents", types: { other: "DIGITAL_ID" } },
+      { label: "Other", types: { other: "OTHER" } }
+    ],
     Portfolio: [
       { label: "Images", accept: "image/*", types: { image: "PHOTO", other: "PHOTO" } },
       { label: "Documents", types: { other: "OTHER" } }

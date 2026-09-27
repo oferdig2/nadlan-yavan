@@ -39,6 +39,7 @@
               "<td>" + esc(c.displayName) + "</td><td>" + esc(c.phone || "") + "</td><td>" + esc(c.email || "") + "</td>" +
               "<td>" + (c.isActive ? "Yes" : "<span class=\"muted\">No</span>") + "</td>" +
               "<td class=\"row-buttons\"><button type=\"button\" class=\"btn btn-small\" data-edit=\"" + c.contactId + "\">Edit</button>" +
+              "<button type=\"button\" class=\"btn btn-small\" data-files=\"" + c.contactId + "\" data-name=\"" + esc(c.displayName) + "\">Files</button>" +
               "<button type=\"button\" class=\"btn btn-small\" data-history=\"" + c.contactId + "\" data-name=\"" + esc(c.displayName) + "\">History</button></td></tr>";
           }).join("") || "<tr><td colspan=\"5\" class=\"muted\">No contacts match.</td></tr>");
         });
@@ -50,6 +51,9 @@
       $root.on("click", "[data-act=new]", function () { Nadlan.contactEditor.open(null).then(function (c) { if (c) { load(); } }); });
       $root.on("click", "[data-edit]", function () {
         Nadlan.contactEditor.open(Number($(this).data("edit"))).then(function (c) { if (c) { load(); } });
+      });
+      $root.on("click", "[data-files]", function () {
+        Nadlan.filesDialog.open({ attachedToType: "Contact", attachedToId: Number($(this).data("files")), title: $(this).data("name") + " - files" });
       });
       $root.on("click", "[data-history]", function () {
         Nadlan.historyDialog.open({ entityType: "Contact", entityId: Number($(this).data("history")), title: $(this).data("name") + " - history" });
