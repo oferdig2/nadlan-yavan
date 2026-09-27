@@ -1,0 +1,73 @@
+using Nadlan.Core.Activity;
+using Nadlan.Core.Contacts;
+using Nadlan.Core.Text;
+using Nadlan.Core.Validation;
+
+namespace Nadlan.Core.Parcels;
+
+/// <summary>A real legal owner of the land (spec: belongs to the Parcel, may be unknown for a long time).</summary>
+public sealed record LegalOwner(long ParcelId, long ContactId, string DisplayName, decimal? OwnershipPercent, string? Notes);
+
+public interface IParcelLegalOwnerStore
+{
+    Task<IReadOnlyList<LegalOwner>> ListAsync(long parcelId, CancellationToken ct = default);
+
+    /// <summary>Adds the owner, or updates percent/notes if this Contact already owns the Parcel.</summary>
+    Task UpsertAsync(long parcelId, long contactId, decimal? ownershipPercent, string? notes, CancellationToken ct = default);
+
+    Task<bool> RemoveAsync(long parcelId, long contactId, CancellationToken ct = default);
+}
+
+public sealed class LegalOwnerService
+{
+    private readonly IParcelLegalOwnerStore _owners;
+    private readonly IParcelStore _parcels;
+    private readonly IContactStore _contacts;
+    private readonly IActivityLog _activity;
+
+    public LegalOwnerService(IParcelLegalOwnerStore owners, IParcelStore parcels, IContactStore contacts, IActivityLog? activity = null)
+    {
+        _owners = owners;
+        _parcels = parcels;
+        _contacts = contacts;
+        _activity = activity ?? NullActivityLog.Instance;
+    }
+
+    /// <summary>Records a Legal Owner. Does not touch any Asset's Managing Contact (Scenario 8).</summary>
+    public async Task SetAsync(long parcelId, long contactId, decimal? ownershipPercent, string? notes, CancellationToken ct = default)
+    {
+        var parcel = await _parcels.GetAsync(parcelId, ct) ?? throw new EntityNotFoundException("Parcel", parcelId);
+        var contact = await _contacts.GetAsync(contactId, ct)
+            ?? throw new DomainValidationException("LEGAL_OWNER_CONTACT_REQUIRED", "Select the owner's Contact.");
+
+        if (ownershipPercent is not null and (<= 0 or > 100))
+        {
+            throw new DomainValidationException("LEGAL_OWNER_PERCENT_INVALID", "Ownership must be more than 0% and at most 100%.");
+        }
+
+        var others = (await _owners.ListAsync(parcelId, ct)).Where(o => o.ContactId != contactId);
+        var total = others.Sum(o => o.OwnershipPercent ?? 0) + (ownershipPercent ?? 0);
+        if (total > 100)
+        {
+            throw new DomainValidationException("LEGAL_OWNER_PERCENT_TOTAL",
+                $"Ownership would add up to {total:0.###}% for this Parcel. The total can't exceed 100%.");
+        }
+
+        await _owners.UpsertAsync(parcelId, contactId, ownershipPercent, TextNormalize.NullIfBlank(notes), ct);
+        await _activity.RecordAsync(new ActivityEntry("Parcel", parcelId, ActivityActions.LegalOwnerAdded,
+            $"Legal owner {contact.DisplayName}{(ownershipPercent is decimal p ? $" ({p:0.###}%)" : "")} set on Parcel {parcel.RegistryId}.",
+            new { contactId, ownershipPercent }), ct);
+    }
+
+    public async Task RemoveAsync(long parcelId, long contactId, CancellationToken ct = default)
+    {
+        if (!await _owners.RemoveAsync(parcelId, contactId, ct))
+        {
+            throw new EntityNotFoundException("LegalOwner", $"{parcelId}/{contactId}");
+        }
+
+        var contact = await _contacts.GetAsync(contactId, ct);
+        await _activity.RecordAsync(new ActivityEntry("Parcel", parcelId, ActivityActions.LegalOwnerRemoved,
+            $"Legal owner {contact?.DisplayName ?? "#" + contactId} removed.", new { contactId }), ct);
+    }
+}

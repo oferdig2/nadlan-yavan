@@ -8,7 +8,8 @@
   /**
    * @param {{ container: HTMLElement, selection: object, onClose: function(): void,
    *           onCreateAsset: function(object): void, onEditAsset: function(number, object): void,
-   *           onOpenFiles: function(string, number, string, number): void }} options  (type, id, title, parcelId)
+   *           onOpenFiles: function(string, number, string, number): void,   (type, id, title, parcelId)
+   *           onEditParcel: function(number): void }} options
    */
   function createMapEntityPopupManager(options) {
     var f = Nadlan.format;
@@ -56,6 +57,7 @@
           "<header class=\"card-header\">" +
             "<span class=\"card-title\">Parcel</span>" +
             "<span class=\"card-actions\">" +
+              "<button type=\"button\" data-action=\"edit-parcel\">Edit</button>" +
               "<button type=\"button\" data-action=\"history\">History</button>" +
               "<button type=\"button\" data-action=\"expand\">Expand</button>" +
               "<button type=\"button\" data-action=\"pin\">Pin</button>" +
@@ -64,6 +66,9 @@
           "</header>" +
           "<div class=\"card-body\">" + parcelHtml(initial) + "</div>" +
           "<div class=\"card-details\" hidden></div>" +
+          "<div class=\"card-section\"><div class=\"card-section-head\"><span>Legal owners</span>" +
+            "<button type=\"button\" class=\"btn btn-small\" data-action=\"add-owner\">+ Add</button></div>" +
+            "<div class=\"card-owners-slot\"></div></div>" +
           "<div class=\"card-section\"><div class=\"card-section-head\"><span>Parcel files</span>" +
             "<button type=\"button\" class=\"btn btn-small\" data-action=\"parcel-files\">Files</button></div>" +
             "<div class=\"card-thumbs\"></div></div>" +
@@ -119,6 +124,9 @@
         $card.find(".card-details").prop("hidden", !state.expanded).html(state.details ? detailsHtml(state.details) : "Loading…");
       });
       $card.on("click", "[data-action=create-asset]", function () { options.onCreateAsset(state.parcel); });
+      $card.on("click", "[data-action=edit-parcel]", function () { options.onEditParcel(state.parcelId); });
+      var owners = Nadlan.legalOwners.render($card.find(".card-owners-slot"), state.parcelId);
+      $card.on("click", "[data-action=add-owner]", function () { owners.add(); });
       $card.on("click", "[data-edit]", function () { options.onEditAsset(Number($(this).data("edit")), state.parcel); });
       $card.on("click", "[data-history]", function () {
         var assetId = Number($(this).data("history"));

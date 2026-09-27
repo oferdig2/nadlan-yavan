@@ -33,6 +33,8 @@ public static class PersistenceRegistration
         services.AddSingleton<IFileAttachmentStore, MySqlFileAttachmentStore>();
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
         services.AddSingleton<IActivityLog, MySqlActivityLog>();
+        services.AddSingleton<IParcelLegalOwnerStore, MySqlParcelLegalOwnerStore>();
+        services.AddSingleton<IAssetContactStore, MySqlAssetContactStore>();
         return services;
     }
 
@@ -42,6 +44,8 @@ public static class PersistenceRegistration
         services.AddSingleton<AssetService>();
         services.AddSingleton<ContactService>();
         services.AddSingleton<PortfolioService>();
+        services.AddSingleton<LegalOwnerService>();
+        services.AddSingleton<AssetContactService>();
         return services;
     }
 }

@@ -54,6 +54,7 @@
           if (state.mode === "assets") { reload(); }
         });
       },
+      onEditParcel: function (parcelId) { editParcel(parcelId); },
       onOpenFiles: function (type, id, title, parcelId) {
         Nadlan.filesDialog.open({
           attachedToType: type, attachedToId: id, title: title,
@@ -218,7 +219,7 @@
       if (state.mode !== "parcels") { setMode("parcels"); }
       Nadlan.parcelEditor.open({
         drawTool: drawTool,
-        onCreated: function (parcelId) {
+        onSaved: function (parcelId) {
           setStatus("Parcel created.");
           reload();
           showParcelById(parcelId);
@@ -226,6 +227,19 @@
         onShowParcel: showParcelById
       });
     });
+
+    function editParcel(parcelId) {
+      Nadlan.parcelEditor.open({
+        drawTool: drawTool,
+        parcelId: parcelId,
+        onSaved: function () {
+          setStatus("Parcel saved.");
+          popups.refreshParcel(parcelId);
+          reload();
+        },
+        onShowParcel: showParcelById
+      }).catch(function (err) { setStatus(err.message, true); });
+    }
 
     filters.setMode("parcels");
     results.setMode("parcels");

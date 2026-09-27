@@ -77,7 +77,8 @@ public class ActivityAndPortfolioTests
         public Task<bool> IsValidGeometryAsync(GeoPolygon p, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> InsertAsync(Parcel p, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon c, double m, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon c, double m, CancellationToken ct = default, long? exclude = null) => throw new NotSupportedException();
+        public Task UpdateAsync(Parcel p, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double m, CancellationToken ct = default) => throw new NotSupportedException();
     }
 

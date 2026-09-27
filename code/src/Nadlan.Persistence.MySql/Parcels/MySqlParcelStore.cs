@@ -113,7 +113,7 @@ public sealed class MySqlParcelStore : IParcelStore
         return rows.Select(r => r.ToParcel()).ToList();
     }
 
-    public async Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon candidate, double minOverlapSqm, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon candidate, double minOverlapSqm, CancellationToken ct = default, long? excludeParcelId = null)
     {
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<ParcelOverlapHit>(new CommandDefinition($"""
@@ -121,11 +121,37 @@ public sealed class MySqlParcelStore : IParcelStore
                    ST_Area(ST_Intersection(p.geometry, c.g)) AS OverlapSqm
             FROM (SELECT {FromWkt} AS g) c
             JOIN parcel p ON ST_Intersects(p.geometry, c.g) AND NOT ST_Touches(p.geometry, c.g)
+            WHERE @excludeParcelId IS NULL OR p.parcel_id <> @excludeParcelId
             HAVING OverlapSqm >= @minOverlapSqm
             ORDER BY OverlapSqm DESC
             LIMIT 20
-            """, new { Wkt = candidate.ToWkt(), minOverlapSqm }, cancellationToken: ct));
+            """, new { Wkt = candidate.ToWkt(), minOverlapSqm, excludeParcelId }, cancellationToken: ct));
         return rows.ToList();
+    }
+
+    public async Task UpdateAsync(Parcel parcel, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var conn = await _db.OpenAsync(ct);
+            await conn.ExecuteAsync(new CommandDefinition($"""
+                UPDATE parcel
+                SET registry_id = @RegistryId, registry_id_is_provisional = @RegistryIdIsProvisional,
+                    geographic_area_id = @GeographicAreaId, geometry = {FromWkt}, official_area_sqm = @OfficialAreaSqm,
+                    ot = @OT, ot_ext = @OTExt, plot_number = @PlotNumber, plot_ext = @PlotExt,
+                    inclination = @Inclination, build_factor = @BuildFactor, notes = @Notes, updated_utc = UTC_TIMESTAMP(3)
+                WHERE parcel_id = @ParcelId
+                """, new
+                {
+                    parcel.ParcelId, parcel.RegistryId, parcel.RegistryIdIsProvisional, parcel.GeographicAreaId,
+                    Wkt = parcel.Geometry.ToWkt(), parcel.OfficialAreaSqm, parcel.OT, parcel.OTExt, parcel.PlotNumber,
+                    parcel.PlotExt, parcel.Inclination, parcel.BuildFactor, parcel.Notes,
+                }, cancellationToken: ct));
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
+        {
+            throw new DuplicateKeyException($"KAEK {parcel.RegistryId} already exists.", ex);
+        }
     }
 
     public async Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double minOverlapSqm, CancellationToken ct = default)

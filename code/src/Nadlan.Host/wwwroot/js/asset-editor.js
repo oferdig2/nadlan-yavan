@@ -33,6 +33,7 @@
       "</div>" +
       "<label>Special conditions<textarea class=\"input\" name=\"specialConditions\" rows=\"2\">" + esc(a.specialConditions || "") + "</textarea></label>" +
       "<label>Remarks<textarea class=\"input\" name=\"remarks\" rows=\"2\">" + esc(a.remarks || "") + "</textarea></label>" +
+      "<div class=\"prof-slot card-section\">" + (a.assetId ? "" : "<span class=\"muted\">Save the asset first to link professionals (engineer, attorney, ...).</span>") + "</div>" +
       "</form>";
   }
 
@@ -55,6 +56,8 @@
       return new Promise(function (resolve) {
         var $form = $(formHtml(asset, ref, options.parcel));
         var done = false;
+        if (options.assetId) { Nadlan.assetContacts.render($form.find(".prof-slot"), options.assetId); }
+
         var relation = Nadlan.initializeEntityRelationEditor($form.find(".relation-slot"), {
           label: "Managing contact",
           emptyText: "No contact assigned",

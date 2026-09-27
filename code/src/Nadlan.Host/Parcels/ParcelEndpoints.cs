@@ -67,6 +67,13 @@ public static class ParcelEndpoints
                 parcel.Notes,
                 parcel.CreatedUtc,
                 geometry = GeoJson.Polygon(parcel.Geometry),
+                // Raw values for the edit form (the summary joins OT/plot with their extensions).
+                fields = new
+                {
+                    parcel.RegistryId, parcel.RegistryIdIsProvisional, parcel.GeographicAreaId, ot = parcel.OT,
+                    otExt = parcel.OTExt, parcel.PlotNumber, parcel.PlotExt, parcel.OfficialAreaSqm,
+                    parcel.Inclination, parcel.BuildFactor, parcel.Notes,
+                },
             });
         });
 
@@ -92,27 +99,67 @@ public static class ParcelEndpoints
                 AcceptOverlaps = dto.AcceptOverlaps,
             }, ct);
 
-            return result.Outcome switch
+            return ToResult(result);
+        });
+
+        // Edit: attributes, real KAEK for a provisional one, and (optionally) the polygon.
+        group.MapPut("/{parcelId:long}", async (long parcelId, CreateParcelDto dto, ParcelService service, CancellationToken ct) =>
+            ToResult(await service.UpdateAsync(new UpdateParcelRequest
             {
-                CreateParcelOutcome.Created => Results.Ok(new
-                {
-                    result.ParcelId, result.RegistryId, result.RegistryIdIsProvisional, result.Overlaps,
-                }),
-                CreateParcelOutcome.DuplicateRegistryId => Results.Conflict(new
-                {
-                    error = "PARCEL_KAEK_EXISTS",
-                    message = $"A Parcel with KAEK {result.RegistryId} already exists.",
-                    existingParcelId = result.ExistingParcelId,
-                }),
-                _ => Results.Conflict(new
-                {
-                    error = "PARCEL_OVERLAPS",
-                    message = "The polygon overlaps existing Parcels. Check it, or save anyway.",
-                    overlaps = result.Overlaps,
-                }),
-            };
+                ParcelId = parcelId,
+                RegistryId = dto.RegistryId,
+                GeographicAreaId = dto.GeographicAreaId,
+                Geometry = dto.Coordinates is null ? null : GeoJson.ParsePolygon(dto.Coordinates),
+                OfficialAreaSqm = dto.OfficialAreaSqm,
+                OT = dto.OT,
+                OTExt = dto.OTExt,
+                PlotNumber = dto.PlotNumber,
+                PlotExt = dto.PlotExt,
+                Inclination = dto.Inclination,
+                BuildFactor = dto.BuildFactor,
+                Notes = dto.Notes,
+                AcceptOverlaps = dto.AcceptOverlaps,
+            }, ct)));
+
+        // Legal Owners. TODO(auth slice): visible only with permission (spec §3.4 "Legal Owners if permitted").
+        group.MapGet("/{parcelId:long}/legal-owners", async (long parcelId, IParcelLegalOwnerStore owners, CancellationToken ct) =>
+            Results.Ok(await owners.ListAsync(parcelId, ct)));
+
+        group.MapPut("/{parcelId:long}/legal-owners/{contactId:long}", async (long parcelId, long contactId, LegalOwnerDto dto,
+            LegalOwnerService service, CancellationToken ct) =>
+        {
+            await service.SetAsync(parcelId, contactId, dto.OwnershipPercent, dto.Notes, ct);
+            return Results.NoContent();
+        });
+
+        group.MapDelete("/{parcelId:long}/legal-owners/{contactId:long}", async (long parcelId, long contactId, LegalOwnerService service, CancellationToken ct) =>
+        {
+            await service.RemoveAsync(parcelId, contactId, ct);
+            return Results.NoContent();
         });
     }
+
+    public sealed record LegalOwnerDto(decimal? OwnershipPercent, string? Notes);
+
+    private static IResult ToResult(CreateParcelResult result) => result.Outcome switch
+    {
+        CreateParcelOutcome.Created or CreateParcelOutcome.Updated => Results.Ok(new
+        {
+            result.ParcelId, result.RegistryId, result.RegistryIdIsProvisional, result.Overlaps,
+        }),
+        CreateParcelOutcome.DuplicateRegistryId => Results.Conflict(new
+        {
+            error = "PARCEL_KAEK_EXISTS",
+            message = $"A Parcel with KAEK {result.RegistryId} already exists.",
+            existingParcelId = result.ExistingParcelId,
+        }),
+        _ => Results.Conflict(new
+        {
+            error = "PARCEL_OVERLAPS",
+            message = "The polygon overlaps existing Parcels. Check it, or save anyway.",
+            overlaps = result.Overlaps,
+        }),
+    };
 
     internal static object Summary(Parcel p, IReadOnlyDictionary<int, string> areaNames) => new
     {

@@ -90,7 +90,22 @@ public static class AssetEndpoints
             await service.UpdateAsync(ToAsset(dto, assetId), ct);
             return Results.Ok(new { assetId });
         });
+
+        // Professionals linked to the Asset (Engineer, Attorney, Topographer, ...). Not the Managing Contact.
+        group.MapGet("/{assetId:long}/contacts", async (long assetId, IAssetContactStore links, CancellationToken ct) =>
+            Results.Ok(await links.ListAsync(assetId, ct)));
+
+        group.MapPost("/{assetId:long}/contacts", async (long assetId, AssetContactDto dto, AssetContactService service, CancellationToken ct) =>
+            Results.Ok(new { assetContactId = await service.AddAsync(assetId, dto.ContactId, dto.RelationshipType, dto.Notes, ct) }));
+
+        group.MapDelete("/{assetId:long}/contacts/{assetContactId:long}", async (long assetId, long assetContactId, AssetContactService service, CancellationToken ct) =>
+        {
+            await service.RemoveAsync(assetId, assetContactId, ct);
+            return Results.NoContent();
+        });
     }
+
+    public sealed record AssetContactDto(long ContactId, string? RelationshipType, string? Notes);
 
     internal static object Summary(AssetMapItem a) => new
     {

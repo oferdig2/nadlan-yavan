@@ -64,7 +64,11 @@ public interface IParcelStore
     Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery query, CancellationToken ct = default);
 
     /// <summary>Existing Parcels whose interior overlaps the candidate by at least minOverlapSqm.</summary>
-    Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon candidate, double minOverlapSqm, CancellationToken ct = default);
+    /// <param name="excludeParcelId">When re-checking an edited Parcel, its own old shape is not an overlap.</param>
+    Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon candidate, double minOverlapSqm, CancellationToken ct = default, long? excludeParcelId = null);
+
+    /// <summary>Saves every field, including Geometry and the registry id / provisional flag.</summary>
+    Task UpdateAsync(Parcel parcel, CancellationToken ct = default);
 
     Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double minOverlapSqm, CancellationToken ct = default);
 }

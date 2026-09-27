@@ -31,6 +31,33 @@ public enum CreateParcelOutcome
     Created,
     DuplicateRegistryId,
     NeedsOverlapConfirmation,
+    Updated,
+}
+
+public sealed record UpdateParcelRequest
+{
+    public required long ParcelId { get; init; }
+
+    /// <summary>
+    /// Real KAEK. Empty = keep the current one. Entering a KAEK on a Parcel with a provisional (TMP-) id replaces it
+    /// and clears the provisional flag.
+    /// </summary>
+    public string? RegistryId { get; init; }
+
+    public int? GeographicAreaId { get; init; }
+
+    /// <summary>Null = geometry unchanged.</summary>
+    public GeoPolygon? Geometry { get; init; }
+
+    public decimal? OfficialAreaSqm { get; init; }
+    public string? OT { get; init; }
+    public string? OTExt { get; init; }
+    public string? PlotNumber { get; init; }
+    public string? PlotExt { get; init; }
+    public decimal? Inclination { get; init; }
+    public decimal? BuildFactor { get; init; }
+    public string? Notes { get; init; }
+    public bool AcceptOverlaps { get; init; }
 }
 
 public sealed record CreateParcelResult(
@@ -122,6 +149,111 @@ public sealed class ParcelService
             $"Parcel {registryId} created{(provisional ? " (provisional KAEK)" : "")}{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}.",
             overlaps.Count > 0 ? new { overlaps } : null), ct);
         return new CreateParcelResult(CreateParcelOutcome.Created, id, registryId, provisional, null, overlaps);
+    }
+
+    public async Task<CreateParcelResult> UpdateAsync(UpdateParcelRequest request, CancellationToken ct = default)
+    {
+        var existing = await _parcels.GetAsync(request.ParcelId, ct) ?? throw new EntityNotFoundException("Parcel", request.ParcelId);
+
+        GeographicArea? area = null;
+        if (request.GeographicAreaId is int areaId)
+        {
+            area = (await _areas.ListAsync(ct)).FirstOrDefault(a => a.GeographicAreaId == areaId)
+                   ?? throw new DomainValidationException("PARCEL_AREA_INVALID", "Unknown geographic area.");
+        }
+
+        // KAEK: empty keeps the current id; a new real KAEK replaces it (and ends "provisional").
+        var (registryId, provisional) = (existing.RegistryId, existing.RegistryIdIsProvisional);
+        var typed = request.RegistryId?.Trim();
+        if (!string.IsNullOrEmpty(typed) && typed != existing.RegistryId)
+        {
+            if (ProvisionalRegistryId.IsProvisional(typed))
+            {
+                throw new DomainValidationException("PARCEL_KAEK_RESERVED", $"KAEK cannot start with '{ProvisionalRegistryId.Prefix}'.");
+            }
+
+            var other = await _parcels.GetByRegistryIdAsync(existing.CountryId, typed, ct);
+            if (other is not null && other.ParcelId != existing.ParcelId)
+            {
+                return new CreateParcelResult(CreateParcelOutcome.DuplicateRegistryId, null, typed, false, other.ParcelId, Array.Empty<ParcelOverlapHit>());
+            }
+
+            (registryId, provisional) = (typed, false);
+        }
+
+        IReadOnlyList<ParcelOverlapHit> overlaps = Array.Empty<ParcelOverlapHit>();
+        if (request.Geometry is not null)
+        {
+            if (!await _parcels.IsValidGeometryAsync(request.Geometry, ct))
+            {
+                throw new DomainValidationException("PARCEL_GEOMETRY_INVALID", "The polygon is not valid (its edges cross, or it has no area).");
+            }
+
+            overlaps = await _parcels.FindOverlappingAsync(request.Geometry, MinOverlapSqm, ct, excludeParcelId: existing.ParcelId);
+            if (overlaps.Count > 0 && !request.AcceptOverlaps)
+            {
+                return new CreateParcelResult(CreateParcelOutcome.NeedsOverlapConfirmation, existing.ParcelId, registryId, provisional, null, overlaps);
+            }
+        }
+
+        var updated = existing with
+        {
+            RegistryId = registryId,
+            RegistryIdIsProvisional = provisional,
+            GeographicAreaId = area?.GeographicAreaId,
+            Geometry = request.Geometry ?? existing.Geometry,
+            OfficialAreaSqm = request.OfficialAreaSqm,
+            OT = TextNormalize.NullIfBlank(request.OT),
+            OTExt = TextNormalize.NullIfBlank(request.OTExt),
+            PlotNumber = TextNormalize.NullIfBlank(request.PlotNumber),
+            PlotExt = TextNormalize.NullIfBlank(request.PlotExt),
+            Inclination = request.Inclination,
+            BuildFactor = request.BuildFactor,
+            Notes = TextNormalize.NullIfBlank(request.Notes),
+        };
+
+        try
+        {
+            await _parcels.UpdateAsync(updated, ct);
+        }
+        catch (DuplicateKeyException)
+        {
+            var winner = await _parcels.GetByRegistryIdAsync(existing.CountryId, registryId!, ct);
+            return new CreateParcelResult(CreateParcelOutcome.DuplicateRegistryId, null, registryId, false, winner?.ParcelId, Array.Empty<ParcelOverlapHit>());
+        }
+
+        await RecordParcelChangesAsync(existing, updated, overlaps, ct);
+        return new CreateParcelResult(CreateParcelOutcome.Updated, existing.ParcelId, registryId, provisional, null, overlaps);
+    }
+
+    private async Task RecordParcelChangesAsync(Parcel before, Parcel after, IReadOnlyList<ParcelOverlapHit> overlaps, CancellationToken ct)
+    {
+        if (before.RegistryId != after.RegistryId)
+        {
+            await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelEdited,
+                $"KAEK set to {after.RegistryId} (was {before.RegistryId}{(before.RegistryIdIsProvisional ? ", provisional" : "")}).",
+                new { old = before.RegistryId, @new = after.RegistryId }), ct);
+        }
+
+        if (!ReferenceEquals(before.Geometry, after.Geometry))
+        {
+            await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelGeometryChanged,
+                $"Polygon edited{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}.",
+                new { oldWkt = before.Geometry.ToWkt() }), ct); // keep the old shape: no geometry versioning in Phase 1
+        }
+
+        var fields = new List<string>();
+        if (before.GeographicAreaId != after.GeographicAreaId) { fields.Add("area"); }
+        if (before.OT != after.OT || before.OTExt != after.OTExt || before.PlotNumber != after.PlotNumber || before.PlotExt != after.PlotExt) { fields.Add("OT/plot"); }
+        if (before.OfficialAreaSqm != after.OfficialAreaSqm) { fields.Add("official area"); }
+        if (before.BuildFactor != after.BuildFactor) { fields.Add("build factor"); }
+        if (before.Inclination != after.Inclination) { fields.Add("inclination"); }
+        if (before.Notes != after.Notes) { fields.Add("notes"); }
+        if (fields.Count > 0)
+        {
+            await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelEdited,
+                $"Parcel details edited: {string.Join(", ", fields)}."), ct);
+        }
     }
 
     private static (string RegistryId, bool Provisional) ResolveRegistryId(CreateParcelRequest request, GeographicArea? area)

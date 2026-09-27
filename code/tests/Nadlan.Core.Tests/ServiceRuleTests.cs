@@ -160,7 +160,16 @@ public class ServiceRuleTests
             return Task.FromResult((long)Inserted.Count);
         }
         public Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery q, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<Parcel>>(Existing);
-        public Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon c, double m, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ParcelOverlapHit>>(Overlaps);
+        public Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon c, double m, CancellationToken ct = default, long? exclude = null)
+            => Task.FromResult<IReadOnlyList<ParcelOverlapHit>>(Overlaps.Where(o => o.ParcelId != exclude).ToList());
+
+        public List<Parcel> Updated { get; } = new();
+
+        public Task UpdateAsync(Parcel p, CancellationToken ct = default)
+        {
+            Updated.Add(p);
+            return Task.CompletedTask;
+        }
         public Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double m, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ParcelOverlap>>(Array.Empty<ParcelOverlap>());
     }
 
