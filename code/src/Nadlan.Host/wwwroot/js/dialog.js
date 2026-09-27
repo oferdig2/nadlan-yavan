@@ -68,6 +68,15 @@
     });
   }
 
+  /** For failures that have no form or status line to show in. Accepts an Error or a string. */
+  function showError(title, err) {
+    var d = open({
+      title: title,
+      content: $("<div class=\"error\"></div>").text(err && err.message ? err.message : String(err || "Something went wrong.")),
+      buttons: [{ text: "Close", primary: true, click: function () { d.close(); } }]
+    });
+  }
+
   // Reads a form's [name] fields into an object; numbers and checkboxes typed by data-type/checkbox.
   function readForm($form) {
     var data = {};
@@ -90,5 +99,5 @@
     return data;
   }
 
-  Nadlan.dialog = { open: open, confirm: confirm, readForm: readForm };
+  Nadlan.dialog = { open: open, confirm: confirm, showError: showError, readForm: readForm };
 })(window, jQuery);

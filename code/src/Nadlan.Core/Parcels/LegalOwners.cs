@@ -40,12 +40,21 @@ public sealed class LegalOwnerService
         var contact = await _contacts.GetAsync(contactId, ct)
             ?? throw new DomainValidationException("LEGAL_OWNER_CONTACT_REQUIRED", "Select the owner's Contact.");
 
+        // The column is DECIMAL(6,3): validate the value MySQL will store, so 0.0001 isn't accepted here and stored as 0.
+        ownershipPercent = ownershipPercent is decimal raw ? Math.Round(raw, 3, MidpointRounding.AwayFromZero) : null;
         if (ownershipPercent is not null and (<= 0 or > 100))
         {
-            throw new DomainValidationException("LEGAL_OWNER_PERCENT_INVALID", "Ownership must be more than 0% and at most 100%.");
+            throw new DomainValidationException("LEGAL_OWNER_PERCENT_INVALID", "Ownership must be more than 0% and at most 100% (up to 3 decimals).");
         }
 
-        var others = (await _owners.ListAsync(parcelId, ct)).Where(o => o.ContactId != contactId);
+        var current = await _owners.ListAsync(parcelId, ct);
+        if (!contact.IsActive && current.All(o => o.ContactId != contactId))
+        {
+            // An inactive Contact already listed may still be edited; it just can't be newly added.
+            throw new DomainValidationException("LEGAL_OWNER_CONTACT_INACTIVE", $"{contact.DisplayName} is inactive and can't be added as a legal owner.");
+        }
+
+        var others = current.Where(o => o.ContactId != contactId);
         var total = others.Sum(o => o.OwnershipPercent ?? 0) + (ownershipPercent ?? 0);
         if (total > 100)
         {

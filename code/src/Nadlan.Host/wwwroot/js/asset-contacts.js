@@ -92,12 +92,12 @@
     }
 
     $slot.on("click", "[data-add-prof]", function () {
-      openAddDialog(assetId).then(function (added) { if (added) { load(); } });
+      openAddDialog(assetId).then(function (added) { if (added) { load(); } }, function (err) { Nadlan.dialog.showError("Could not open", err); });
     });
     $slot.on("click", "[data-remove-prof]", function () {
       var id = Number($(this).data("removeProf"));
       Nadlan.dialog.confirm("Unlink professional", "Unlink this professional from the Asset?", "Unlink").then(function (ok) {
-        if (ok) { Nadlan.api.del("/api/assets/" + assetId + "/contacts/" + id).then(load); }
+        if (ok) { Nadlan.api.del("/api/assets/" + assetId + "/contacts/" + id).then(load, function (err) { Nadlan.dialog.showError("Could not unlink", err); }); }
       });
     });
 

@@ -28,7 +28,8 @@
 
   // The Files dialog reads storage on/off and the size limit from here (the map page sets it the same way).
   Nadlan.clientConfig = {};
-  Nadlan.api.get("/api/config/client").then(function (config) { Nadlan.clientConfig = config; });
+  Nadlan.api.get("/api/config/client").then(function (config) { Nadlan.clientConfig = config; },
+    function (err) { if (window.console) { console.warn("Client config not loaded; file uploads may be unavailable.", err); } });
 
   $("[data-tab]").on("click", function () { show($(this).data("tab")); });
 

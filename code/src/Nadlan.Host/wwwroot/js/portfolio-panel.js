@@ -30,13 +30,17 @@
           return "<li data-id=\"" + p.portfolioId + "\"><div class=\"row-body\"><div class=\"row-main\">" + esc(p.name) + "</div>" +
             "<div class=\"row-sub muted\">" + esc(p.typeName) + " · " + p.assetCount + " asset(s)</div></div></li>";
         }).join("") : "<li class=\"muted\">No portfolios yet - create one from selected Assets on the map.</li>");
+      }, function (err) {
+        if (mine !== seq) { return; }
+        $body.find("ul").html("<li class=\"error\">" + esc(err.message) + "</li>");
       });
     }
 
     var timer = null;
     $body.on("input", "input", function () { clearTimeout(timer); timer = setTimeout(search, 250); });
     $body.on("click", "li[data-id]", function () {
-      openPortfolio(Number($(this).data("id")), { onShowOnMap: options.onShowOnMap, onChanged: search });
+      openPortfolio(Number($(this).data("id")), { onShowOnMap: options.onShowOnMap, onChanged: search })
+        .catch(function (err) { Nadlan.dialog.showError("Could not open the portfolio", err); });
     });
     search();
     return d;
@@ -87,7 +91,9 @@
             p.assets = ids.map(function (id) { return byId[id]; });
           }, function (err) {
             d.showError(err.message);
-            renderAssets(); // put the list back the way the server has it
+            renderAssets(); // undo the drag at once...
+            // ...then reload: a conflict means someone else added/removed Assets, so the local list is stale.
+            Nadlan.api.get("/api/portfolios/" + portfolioId).then(function (fresh) { p.assets = fresh.assets; renderAssets(); }, function () { /* keep the error shown */ });
           });
         }
       });

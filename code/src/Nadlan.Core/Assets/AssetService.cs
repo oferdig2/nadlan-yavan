@@ -57,13 +57,11 @@ public sealed class AssetService
     /// <summary>Spec: price and status changes are audited with old/new values; other edits as one "edited" entry.</summary>
     private async Task RecordChangesAsync(Asset before, Asset after, CancellationToken ct)
     {
-        var recorded = false;
         if (before.AskPrice != after.AskPrice || before.CurrencyCode != after.CurrencyCode)
         {
             await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetPriceChanged,
                 $"Price changed from {Price(before)} to {Price(after)}.",
                 new { old = before.AskPrice, @new = after.AskPrice, oldCurrency = before.CurrencyCode, newCurrency = after.CurrencyCode }), ct);
-            recorded = true;
         }
 
         if (before.AssetStatusId != after.AssetStatusId)
@@ -71,7 +69,6 @@ public sealed class AssetService
             var (oldName, newName) = (await StatusNameAsync(before.AssetStatusId, ct), await StatusNameAsync(after.AssetStatusId, ct));
             await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetStatusChanged,
                 $"Status changed from {oldName} to {newName}.", new { old = before.AssetStatusId, @new = after.AssetStatusId }), ct);
-            recorded = true;
         }
 
         if (before.ManagingContactId != after.ManagingContactId)
@@ -80,17 +77,16 @@ public sealed class AssetService
             var newName = (await _contacts.GetAsync(after.ManagingContactId, ct))?.DisplayName;
             await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetManagingContactChanged,
                 $"Managing contact changed from {oldName} to {newName}.", new { old = before.ManagingContactId, @new = after.ManagingContactId }), ct);
-            recorded = true;
         }
 
         var otherChange = before.PropertyTypeId != after.PropertyTypeId || before.HouseSqm != after.HouseSqm
                           || before.IsExclusive != after.IsExclusive || before.Remarks != after.Remarks
                           || before.SpecialConditions != after.SpecialConditions;
-        if (otherChange || !recorded)
+        if (otherChange)
         {
-            await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetEdited,
-                otherChange ? "Asset details edited." : "Asset saved (no changes)."), ct);
+            await _activity.RecordAsync(new ActivityEntry("Asset", after.AssetId, ActivityActions.AssetEdited, "Asset details edited."), ct);
         }
+        // A save with no changes is not history: nothing is recorded.
     }
 
     private async Task<string> StatusNameAsync(int statusId, CancellationToken ct)

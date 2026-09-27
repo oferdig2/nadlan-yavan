@@ -42,21 +42,26 @@
               "<button type=\"button\" class=\"btn btn-small\" data-files=\"" + c.contactId + "\" data-name=\"" + esc(c.displayName) + "\">Files</button>" +
               "<button type=\"button\" class=\"btn btn-small\" data-history=\"" + c.contactId + "\" data-name=\"" + esc(c.displayName) + "\">History</button></td></tr>";
           }).join("") || "<tr><td colspan=\"5\" class=\"muted\">No contacts match.</td></tr>");
+        }, function (err) {
+          if (mine !== seq) { return; }
+          $root.find("tbody").html("<tr><td colspan=\"5\" class=\"error\">" + esc(err.message) + "</td></tr>");
         });
       }
+
+      function openFailed(err) { Nadlan.dialog.showError("Could not open the contact", err); }
 
       var timer = null;
       $root.on("input", "[data-f=q]", function () { clearTimeout(timer); timer = setTimeout(load, 250); });
       $root.on("change", "[data-f=role], [data-f=inactive]", load);
-      $root.on("click", "[data-act=new]", function () { Nadlan.contactEditor.open(null).then(function (c) { if (c) { load(); } }); });
+      $root.on("click", "[data-act=new]", function () { Nadlan.contactEditor.open(null).then(function (c) { if (c) { load(); } }, openFailed); });
       $root.on("click", "[data-edit]", function () {
-        Nadlan.contactEditor.open(Number($(this).data("edit"))).then(function (c) { if (c) { load(); } });
+        Nadlan.contactEditor.open(Number($(this).data("edit"))).then(function (c) { if (c) { load(); } }, openFailed);
       });
       $root.on("click", "[data-files]", function () {
-        Nadlan.filesDialog.open({ attachedToType: "Contact", attachedToId: Number($(this).data("files")), title: $(this).data("name") + " - files" });
+        Nadlan.filesDialog.open({ attachedToType: "Contact", attachedToId: Number($(this).data("files")), title: $(this).attr("data-name") + " - files" });
       });
       $root.on("click", "[data-history]", function () {
-        Nadlan.historyDialog.open({ entityType: "Contact", entityId: Number($(this).data("history")), title: $(this).data("name") + " - history" });
+        Nadlan.historyDialog.open({ entityType: "Contact", entityId: Number($(this).data("history")), title: $(this).attr("data-name") + " - history" });
       });
       load();
     });

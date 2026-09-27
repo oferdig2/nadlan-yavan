@@ -1,6 +1,8 @@
 /* Admin page */
 .admin-body { overflow: auto; }
 .admin-tabs { flex-wrap: wrap; }
+/* The tabs wrap on narrow screens, so the header grows with them (the map page keeps its fixed height). */
+.admin-body .app-header { height: auto; min-height: var(--header-h); flex-wrap: wrap; padding-top: 6px; padding-bottom: 6px; }
 .admin-main { padding: 16px; max-width: 1100px; margin: 0 auto; }
 
 .meta-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }

@@ -154,6 +154,8 @@ public sealed class ParcelService
         var area = await ResolveAreaAsync(request.GeographicAreaId, existing.GeographicAreaId, ct);
 
         // KAEK: empty keeps the current id; a new real KAEK replaces it (and ends "provisional").
+        // A provisional TMP- id is NOT regenerated when area/OT/Plot change: it is a stable placeholder (a re-run import
+        // finds the Parcel again by it), and it goes away once the real KAEK is entered.
         var (registryId, provisional) = (existing.RegistryId, existing.RegistryIdIsProvisional);
         var typed = request.RegistryId?.Trim();
         if (!string.IsNullOrEmpty(typed) && typed != existing.RegistryId)

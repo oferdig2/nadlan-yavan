@@ -137,7 +137,8 @@ public sealed class FileService
         }
 
         // Only a row that is still Pending is cleared; a concurrent complete that already made it Ready wins.
-        if (!await _files.DeletePendingAsync(fileAttachmentId, ct))
+        // If the row is gone instead (cancelled meanwhile), the object is unreferenced and goes too.
+        if (!await _files.DeletePendingAsync(fileAttachmentId, ct) && await IsReadyAsync(fileAttachmentId, ct))
         {
             throw new DomainValidationException("FILE_NOT_UPLOADING", "This file is already fully uploaded.");
         }
@@ -163,7 +164,8 @@ public sealed class FileService
         var size = await _storage.GetObjectSizeAsync(file.StorageKey, ct);
         if (size != file.FileSize)
         {
-            if (await _files.DeletePendingAsync(fileAttachmentId, ct))
+            // Keep the object only if a concurrent resume already accepted it (Ready); a cancelled row leaves it unreferenced.
+            if (await _files.DeletePendingAsync(fileAttachmentId, ct) || !await IsReadyAsync(fileAttachmentId, ct))
             {
                 await _storage.DeleteObjectAsync(file.StorageKey, ct);
             }

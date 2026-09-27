@@ -72,7 +72,7 @@
     $slot.off("click.owners").on("click.owners", "[data-remove-owner]", function () {
       var contactId = Number($(this).data("removeOwner"));
       Nadlan.dialog.confirm("Remove legal owner", "Remove this legal owner from the Parcel?", "Remove").then(function (ok) {
-        if (ok) { Nadlan.api.del("/api/parcels/" + parcelId + "/legal-owners/" + contactId).then(load); }
+        if (ok) { Nadlan.api.del("/api/parcels/" + parcelId + "/legal-owners/" + contactId).then(load, function (err) { Nadlan.dialog.showError("Could not remove the legal owner", err); }); }
       });
     });
 

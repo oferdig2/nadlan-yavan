@@ -135,8 +135,10 @@
             showOverlaps(err.overlaps || []);
           } else if (err.status === 409 && err.code === "PARCEL_KAEK_EXISTS") {
             d.showError(err.message);
-            $form.find(".overlap-box").prop("hidden", false).html(
-              "<button type=\"button\" class=\"btn\" data-show=\"" + esc(err.existingParcelId) + "\">Show the existing parcel</button>");
+            if (err.existingParcelId != null) {
+              $form.find(".overlap-box").prop("hidden", false).html(
+                "<button type=\"button\" class=\"btn\" data-show=\"" + esc(err.existingParcelId) + "\">Show the existing parcel</button>");
+            }
           } else {
             d.showError(err.message);
           }

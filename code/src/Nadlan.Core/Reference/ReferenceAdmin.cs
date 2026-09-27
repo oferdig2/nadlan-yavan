@@ -40,9 +40,10 @@ public sealed partial class ReferenceAdminService
     public async Task<int> CreateAsync(ReferenceTable table, ReferenceRow input, CancellationToken ct = default)
     {
         var code = (input.Code ?? "").Trim().ToUpperInvariant();
-        if (!CodePattern().IsMatch(code))
+        var maxCode = MaxCodeLength(table);
+        if (!CodePattern().IsMatch(code) || code.Length > maxCode)
         {
-            throw new DomainValidationException("REFERENCE_CODE_INVALID", "Code: capital letters, digits and _ only (max 40), e.g. UNDER_OFFER.");
+            throw new DomainValidationException("REFERENCE_CODE_INVALID", $"Code: capital letters, digits and _ only (max {maxCode}), e.g. UNDER_OFFER.");
         }
 
         try
@@ -68,9 +69,10 @@ public sealed partial class ReferenceAdminService
     private static ReferenceRow Validate(ReferenceTable table, ReferenceRow row)
     {
         var name = TextNormalize.NullIfBlank(row.Name) ?? throw new DomainValidationException("REFERENCE_NAME_REQUIRED", "Enter a name.");
-        if (name.Length > 200)
+        var maxName = MaxNameLength(table);
+        if (name.Length > maxName)
         {
-            throw new DomainValidationException("REFERENCE_NAME_TOO_LONG", "The name is too long.");
+            throw new DomainValidationException("REFERENCE_NAME_TOO_LONG", $"The name can have at most {maxName} characters.");
         }
 
         var color = row.Color;
@@ -91,6 +93,11 @@ public sealed partial class ReferenceAdminService
 
         return row with { Name = name, Color = color, Category = category };
     }
+
+    // Column sizes (Sql/002-004): geographic_area has code VARCHAR(16) / name VARCHAR(200), the others VARCHAR(40) / VARCHAR(100).
+    private static int MaxCodeLength(ReferenceTable table) => table == ReferenceTable.GeographicArea ? 16 : 40;
+
+    private static int MaxNameLength(ReferenceTable table) => table == ReferenceTable.GeographicArea ? 200 : 100;
 
     [GeneratedRegex("^[A-Z0-9_]{1,40}$")]
     private static partial Regex CodePattern();

@@ -35,7 +35,10 @@
     function typeIdFor(file) {
       var kind = /^image\//.test(file.type) ? "image" : /^video\//.test(file.type) ? "video" : "other";
       var code = zone.types[kind] || zone.types.other;
-      var type = options.fileTypes.filter(function (t) { return t.code === code; })[0];
+      var active = options.fileTypes.filter(function (t) { return t.isActive !== false; });
+      function byCode(c) { return active.filter(function (t) { return t.code === c; })[0]; }
+      // An Admin may deactivate the zone's type (e.g. PHOTO): fall back to OTHER, then any active type, so the zone keeps working.
+      var type = byCode(code) || byCode("OTHER") || active[0];
       return type ? type.id : null;
     }
 

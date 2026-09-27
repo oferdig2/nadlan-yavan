@@ -191,6 +191,50 @@ public class ReviewRegressionTests
         Assert.NotNull(files.Row);
     }
 
+    [Fact]
+    public async Task Resume_of_a_cancelled_upload_is_not_found_and_removes_the_object()
+    {
+        var files = new CancellingStore();
+        var storage = new RecordingStorage { Parts = null, StoredSize = 3 }; // multipart gone, partial object left
+        var service = new FileService(files, new AnyTarget(), storage, new FileStorageSettings());
+        var session = await service.StartUploadAsync(new StartUploadRequest("Asset", 1, 1, "a.mp4", "video/mp4", 10));
+        files.VanishOnNextGet = true;
+
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => service.ListUploadedPartsAsync(session.FileAttachmentId)); // not "already uploaded"
+        Assert.Single(storage.Deleted);
+    }
+
+    [Fact]
+    public async Task Wrong_size_complete_after_a_cancel_still_removes_the_object()
+    {
+        var files = new CancellingStore();
+        var storage = new RecordingStorage { StoredSize = 3 };
+        var service = new FileService(files, new AnyTarget(), storage, new FileStorageSettings());
+        var session = await service.StartUploadAsync(new StartUploadRequest("Asset", 1, 1, "a.mp4", "video/mp4", 10));
+        files.VanishOnNextGet = true;
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() =>
+            service.CompleteUploadAsync(session.FileAttachmentId, new[] { new UploadedPart(1, "\"e\"") }));
+
+        Assert.Equal("FILE_SIZE_MISMATCH", ex.Code);
+        Assert.Single(storage.Deleted);
+    }
+
+    [Fact]
+    public async Task Wrong_size_complete_keeps_an_object_a_concurrent_resume_accepted()
+    {
+        var files = new CancellingStore();
+        var storage = new RecordingStorage { StoredSize = 3 };
+        var service = new FileService(files, new AnyTarget(), storage, new FileStorageSettings());
+        var session = await service.StartUploadAsync(new StartUploadRequest("Asset", 1, 1, "a.mp4", "video/mp4", 10));
+        files.FlipToReadyOnNextGet = true;
+
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            service.CompleteUploadAsync(session.FileAttachmentId, new[] { new UploadedPart(1, "\"e\"") }));
+
+        Assert.Empty(storage.Deleted);
+    }
+
     // A store whose row is "deleted by a concurrent cancel" by the time the upload completes.
     private sealed class CancellingStore : IFileAttachmentStore
     {
@@ -203,6 +247,7 @@ public class ReviewRegressionTests
         }
 
         public bool FlipToReadyOnNextGet { get; set; } // simulates a concurrent complete right after this read
+        public bool VanishOnNextGet { get; set; }      // simulates a concurrent cancel right after this read
 
         public Task<FileAttachment?> GetAsync(long id, CancellationToken ct = default)
         {
@@ -211,6 +256,12 @@ public class ReviewRegressionTests
             {
                 FlipToReadyOnNextGet = false;
                 Row = Row with { UploadStatus = FileUploadStatus.Ready };
+            }
+
+            if (VanishOnNextGet)
+            {
+                VanishOnNextGet = false;
+                Row = null;
             }
 
             return Task.FromResult(current);

@@ -35,7 +35,7 @@
       streetViewControl: false, fullscreenControl: false, gestureHandling: "greedy"
     });
 
-    var state = { mode: "parcels", scope: "view", rectangle: null, items: [], fitAfterLoad: false };
+    var state = { mode: "parcels", scope: "view", items: [], fitAfterLoad: false }; // the rectangle lives in rectangle.getBounds()
     var selection = Nadlan.createAssetSelection();
     var parcelOverlay, assetOverlay;
 
@@ -83,9 +83,9 @@
     }
 
     var rectangle = Nadlan.createMapRectangleSelector(map, {
+      onCancel: function () { reload(); }, // Escape: search again with whatever rectangle (if any) is left
       onDrawingChange: setDrawing,
       onChange: function (bounds) {
-        state.rectangle = bounds;
         filters.setRectangleActive(!!bounds);
         if (bounds) { setScope("rectangle"); } else if (state.scope === "rectangle") { setScope("view"); }
         reload();
@@ -103,10 +103,10 @@
       onScopeChange: function (scope) {
         state.scope = scope;
         if (scope !== "rectangle") { rectangle.cancel(); } // leaving rectangle mode must give the map its gestures back
-        if (scope === "rectangle" && !state.rectangle) { rectangle.start(); setStatus("Drag on the map to draw the search rectangle."); return; }
+        if (scope === "rectangle" && !rectangle.getBounds()) { startRectangle(); return; }
         reload();
       },
-      onDrawRectangle: function () { rectangle.start(); setStatus("Drag on the map to draw the search rectangle."); },
+      onDrawRectangle: startRectangle,
       onClearRectangle: function () { rectangle.clear(); }
     });
 
@@ -123,9 +123,17 @@
           if (!r) { return; }
           setStatus(r.added + " asset(s) added to \"" + r.name + "\".");
           selection.clear();
-        });
+        }).catch(function (err) { setStatus(err.message, true); });
       }
     });
+
+    // start() drops the old rectangle silently, so bring the panel and (in rectangle scope) the results in line.
+    function startRectangle() {
+      rectangle.start();
+      filters.setRectangleActive(false);
+      if (state.scope === "rectangle") { reload(); }
+      setStatus("Drag on the map to draw the search rectangle (Esc cancels).");
+    }
 
     function setScope(scope) {
       state.scope = scope;
@@ -143,7 +151,7 @@
     }
 
     function currentArea() {
-      if (state.scope === "rectangle") { return state.rectangle; }
+      if (state.scope === "rectangle") { return rectangle.getBounds(); }
       if (state.scope === "everywhere") { return null; }
       var b = map.getBounds();
       return b ? { west: b.getSouthWest().lng(), south: b.getSouthWest().lat(), east: b.getNorthEast().lng(), north: b.getNorthEast().lat() } : null;
@@ -157,7 +165,7 @@
       var mode = state.mode;
       var filter = filters.getFilter(mode);
       if (!filter) { clearResults("Fix the filter to search."); return; }
-      if (state.scope === "rectangle" && !state.rectangle) { clearResults("Draw a rectangle to search in."); return; }
+      if (state.scope === "rectangle" && !rectangle.getBounds()) { clearResults("Draw a rectangle to search in."); return; }
 
       var query = $.extend({}, filter, currentArea() || {});
       var url = mode === "assets" ? "/api/assets" : "/api/parcels";
@@ -233,7 +241,7 @@
           showParcelById(parcelId);
         },
         onShowParcel: showParcelById
-      });
+      }).catch(function (err) { setStatus(err.message, true); });
     });
 
     function editParcel(parcelId) {

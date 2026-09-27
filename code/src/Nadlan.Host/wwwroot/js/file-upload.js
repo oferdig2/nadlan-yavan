@@ -208,7 +208,13 @@
         inflight.forEach(function (x) { x.abort(); });
         handlers.onState("cancelled");
         rejectDone({ cancelled: true });
-        if (session) { Nadlan.api.del("/api/files/uploads/" + session.fileAttachmentId).catch(function () { /* lifecycle rule cleans up */ }); }
+        if (session) {
+          Nadlan.api.del("/api/files/uploads/" + session.fileAttachmentId).catch(function (err) {
+            // Too late: the upload had already finished and the file was kept - report it, so the gallery shows it.
+            if (err.code === "FILE_NOT_UPLOADING") { handlers.onState("done", err.message); }
+            /* anything else: the sweeper / lifecycle rule cleans up */
+          });
+        }
       },
 
       retry: function () { run(session ? resumeOrRestart : createSession); }

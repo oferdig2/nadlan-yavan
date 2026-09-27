@@ -18,6 +18,16 @@ public class ReferenceAdminTests
     }
 
     [Fact]
+    public async Task Area_codes_follow_their_shorter_column()
+    {
+        var service = new ReferenceAdminService(new Store());
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateAsync(ReferenceTable.GeographicArea, Row("SEVENTEEN_CHARS_X")));
+        Assert.Equal("REFERENCE_CODE_INVALID", ex.Code);
+        await service.CreateAsync(ReferenceTable.PropertyType, Row("SEVENTEEN_CHARS_X")); // 40 allowed there
+    }
+
+    [Fact]
     public async Task Codes_are_normalized_to_upper_case()
     {
         var store = new Store();

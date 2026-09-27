@@ -126,7 +126,9 @@
       $card.on("click", "[data-action=create-asset]", function () { options.onCreateAsset(state.parcel); });
       $card.on("click", "[data-action=edit-parcel]", function () { options.onEditParcel(state.parcelId); });
       var owners = Nadlan.legalOwners.render($card.find(".card-owners-slot"), state.parcelId);
-      $card.on("click", "[data-action=add-owner]", function () { owners.add(); });
+      $card.on("click", "[data-action=add-owner]", function () {
+        owners.add().catch(function (err) { Nadlan.dialog.showError("Could not open", err); });
+      });
       $card.on("click", "[data-edit]", function () { options.onEditAsset(Number($(this).data("edit")), state.parcel); });
       $card.on("click", "[data-history]", function () {
         var assetId = Number($(this).data("history"));

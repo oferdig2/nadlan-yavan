@@ -43,6 +43,15 @@ public class ReviewGapTests
     }
 
     [Fact]
+    public async Task Unknown_contact_type_is_rejected_not_silently_made_a_person()
+    {
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() =>
+            new ContactService(new Contacts()).CreateAsync(new Contact { ContactType = "Company", CompanyName = "Acme" }));
+
+        Assert.Equal("CONTACT_TYPE_INVALID", ex.Code);
+    }
+
+    [Fact]
     public async Task Invalid_polygon_is_rejected()
     {
         var service = new ParcelService(new Parcels { Valid = false }, new Areas(), new Greece());

@@ -28,6 +28,18 @@ public class ActivityAndPortfolioTests
     }
 
     [Fact]
+    public async Task Saving_an_asset_without_changes_writes_no_history()
+    {
+        var log = new RecordingLog();
+        var asset = new Asset { AssetId = 7, ManagingContactId = 1, AssetStatusId = 1, AskPrice = 120_000, CurrencyCode = "EUR", ParcelIds = new long[] { 1 } };
+        var service = new AssetService(new OneAsset(asset), new OneParcel(), new OneContact(), new Statuses(), log);
+
+        await service.UpdateAsync(asset);
+
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
     public async Task Reorder_must_match_current_members()
     {
         var store = new Portfolios(new long[] { 1, 2, 3 });

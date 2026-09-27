@@ -7,8 +7,9 @@
 
   /**
    * @param {google.maps.Map} map
-   * @param {{ onChange: function(object|null): void, onDrawingChange: function(boolean): void }} options
-   *        onChange gets { west, south, east, north } or null when cleared.
+   * @param {{ onChange: function(object|null): void, onDrawingChange: function(boolean): void, onCancel?: function(): void }} options
+   *        onChange gets { west, south, east, north } or null when cleared; onCancel runs when Escape stops a draw.
+   *        start() drops the current rectangle without onChange - read getBounds() for the live state.
    */
   function createMapRectangleSelector(map, options) {
     var rect = null;
@@ -28,6 +29,7 @@
 
     function endDrawing() {
       stopListening();
+      $(document).off("keydown.rectSelector");
       map.setOptions({ gestureHandling: "greedy", draggableCursor: null });
       options.onDrawingChange(false);
     }
@@ -45,6 +47,10 @@
         clear(true);
         options.onDrawingChange(true);
         map.setOptions({ gestureHandling: "none", draggableCursor: "crosshair" });
+        var self = this;
+        $(document).on("keydown.rectSelector", function (e) {
+          if (e.key === "Escape") { self.cancel(); if (options.onCancel) { options.onCancel(); } }
+        });
 
         listeners.push(map.addListener("mousedown", function (e) {
           start = e.latLng;
@@ -74,7 +80,14 @@
           options.onChange(toBounds(rect));
         }));
       },
-      cancel: function () { if (listeners.length) { endDrawing(); } },
+      // Stops a draw in progress. A half-dragged rectangle is removed (it was never reported); a finished one stays.
+      cancel: function () {
+        if (!listeners.length) { return; }
+        var dragging = start !== null;
+        start = null;
+        endDrawing();
+        if (dragging) { clear(true); }
+      },
       clear: function () { clear(false); },
       getBounds: function () { return rect ? toBounds(rect) : null; }
     };

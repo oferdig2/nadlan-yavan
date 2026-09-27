@@ -54,7 +54,7 @@
     });
 
     $root.on("click", "[data-action=edit]", function () {
-      options.edit(current).then(function (saved) { if (saved) { set(saved); } });
+      options.edit(current).then(function (saved) { if (saved) { set(saved); } }, function (err) { Nadlan.dialog.showError("Could not open", err); });
     });
 
     render();

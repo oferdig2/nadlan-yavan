@@ -68,8 +68,13 @@ public sealed class ContactService
                       ?? company
                       ?? throw new DomainValidationException("CONTACT_NAME_REQUIRED", "Enter a name or company for the contact.");
 
-        var type = string.Equals(c.ContactType, ContactTypes.Organization, StringComparison.OrdinalIgnoreCase)
-            ? ContactTypes.Organization : ContactTypes.Person;
+        var type = TextNormalize.NullIfBlank(c.ContactType) switch
+        {
+            null => ContactTypes.Person,
+            var t when string.Equals(t, ContactTypes.Person, StringComparison.OrdinalIgnoreCase) => ContactTypes.Person,
+            var t when string.Equals(t, ContactTypes.Organization, StringComparison.OrdinalIgnoreCase) => ContactTypes.Organization,
+            var t => throw new DomainValidationException("CONTACT_TYPE_INVALID", $"Contact type '{t}' is not valid; use Person or Organization."),
+        };
         var email = TextNormalize.NullIfBlank(c.Email);
         if (email is not null && !email.Contains('@'))
         {

@@ -35,7 +35,7 @@ public sealed class ApiErrorMiddleware
         }
         catch (BadHttpRequestException ex)
         {
-            await WriteAsync(context, StatusCodes.Status400BadRequest, "BAD_REQUEST", ex.Message);
+            await WriteAsync(context, ex.StatusCode, ex.StatusCode == StatusCodes.Status413PayloadTooLarge ? "PAYLOAD_TOO_LARGE" : "BAD_REQUEST", ex.Message);
         }
         catch (StorageUnavailableException ex)
         {

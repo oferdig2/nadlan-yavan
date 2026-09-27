@@ -32,7 +32,9 @@ public static class PersistenceRegistration
         services.AddSingleton<IReferenceDataStore, MySqlReferenceDataStore>();
         services.AddSingleton<IFileAttachmentStore, MySqlFileAttachmentStore>();
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
-        services.AddSingleton<IActivityLog, MySqlActivityLog>();
+        services.AddSingleton<MySqlActivityLog>();
+        services.AddSingleton<IActivityLog>(sp => new Nadlan.Host.Activity.BestEffortActivityLog(
+            sp.GetRequiredService<MySqlActivityLog>(), sp.GetRequiredService<ILogger<Nadlan.Host.Activity.BestEffortActivityLog>>()));
         services.AddSingleton<IParcelLegalOwnerStore, MySqlParcelLegalOwnerStore>();
         services.AddSingleton<IAssetContactStore, MySqlAssetContactStore>();
         services.AddSingleton<IReferenceAdminStore, MySqlReferenceAdminStore>();

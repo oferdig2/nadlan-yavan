@@ -63,6 +63,28 @@ public class ParcelEditTests
         await service.SetAsync(1, 11, 40, null); // exactly 100% is fine
     }
 
+    [Fact]
+    public async Task Ownership_is_checked_as_stored_with_3_decimals()
+    {
+        var service = new LegalOwnerService(new Owners(), new Store { Parcels = { new Parcel { ParcelId = 1, Geometry = Square } } }, new Contacts());
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => service.SetAsync(1, 11, 0.0004m, null)); // would be stored as 0.000
+        Assert.Equal("LEGAL_OWNER_PERCENT_INVALID", ex.Code);
+    }
+
+    [Fact]
+    public async Task Inactive_contact_cannot_become_a_legal_owner_but_an_existing_one_can_be_edited()
+    {
+        var owners = new Owners();
+        owners.Items.Add(new LegalOwner(1, 20, "Old owner", 30, null));
+        var service = new LegalOwnerService(owners, new Store { Parcels = { new Parcel { ParcelId = 1, Geometry = Square } } },
+            new Contacts { InactiveIds = { 20, 21 } });
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => service.SetAsync(1, 21, 10, null));
+        Assert.Equal("LEGAL_OWNER_CONTACT_INACTIVE", ex.Code);
+        await service.SetAsync(1, 20, 40, null); // already listed: fine
+    }
+
     private static ParcelService NewService(Store store) => new(store, new NoAreas(), new Greece());
 
     private sealed class Store : IParcelStore
@@ -91,7 +113,8 @@ public class ParcelEditTests
 
     private sealed class Contacts : IContactStore
     {
-        public Task<Contact?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult<Contact?>(new Contact { ContactId = id, DisplayName = "Owner " + id, IsActive = true });
+        public HashSet<long> InactiveIds { get; } = new();
+        public Task<Contact?> GetAsync(long id, CancellationToken ct = default) => Task.FromResult<Contact?>(new Contact { ContactId = id, DisplayName = "Owner " + id, IsActive = !InactiveIds.Contains(id) });
         public Task<IReadOnlyList<ContactSummary>> SearchAsync(string? t, int? r, int l, CancellationToken ct = default, bool inactive = false) => throw new NotSupportedException();
         public Task<long> InsertAsync(Contact c, CancellationToken ct = default) => throw new NotSupportedException();
         public Task UpdateAsync(Contact c, CancellationToken ct = default) => throw new NotSupportedException();
