@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Nadlan.Core\Nadlan.Core.csproj" />
     <ProjectReference Include="..\..\src\Nadlan.Import\Nadlan.Import.csproj" />
+    <ProjectReference Include="..\..\src\Nadlan.KaekImporter\Nadlan.KaekImporter.csproj" />
     <ProjectReference Include="..\..\src\Nadlan.Config.MySql\Nadlan.Config.MySql.csproj" />
     <ProjectReference Include="..\..\src\Nadlan.Persistence.MySql\Nadlan.Persistence.MySql.csproj" />
     <ProjectReference Include="..\..\src\Nadlan.Storage.S3\Nadlan.Storage.S3.csproj" />

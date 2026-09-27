@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Customer-side tool: opens gis.ktimanet.gr in a visible browser and imports the parcels in the user's view
+    into Nadlan through its HTTP API. Standalone on purpose (no server projects) so it can be published per
+    platform: dotnet publish -c Release -r win-x64 (or osx-arm64, osx-x64) with self-contained on
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>NadlanKaekImporter</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" Version="1.50.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Browser\panel.js" LogicalName="panel.js" />
+  </ItemGroup>
+
+</Project>

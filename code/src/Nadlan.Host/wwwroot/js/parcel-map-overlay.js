@@ -4,8 +4,10 @@
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
 
-  var STYLE_NORMAL = { strokeColor: "#1d4ed8", strokeWeight: 1.5, fillColor: "#3b82f6", fillOpacity: 0.18 };
-  var STYLE_PROVISIONAL = { strokeColor: "#c2410c", strokeWeight: 1.5, fillColor: "#fb923c", fillOpacity: 0.18 };
+  var STYLE_NORMAL = { strokeColor: "#1d4ed8", strokeWeight: 1.5, fillColor: "#3b82f6", fillOpacity: 0.18, zIndex: 1 };
+  // Provisional (TMP-) Parcels sit on top with a light fill and a bold outline, so the real KAEK Parcels
+  // underneath stay visible and it is easy to see how the two overlap.
+  var STYLE_PROVISIONAL = { strokeColor: "#ea580c", strokeWeight: 2.5, fillColor: "#fb923c", fillOpacity: 0.12, zIndex: 2 };
   var STYLE_HOVER = { strokeWeight: 3, fillOpacity: 0.32 };
   var STYLE_SELECTED = { strokeColor: "#111827", strokeWeight: 3, fillOpacity: 0.4 };
 
@@ -39,6 +41,13 @@
       layer.setStyle(layer.getStyle()); // re-evaluates the style function
     }
 
+    var legend = document.createElement("div");
+    legend.className = "map-legend";
+    legend.innerHTML =
+      "<div><span class=\"swatch\" style=\"background:" + STYLE_NORMAL.fillColor + ";border-color:" + STYLE_NORMAL.strokeColor + "\"></span> Real KAEK</div>" +
+      "<div><span class=\"swatch\" style=\"background:" + STYLE_PROVISIONAL.fillColor + ";border-color:" + STYLE_PROVISIONAL.strokeColor + "\"></span> Provisional (TMP-)</div>";
+    map.controls[google.maps.ControlPosition.LEFT_BOTTOM].push(legend);
+
     return {
       /** @param {Array<{ summary: object, geometry: object }>} items  as returned by GET /api/parcels */
       setItems: function (items) {
@@ -59,7 +68,7 @@
       clearSelection: function () { selectedId = null; refresh(); },
       // Off while drawing, so clicks reach the map instead of the polygons.
       setInteractive: function (value) { interactive = value; refresh(); },
-      setVisible: function (visible) { layer.setMap(visible ? map : null); }
+      setVisible: function (visible) { layer.setMap(visible ? map : null); legend.style.display = visible ? "" : "none"; }
     };
   }
 

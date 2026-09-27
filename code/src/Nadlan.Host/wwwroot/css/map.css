@@ -104,3 +104,15 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .portfolio-assets li { display: flex; gap: 8px; align-items: center; padding: 5px 4px; border-top: 1px solid var(--border); background: var(--surface); }
 .portfolio-assets li.ui-sortable-helper { box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2); }
 .drag-handle { cursor: grab; color: var(--muted); user-select: none; padding: 0 2px; }
+
+.map-legend {
+  margin: 0 0 24px 10px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.map-legend .swatch { display: inline-block; width: 14px; height: 10px; margin-right: 6px; vertical-align: -1px; border: 2px solid; opacity: 0.85; }
