@@ -33,7 +33,22 @@
 .file-thumb-wrap { position: relative; aspect-ratio: 4 / 3; background: #0f172a; }
 .file-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
 .file-icon { display: flex; align-items: center; justify-content: center; color: #cbd5e1; font-weight: 700; font-size: 18px; letter-spacing: 1px; }
-.file-badge { position: absolute; right: 6px; bottom: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; }
+/* Round play (video) / view (image) button on thumbnails */
+.file-view-btn { position: absolute; right: 6px; bottom: 6px; width: 30px; height: 30px; padding: 0; border: 2px solid #fff; border-radius: 50%; background: rgba(15, 23, 42, 0.65); color: #fff; fill: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
+.file-view-btn:hover { background: var(--accent); }
+.file-view-btn svg { width: 16px; height: 16px; flex: none; }
+.thumb-strip .file-view-btn { width: 24px; height: 24px; right: 4px; bottom: 4px; }
+.thumb-strip .file-view-btn svg { width: 13px; height: 13px; }
+
+/* Media viewer: above every dialog */
+.media-viewer { position: fixed; inset: 0; z-index: 20000; background: rgba(2, 6, 23, 0.88); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px 24px; }
+.media-viewer-bar { position: absolute; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center; gap: 16px; padding: 0 12px 0 20px; color: #e2e8f0; font-size: 14px; }
+.media-viewer-bar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-viewer-open { color: #93c5fd; }
+.media-viewer-close { width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.12); color: #fff; font-size: 24px; line-height: 1; cursor: pointer; }
+.media-viewer-close:hover { background: rgba(255, 255, 255, 0.25); }
+.media-viewer-media { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; background: #000; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+video.media-viewer-media { width: min(100%, 1600px); }
 .file-title { padding: 4px 6px 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-sub { padding: 0 6px 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
