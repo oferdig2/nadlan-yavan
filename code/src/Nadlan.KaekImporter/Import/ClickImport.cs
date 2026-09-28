@@ -62,6 +62,7 @@ public sealed class ClickImport
             catch (StopImportException ex)
             {
                 await _site.LogAsync(ex.Message, "err");
+                await _site.RefreshStateAsync(); // e.g. token refused: the panel offers "Connect to Nadlan"
             }
         }
     }

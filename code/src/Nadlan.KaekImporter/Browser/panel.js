@@ -1,8 +1,8 @@
 // Injected into gis.ktimanet.gr/gis/map by NadlanKaekImporter. Draws the control panel and the progress
 // overlay; all the work happens in the .NET tool, which calls window.NadlanPanel.* and receives
-// window.nadlanStart(areaId) / window.nadlanStop() / window.nadlanClickMode(on, areaId) (exposed by Playwright).
-// window.__nadlanAreas ([{ id, name }]) and window.__nadlanOffline (null, or why nothing will be saved) are set by the
-// tool just before this script.
+// window.nadlanStart(areaId) / window.nadlanStop() / window.nadlanClickMode(on, areaId) / window.nadlanConnect() and
+// window.nadlanState() -> { areas: [{ id, name }], userName, offline (null, or why nothing will be saved), needsConnect }
+// (all exposed by Playwright). The state is asked for when the panel is built, so a reload never shows stale data.
 (function () {
   "use strict";
   if (window.top !== window || !/\/gis\/map/i.test(location.pathname) || window.NadlanPanel) { return; }
@@ -14,7 +14,9 @@
     road: { stroke: "#9ca3af", fill: "rgba(156,163,175,0.12)" },
     found: { stroke: "#7c3aed", fill: "rgba(124,58,237,0.22)" } // offline: found but not saved
   };
-  var offline = window.__nadlanOffline || null;
+  var offline = null;        // why nothing will be saved, or null
+  var needsConnect = false;  // Nadlan reachable, but no (valid) token yet
+  var running = false;
   var shapes = [];      // { rings: [[[x,y],...]], kind }
   var sweep = null;     // { left, right, top, bottom }
   var probe = null;     // [x, y]
@@ -45,22 +47,24 @@
       "#nadlan-log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       "#nadlan-log .err{color:#b91c1c}#nadlan-log .warn{color:#b45309}#nadlan-log .ok{color:#15803d}" +
       "#nadlan-panel.min .body{display:none}" +
-      "#nadlan-offline{margin:-8px -10px 8px;padding:8px 10px;background:#fef3c7;color:#92400e;border-bottom:1px solid #fcd34d;font-size:12px}";
+      "#nadlan-offline{margin:-8px -10px 8px;padding:8px 10px;background:#fef3c7;color:#92400e;border-bottom:1px solid #fcd34d;font-size:12px}" +
+      "#nadlan-connect{margin:-8px -10px 8px;padding:10px;background:#eff6ff;color:#1e3a8a;border-bottom:1px solid #bfdbfe;font-size:12px}" +
+      "#nadlan-connect button{display:block;width:100%;margin:8px 0 6px;padding:7px;border-radius:6px;border:1px solid #1d4ed8;" +
+      "background:#1d4ed8;color:#fff;font-weight:600;cursor:pointer}#nadlan-connect button:disabled{opacity:.6;cursor:default}" +
+      "#nadlan-user{font-weight:400;color:#64748b;font-size:12px;margin-left:6px}";
     document.head.appendChild(style);
 
-    var areas = window.__nadlanAreas || [];
     panel = document.createElement("div");
     panel.id = "nadlan-panel";
     panel.innerHTML =
-      "<header><span>Nadlan - import parcels</span><button type=\"button\" id=\"nadlan-min\" title=\"Minimise\">_</button></header>" +
+      "<header><span>Nadlan - import parcels<span id=\"nadlan-user\"></span></span><button type=\"button\" id=\"nadlan-min\" title=\"Minimise\">_</button></header>" +
       "<div class=\"body\">" +
-      (offline
-        ? "<div id=\"nadlan-offline\"><b>Offline - nothing will be saved.</b> " + esc(offline) +
-          " The whole process runs and parcels are shown and listed in the report, but they are not stored in Nadlan.</div>"
-        : "") +
-      "<label" + (offline ? " hidden" : "") + ">Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">(none)</option>" +
-      areas.map(function (a) { return "<option value=\"" + a.id + "\">" + esc(a.name) + "</option>"; }).join("") +
-      "</select></label>" +
+      "<div id=\"nadlan-offline\" hidden></div>" +
+      "<div id=\"nadlan-connect\" hidden><b>Not connected to Nadlan.</b> Parcels can only be saved once the importer is signed in." +
+        "<button type=\"button\" id=\"nadlan-connect-btn\">Connect to Nadlan</button>" +
+        "Opens Nadlan in a new tab: sign in with your email and password, then click Connect. The tab closes by itself and " +
+        "the importer remembers the connection. Your user must be allowed to create Parcels.</div>" +
+      "<label id=\"nadlan-area-label\">Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">(none)</option></select></label>" +
       "<label class=\"check\"><input type=\"checkbox\" id=\"nadlan-click\"> Import each parcel I click on the map</label>" +
       "<div class=\"actions\"><button type=\"button\" id=\"nadlan-start\">Acquire polygons</button>" +
       "<button type=\"button\" id=\"nadlan-stop\" disabled>Stop</button></div>" +
@@ -91,7 +95,20 @@
       status("Stopping after the current step...");
       window.nadlanStop();
     };
+    document.getElementById("nadlan-connect-btn").onclick = function () {
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = "Waiting for the Nadlan tab...";
+      status("Sign in in the Nadlan tab and click Connect.");
+      window.nadlanConnect().then(function (error) {
+        btn.disabled = false;
+        btn.textContent = "Connect to Nadlan";
+        if (error) { status(error); log(error, "err"); } else { status("Connected. Zoom in and click Acquire polygons - or tick the box and click parcels."); }
+        refreshState();
+      }, function (e) { btn.disabled = false; btn.textContent = "Connect to Nadlan"; status("Could not connect: " + e.message); });
+    };
     counts({});
+    refreshState();
 
     svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("id", "nadlan-overlay");
@@ -135,17 +152,49 @@
     svg.innerHTML = html;
   }
 
-  function setRunning(running) {
-    document.getElementById("nadlan-start").disabled = running;
-    document.getElementById("nadlan-stop").disabled = !running;
-    document.getElementById("nadlan-area").disabled = running;
-    document.getElementById("nadlan-click").disabled = running;
+  function setRunning(on) {
+    running = on;
+    document.getElementById("nadlan-start").disabled = on || needsConnect;
+    document.getElementById("nadlan-stop").disabled = !on;
+    document.getElementById("nadlan-area").disabled = on || needsConnect;
+    document.getElementById("nadlan-click").disabled = on || needsConnect;
   }
 
   function setClickMode(on) {
-    document.getElementById("nadlan-start").disabled = on;
-    document.getElementById("nadlan-area").disabled = on;
+    document.getElementById("nadlan-start").disabled = on || needsConnect;
+    document.getElementById("nadlan-area").disabled = on || needsConnect;
     if (on) { status("Click parcels on the map; each one you click is imported."); }
+  }
+
+  // Asks the tool for the connection state (at build, after Connect, after Nadlan refused the token).
+  function refreshState() {
+    if (typeof window.nadlanState !== "function") { return; }
+    window.nadlanState().then(applyState, function () { /* tool gone */ });
+  }
+
+  function applyState(s) {
+    offline = s.offline || null;
+    needsConnect = !!s.needsConnect && !offline;
+
+    var select = document.getElementById("nadlan-area");
+    var chosen = select.value;
+    select.innerHTML = "<option value=\"\">(none)</option>" + (s.areas || []).map(function (a) {
+      return "<option value=\"" + a.id + "\"" + (String(a.id) === chosen ? " selected" : "") + ">" + esc(a.name) + "</option>";
+    }).join("");
+
+    var off = document.getElementById("nadlan-offline");
+    off.hidden = !offline;
+    off.innerHTML = offline ? "<b>Offline - nothing will be saved.</b> " + esc(offline) +
+      " The whole process runs and parcels are shown and listed in the report, but they are not stored in Nadlan." : "";
+    document.getElementById("nadlan-connect").hidden = !needsConnect;
+    document.getElementById("nadlan-area-label").hidden = !!offline || needsConnect;
+    document.getElementById("nadlan-user").textContent = s.userName && !needsConnect && !offline ? "as " + s.userName : "";
+
+    var click = document.getElementById("nadlan-click");
+    if (needsConnect && click.checked) { click.checked = false; }
+    setRunning(running);
+    if (!running) { setClickMode(click.checked); }
+    counts({});
   }
 
   function status(text) { document.getElementById("nadlan-status").textContent = text; }
@@ -261,7 +310,8 @@
     setSweep: function (extent) { sweep = extent; shapes = []; probe = null; },
     setProbe: function (x, y) { probe = [x, y]; },
     addShape: function (rings, kind) { shapes.push({ rings: rings, kind: kind }); },
-    finished: function (text) { probe = null; setRunning(false); status(text); log(text, "ok"); }
+    finished: function (text) { probe = null; setRunning(false); status(text); log(text, "ok"); },
+    refreshState: refreshState
   };
 
   if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", build); } else { build(); }

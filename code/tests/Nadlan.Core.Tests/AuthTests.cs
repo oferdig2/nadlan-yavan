@@ -356,6 +356,8 @@ public class AuthTests
 
         public Task<long?> UseAsync(string tokenHash, CancellationToken ct = default)
             => Task.FromResult(Rows.Where(r => r.Hash == tokenHash && !r.Revoked).Select(r => (long?)r.UserId).FirstOrDefault());
+
+        public Task<int> RevokeByNameAsync(long userId, string name, CancellationToken ct = default) => Task.FromResult(0);
     }
 
     internal sealed class FakeGrants : IResourceAccessStore

@@ -36,6 +36,7 @@ app.UseNadlanAuth(); // default files, page guard, static files, authentication,
 
 app.MapAuthEndpoints();
 app.MapUserAdminEndpoints();
+app.MapImporterEndpoints();
 app.MapClientConfigEndpoints();
 app.MapReferenceEndpoints();
 app.MapParcelEndpoints();

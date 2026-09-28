@@ -97,6 +97,8 @@ The last active Admin can't be deactivated, demoted or deleted, and nobody can d
 
 ## API tokens (tools)
 
+The KAEK importer connects itself: its panel shows **Connect to Nadlan**, which opens `connect-importer.html` in the importer's browser. The user signs in, clicks **Connect**, and the importer takes the token from that tab and saves it (users with "Create and edit Parcels" only; reconnecting replaces the old token). The steps below are for other tools, or to hand a token out yourself.
+
 The KAEK importer and other tools send `Authorization: Bearer nad_…`.
 
 To set one up:

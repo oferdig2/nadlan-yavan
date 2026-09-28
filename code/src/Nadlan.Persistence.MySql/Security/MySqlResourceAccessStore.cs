@@ -230,6 +230,14 @@ public sealed class MySqlApiTokenStore : IApiTokenStore
             """, new { userId, apiTokenId }, cancellationToken: ct)) > 0;
     }
 
+    public async Task<int> RevokeByNameAsync(long userId, string name, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE api_token SET revoked_utc = UTC_TIMESTAMP(3) WHERE user_id = @userId AND name = @name AND revoked_utc IS NULL",
+            new { userId, name }, cancellationToken: ct));
+    }
+
     public async Task<long?> UseAsync(string tokenHash, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);

@@ -168,4 +168,7 @@ public interface IApiTokenStore
 
     /// <summary>The user of a live (not revoked, not expired) token, and stamps its last use.</summary>
     Task<long?> UseAsync(string tokenHash, CancellationToken ct = default);
+
+    /// <summary>Revokes the user's live tokens with this name (a tool reconnecting replaces its old token). Returns how many.</summary>
+    Task<int> RevokeByNameAsync(long userId, string name, CancellationToken ct = default);
 }

@@ -81,6 +81,9 @@ public sealed class KtimanetPage
     public Task SetProbeAsync(EgsaPoint p) => Ui("([x, y]) => window.NadlanPanel && NadlanPanel.setProbe(x, y)", new[] { p.X, p.Y });
     public Task FinishedAsync(string text) => Ui("t => window.NadlanPanel && NadlanPanel.finished(t)", text);
 
+    /// <summary>The panel re-reads the connection state (e.g. after Nadlan refused the token).</summary>
+    public Task RefreshStateAsync() => Ui("() => window.NadlanPanel && NadlanPanel.refreshState()", null);
+
     /// <param name="kind">created | exists | rejected | road</param>
     public Task AddShapeAsync(IReadOnlyList<IReadOnlyList<EgsaPoint>> rings, string kind) =>
         Ui("([r, k]) => window.NadlanPanel && NadlanPanel.addShape(r, k)",

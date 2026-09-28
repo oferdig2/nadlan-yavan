@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Nadlan.KaekImporter;
 
@@ -48,13 +49,55 @@ public static class AppHost
         return merged;
     }
 
+    /// <summary>
+    /// Keeps the token from "Connect to Nadlan" in the user's own importer.json, so the next start is connected at once.
+    /// Other keys in that file are kept; the package's importer.json (next to the program) is never written.
+    /// </summary>
+    public static void SaveUserToken(string token)
+    {
+        var path = Path.Combine(UserFolder, SettingsFileName);
+        JsonObject settings;
+        try
+        {
+            settings = File.Exists(path) && JsonNode.Parse(File.ReadAllText(path),
+                documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }) is JsonObject o
+                ? o : new JsonObject();
+        }
+        catch (JsonException)
+        {
+            settings = new JsonObject(); // unreadable: rewritten with just the token rather than failing the connect
+        }
+
+        foreach (var key in settings.Where(p => string.Equals(p.Key, "token", StringComparison.OrdinalIgnoreCase)).Select(p => p.Key).ToList())
+        {
+            settings.Remove(key);
+        }
+
+        settings["token"] = token;
+        Directory.CreateDirectory(UserFolder);
+        File.WriteAllText(path, settings.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
     /// <summary>Everything written to the console also goes to a daily log file; returns its path.</summary>
     public static string StartLog()
     {
         var folder = Path.Combine(UserFolder, "logs");
         Directory.CreateDirectory(folder);
         var path = Path.Combine(folder, $"importer-{DateTime.Now:yyyyMMdd}.log");
-        var file = new StreamWriter(path, append: true, Encoding.UTF8) { AutoFlush = true };
+        // Shared, so a second importer can write to it too. An older importer still running holds it exclusively:
+        // then this one logs to its own file rather than failing to start.
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+        }
+        catch (IOException)
+        {
+            path = Path.Combine(folder, $"importer-{DateTime.Now:yyyyMMdd}-{Environment.ProcessId}.log");
+            stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+        }
+
+        var file = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
         file.WriteLine($"---- {DateTime.Now:yyyy-MM-dd HH:mm:ss} start, version {typeof(AppHost).Assembly.GetName().Version}");
         Console.SetOut(TextWriter.Synchronized(new TeeWriter(Console.Out, file)));
         Console.SetError(TextWriter.Synchronized(new TeeWriter(Console.Error, file)));

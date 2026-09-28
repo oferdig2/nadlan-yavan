@@ -19,7 +19,7 @@ public static class Program
           --api <url>            Nadlan web app (default http://localhost:5515)
           --offline              run without Nadlan: the whole process is shown, but nothing is saved
                                  (also used automatically when the Nadlan server cannot be reached)
-          --token <token>        API token (Nadlan: Admin > Users > API tokens), sent as Bearer; required by the server
+          --token <token>        API token; normally not needed: click "Connect to Nadlan" in the panel once
           --delay <min-max>      seconds to wait after each new parcel (default 4-10)
           --miss-delay <min-max> seconds to wait after a click with nothing new (default 2-5)
           --max-view <metres>    largest view width/height allowed (default 2000)
@@ -43,27 +43,38 @@ public static class Program
             return 2;
         }
 
-        // Offline (asked for, or no server reachable): everything runs and is shown, nothing is saved.
+        // Three states: connected; Nadlan reachable but the token missing/refused (the panel offers "Connect to Nadlan");
+        // offline (asked for, or no server): everything runs and is shown, nothing is saved.
         using var client = new NadlanApiClient(options.Api, options.Token);
-        NadlanApiClient? nadlan = null;
-        IReadOnlyList<GeographicAreaItem> areas = Array.Empty<GeographicAreaItem>();
-        string? offlineReason = options.Offline ? "Offline mode (--offline)." : null;
-        if (!options.Offline)
+        var connection = new Connection();
+        if (options.Offline)
+        {
+            connection.Offline = "Offline mode (--offline).";
+        }
+        else
         {
             try
             {
                 using var quick = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-                areas = await client.ListActiveAreasAsync(quick.Token);
-                nadlan = client;
+                connection.Areas = await client.ListActiveAreasAsync(quick.Token);
+                connection.UserName = await client.WhoAmIAsync(quick.Token);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            {
+                connection.NeedsConnect = true;
+                Console.WriteLine(string.IsNullOrWhiteSpace(options.Token)
+                    ? "Not connected to Nadlan yet: use \"Connect to Nadlan\" in the panel."
+                    : "Nadlan refused the saved token: use \"Connect to Nadlan\" in the panel.");
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
             {
-                offlineReason = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden }
-                    ? $"The Nadlan server at {options.Api} refused the API token. Create one in Nadlan (Admin > Users > the user > API tokens) and pass it with --token or \"Token\" in importer.json."
-                    : $"The Nadlan server at {options.Api} cannot be reached.";
-                Console.WriteLine($"{offlineReason} ({ex.Message}) Running offline: nothing will be saved.");
+                connection.Offline = $"The Nadlan server at {options.Api} cannot be reached.";
+                Console.WriteLine($"{connection.Offline} ({ex.Message}) Running offline: nothing will be saved.");
             }
         }
+
+        // A token revoked mid-session: whatever is running stops (see ImportSession), and the panel asks to connect again.
+        client.TokenRejected += () => connection.NeedsConnect = true;
 
         using var playwright = await Playwright.CreateAsync();
         IBrowser browser;
@@ -80,21 +91,54 @@ public static class Program
         await using var _ = browser;
         var context = await browser.NewContextAsync(new() { ViewportSize = ViewportSize.NoViewport, Locale = "el-GR" });
 
-        var areaJson = JsonSerializer.Serialize(areas.Select(a => new { id = a.Id, name = a.Name }));
-        var offlineJson = JsonSerializer.Serialize(offlineReason);
-        await context.AddInitScriptAsync($"window.__nadlanAreas = {areaJson};\nwindow.__nadlanOffline = {offlineJson};\n{LoadPanelScript()}");
+        // The panel asks for the connection state when it is built (also after a reload), so it is never stale.
+        await context.ExposeFunctionAsync("nadlanState", () => connection.ToPanel());
+        await context.AddInitScriptAsync(LoadPanelScript());
 
         var page = await context.NewPageAsync();
         var site = new KtimanetPage(page);
-        var run = new ImportRun(site, nadlan, options.Settings, Console.Out);
         CancellationTokenSource? current = null;
         Task? currentRun = null;
         ClickImport? clicks = null;
+        var connecting = false;
+
+        // Null while offline; also while not connected, but then nothing can be started.
+        NadlanApiClient? Nadlan() => connection.Offline is null && !connection.NeedsConnect ? client : null;
+
+        await context.ExposeFunctionAsync("nadlanConnect", async () =>
+        {
+            if (connection.Offline is not null) return "Offline: restart the importer when Nadlan is reachable.";
+            if (connecting) return "The Nadlan tab is already open - sign in there and click Connect.";
+            if (current is not null || clicks is not null) return "Stop the running import first.";
+            connecting = true;
+            try
+            {
+                var token = await NadlanConnect.GetTokenAsync(context, options.Api, Console.Out);
+                await page.BringToFrontAsync();
+                if (token is null) return "Not connected: the Nadlan tab was closed before Connect.";
+
+                client.SetToken(token);
+                using var quick = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                connection.Areas = await client.ListActiveAreasAsync(quick.Token);
+                connection.UserName = await client.WhoAmIAsync(quick.Token);
+                connection.NeedsConnect = false;
+                AppHost.SaveUserToken(token);
+                Console.WriteLine($"Connected to Nadlan as {connection.UserName}; the token is saved for next time.");
+                return "";
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or PlaywrightException or IOException)
+            {
+                return "Could not connect: " + ex.Message;
+            }
+            finally { connecting = false; }
+        });
 
         await context.ExposeFunctionAsync("nadlanStart", async (string areaId) =>
         {
+            if (connection.NeedsConnect) return "Connect to Nadlan first.";
             if (current is not null) return "An import is already running.";
             if (clicks is not null) return "Switch off click import first.";
+            var run = new ImportRun(site, Nadlan(), options.Settings, Console.Out);
             MapAreas view;
             try
             {
@@ -114,7 +158,12 @@ public static class Program
                     Console.Error.WriteLine("Import failed: " + ex);
                     await site.FinishedAsync("Import failed: " + ex.Message);
                 }
-                finally { current = null; cts.Dispose(); }
+                finally
+                {
+                    current = null;
+                    cts.Dispose();
+                    if (connection.NeedsConnect) await site.RefreshStateAsync(); // token refused: show "Connect to Nadlan"
+                }
             });
             return "";
         });
@@ -123,8 +172,9 @@ public static class Program
         {
             if (on)
             {
+                if (connection.NeedsConnect) return "Connect to Nadlan first.";
                 if (current is not null) return "Stop the running import first.";
-                clicks ??= new ClickImport(site, nadlan, AreaId(areaId), Console.Out);
+                clicks ??= new ClickImport(site, Nadlan(), AreaId(areaId), Console.Out);
                 Console.WriteLine("Click import on.");
                 return "";
             }
@@ -140,6 +190,14 @@ public static class Program
         page.Response += (_, response) =>
         {
             var session = clicks;
+            if (session is not null && connection.NeedsConnect)
+            {
+                // Nadlan refused the token: end click import (the panel unticks it); the user connects and ticks again.
+                clicks = null;
+                _ = session.StopAsync();
+                return;
+            }
+
             if (session is null || current is not null
                 || !response.Url.EndsWith("/gis/map/PostHandler", StringComparison.OrdinalIgnoreCase)
                 || response.Request.PostData?.Contains("GETPSTKG", StringComparison.Ordinal) != true)
@@ -220,6 +278,23 @@ public static class Program
 
     private static int? AreaId(string value) =>
         int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
+
+    /// <summary>What the panel shows: connected (areas, user), needs "Connect to Nadlan", or offline (why).</summary>
+    private sealed class Connection
+    {
+        public IReadOnlyList<GeographicAreaItem> Areas { get; set; } = Array.Empty<GeographicAreaItem>();
+        public string? UserName { get; set; }
+        public string? Offline { get; set; }
+        public bool NeedsConnect { get; set; }
+
+        public object ToPanel() => new
+        {
+            areas = Areas.Select(a => new { id = a.Id, name = a.Name }),
+            userName = UserName,
+            offline = Offline,
+            needsConnect = NeedsConnect,
+        };
+    }
 
     private static string LoadPanelScript()
     {

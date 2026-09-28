@@ -312,6 +312,26 @@ public sealed class UserAdminService
         return token;
     }
 
+    /// <summary>
+    /// A signed-in user connects a tool (the KAEK importer's "Connect to Nadlan"): a token for themselves, replacing the
+    /// one that tool had before. The importer creates Parcels, so the user must be allowed to.
+    /// </summary>
+    public async Task<string> CreateOwnApiTokenAsync(UserAccess me, string toolName, CancellationToken ct = default)
+    {
+        if (!me.Has(Permissions.EditAllParcels))
+        {
+            throw new ForbiddenException("IMPORTER_FORBIDDEN", "Your account may not create Parcels, so the importer could not save any. Ask an administrator.");
+        }
+
+        var name = TextNormalize.NullIfBlank(toolName) ?? "Tool";
+        name = name.Length <= 100 ? name : name[..100];
+        await Tokens.RevokeByNameAsync(me.UserId, name, ct);
+        var token = AuthService.ApiTokenPrefix + PasswordHasher.NewToken().Token;
+        await Tokens.CreateAsync(me.UserId, name, PasswordHasher.HashToken(token), token[..12], null, me.UserId, ct);
+        await AuditAsync(me.UserId, ActivityActions.AccessGranted, $"API token \"{name}\" created by {me.DisplayName} (connect from the tool).", ct: ct);
+        return token;
+    }
+
     public async Task RevokeApiTokenAsync(UserAccess admin, long userId, long apiTokenId, CancellationToken ct = default)
     {
         RequireAdmin(admin);

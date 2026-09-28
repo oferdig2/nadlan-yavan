@@ -12,8 +12,9 @@ public sealed record GeographicAreaItem(int Id, string? Code, string Name, bool 
 /// <summary>A Parcel already in Nadlan, with its outer ring and holes in lon/lat.</summary>
 public sealed record ExistingParcel(string RegistryId, bool IsProvisional, IReadOnlyList<IReadOnlyList<LonLat>> Rings);
 
-/// <summary>Rejected = Nadlan refused this parcel (4xx). ServerError = Nadlan failed (5xx); may be a one-off or the server being down.</summary>
-public enum CreateOutcome { Created, AlreadyExists, Rejected, ServerError }
+/// <summary>Rejected = Nadlan refused this parcel (4xx). ServerError = Nadlan failed (5xx); may be a one-off or the server being down.
+/// Unauthorized = Nadlan refused the importer's token (revoked, expired, user deactivated): connect again.</summary>
+public enum CreateOutcome { Created, AlreadyExists, Rejected, ServerError, Unauthorized }
 
 /// <param name="Message">Why it was not created, or - when it was - a warning from Nadlan (e.g. the overlap check was skipped).</param>
 public sealed record CreateResult(CreateOutcome Outcome, long? ParcelId, IReadOnlyList<string> OverlapsWith, string? Message);
@@ -27,25 +28,46 @@ public sealed class NadlanApiClient : IDisposable
     public NadlanApiClient(Uri baseUrl, string? token)
     {
         _http = new HttpClient { BaseAddress = baseUrl, Timeout = TimeSpan.FromSeconds(60) };
-        if (!string.IsNullOrWhiteSpace(token))
+        SetToken(token);
+    }
+
+    public Uri BaseUrl => _http.BaseAddress!;
+
+    /// <summary>Raised when Nadlan answers 401/403: the token is missing, revoked or its user deactivated.</summary>
+    public event Action? TokenRejected;
+
+    /// <summary>Nadlan API token ("Connect to Nadlan", or Admin > Users > API tokens): the importer acts as that user.</summary>
+    public void SetToken(string? token) => _http.DefaultRequestHeaders.Authorization =
+        string.IsNullOrWhiteSpace(token) ? null : new AuthenticationHeaderValue("Bearer", token.Trim());
+
+    private async Task<T> GetJsonAsync<T>(string url, CancellationToken ct)
+    {
+        try
         {
-            // Nadlan API token (Admin > Users > API tokens): the importer acts as that user, with its permissions.
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return await _http.GetFromJsonAsync<T>(url, Json, ct) ?? throw new InvalidOperationException($"Empty reply from /{url}.");
+        }
+        catch (HttpRequestException ex) when (IsRefused(ex.StatusCode))
+        {
+            TokenRejected?.Invoke();
+            throw;
         }
     }
 
+    private static bool IsRefused(HttpStatusCode? status) => status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
+
+    /// <summary>Who the token signs in as (for the panel).</summary>
+    public async Task<string> WhoAmIAsync(CancellationToken ct) => (await GetJsonAsync<MeDto>("api/auth/me", ct)).DisplayName;
+
     public async Task<IReadOnlyList<GeographicAreaItem>> ListActiveAreasAsync(CancellationToken ct)
     {
-        var reference = await _http.GetFromJsonAsync<ReferenceDto>("api/reference", Json, ct)
-            ?? throw new InvalidOperationException("Empty reply from /api/reference.");
+        var reference = await GetJsonAsync<ReferenceDto>("api/reference", ct);
         return reference.GeographicAreas.Where(a => a.IsActive).OrderBy(a => a.Name, StringComparer.CurrentCulture).ToList();
     }
 
     public async Task<IReadOnlyList<ExistingParcel>> ListParcelsInAsync(double west, double south, double east, double north, CancellationToken ct)
     {
         var url = FormattableString.Invariant($"api/parcels?West={west}&South={south}&East={east}&North={north}");
-        var page = await _http.GetFromJsonAsync<ParcelPageDto>(url, Json, ct)
-            ?? throw new InvalidOperationException("Empty reply from /api/parcels.");
+        var page = await GetJsonAsync<ParcelPageDto>(url, ct);
         return page.Items
             .Where(i => i.Summary.RegistryId is not null && i.Geometry?.Coordinates is not null)
             .Select(i => new ExistingParcel(
@@ -82,6 +104,12 @@ public sealed class NadlanApiClient : IDisposable
 
         var text = await response.Content.ReadAsStringAsync(ct);
         var error = ParseError(text);
+        if (IsRefused(response.StatusCode))
+        {
+            TokenRejected?.Invoke();
+            return new CreateResult(CreateOutcome.Unauthorized, null, Array.Empty<string>(), error?.Message ?? $"HTTP {(int)response.StatusCode}");
+        }
+
         if (response.StatusCode == HttpStatusCode.Conflict && error?.Error == "PARCEL_KAEK_EXISTS")
         {
             return new CreateResult(CreateOutcome.AlreadyExists, error.ExistingParcelId, Array.Empty<string>(), error.Message);
@@ -103,6 +131,7 @@ public sealed class NadlanApiClient : IDisposable
     public void Dispose() => _http.Dispose();
 
     private sealed record ReferenceDto(List<GeographicAreaItem> GeographicAreas);
+    private sealed record MeDto(string DisplayName);
     private sealed record ParcelPageDto(List<ParcelItemDto> Items);
     private sealed record ParcelItemDto(ParcelSummaryDto Summary, PolygonDto? Geometry);
     private sealed record ParcelSummaryDto(string? RegistryId, bool RegistryIdIsProvisional);

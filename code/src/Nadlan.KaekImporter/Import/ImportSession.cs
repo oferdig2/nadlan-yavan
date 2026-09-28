@@ -127,6 +127,9 @@ public sealed class ImportSession
                 await _site.AddShapeAsync(shape.Rings, "rejected");
                 await _site.LogAsync($"{shape.Kaek}: rejected - {result.Message}", "err");
                 break;
+            case CreateOutcome.Unauthorized:
+                // Every further parcel would be refused too: stop, and the panel offers "Connect to Nadlan".
+                throw new StopImportException($"Nadlan refused the importer's sign-in ({result.Message}). Click \"Connect to Nadlan\" in the panel, then start again.");
             case CreateOutcome.ServerError:
                 Report.Add(new ReportRow(shape.Kaek, ParcelResult.Rejected, null, area, Array.Empty<string>(), "Nadlan server error - " + result.Message));
                 await _site.AddShapeAsync(shape.Rings, "rejected");
