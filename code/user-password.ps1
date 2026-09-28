@@ -22,7 +22,7 @@ function Read-Secret([string]$prompt) {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
-$first = Read-Secret "New password for $Email (at least 10 characters)"
+$first = Read-Secret "New password for $Email (at least 8 characters)"
 $second = Read-Secret "Repeat it"
 if ($first -ne $second) { Write-Host "The two entries differ; nothing changed." -ForegroundColor Red; exit 1 }
 

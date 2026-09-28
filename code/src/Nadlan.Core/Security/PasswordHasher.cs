@@ -73,7 +73,7 @@ public static class PasswordHasher
 
 public static class PasswordPolicy
 {
-    public const int MinLength = 10;
+    public const int MinLength = 8;
     public const int MaxLength = 200;
 
     /// <summary>Length is what matters (NIST 800-63B); no composition rules. Rejects the email itself.</summary>

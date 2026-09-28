@@ -14,7 +14,7 @@ The first Admin, `oferdig2@gmail.com`, is created by migration `007_auth.sql`.
 
 ```powershell
 .\update-db.ps1                                  # applies 007_auth (users, roles, permissions)
-.\user-password.ps1 -Email oferdig2@gmail.com    # asks for a password (10+ characters)
+.\user-password.ps1 -Email oferdig2@gmail.com    # asks for a password (8+ characters)
 .\start-nadlan.ps1                               # sign in at http://localhost:5515
 ```
 
