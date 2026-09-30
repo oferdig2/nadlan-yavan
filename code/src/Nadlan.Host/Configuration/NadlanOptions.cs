@@ -63,6 +63,12 @@ public sealed class NadlanOptions
 
         /// <summary>From this zoom on, Parcels are drawn one by one; below it, the united surface (users who see all Parcels).</summary>
         public int ParcelDetailMinZoom { get; set; } = 15;
+
+        /// <summary>More Parcels than this in view: the map draws the united surface instead (nothing is capped or dropped).</summary>
+        public int MaxParcelPolygons { get; set; } = 3000;
+
+        /// <summary>Area (code or name) the map opens on, if it has Parcels; else it opens around all Parcels.</summary>
+        public string StartArea { get; set; } = "SKR";
     }
 }
 

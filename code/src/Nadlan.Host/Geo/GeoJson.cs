@@ -10,7 +10,8 @@ internal static class GeoJson
     public static object Polygon(GeoPolygon polygon) => new
     {
         type = "Polygon",
-        coordinates = polygon.Rings.Select(ring => ring.Select(p => new[] { p.Lon, p.Lat })),
+        // 7 decimals ≈ 1 cm: far below what a map shows, and less than half the JSON of full double precision.
+        coordinates = polygon.Rings.Select(ring => ring.Select(p => new[] { Math.Round(p.Lon, 7), Math.Round(p.Lat, 7) })),
     };
 
     /// <summary>Accepts GeoJSON Polygon coordinates; closes an open ring. Throws a validation error on bad shape.</summary>

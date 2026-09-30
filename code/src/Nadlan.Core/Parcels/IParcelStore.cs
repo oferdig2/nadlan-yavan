@@ -81,6 +81,9 @@ public interface IParcelStore
     /// <summary>Every Parcel's polygon and whether its KAEK is provisional - input for the zoomed-out surface.</summary>
     Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default);
 
+    /// <summary>One corner per matching Parcel (same filters and access rules, no limit): enough to know where they lie.</summary>
+    Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery query, CancellationToken ct = default);
+
     /// <summary>How many Parcels match (same filters and access rules as <see cref="QueryAsync"/>, no limit).</summary>
     Task<long> CountAsync(ParcelQuery query, CancellationToken ct = default);
 
@@ -92,3 +95,24 @@ public interface IParcelStore
 }
 
 public readonly record struct ParcelFingerprint(long Count, long MaxId, DateTime? LastUpdatedUtc);
+
+/// <summary>Where a set of Parcels lies, for the map's start view.</summary>
+public static class ParcelExtent
+{
+    /// <summary>
+    /// The box around the points, ignoring the outer 2% on each side once there are enough of them: one Parcel drawn far
+    /// away by mistake must not zoom the whole map out to it. Null when there are no points.
+    /// </summary>
+    public static GeoBounds? Of(IReadOnlyList<GeoPoint> points)
+    {
+        if (points.Count == 0)
+        {
+            return null;
+        }
+
+        var lons = points.Select(p => p.Lon).OrderBy(v => v).ToArray();
+        var lats = points.Select(p => p.Lat).OrderBy(v => v).ToArray();
+        var cut = points.Count >= 50 ? (int)(points.Count * 0.02) : 0;
+        return new GeoBounds(lons[cut], lats[cut], lons[^(cut + 1)], lats[^(cut + 1)]);
+    }
+}

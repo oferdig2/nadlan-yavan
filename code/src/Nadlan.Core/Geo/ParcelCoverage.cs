@@ -8,17 +8,21 @@ namespace Nadlan.Core.Geo;
 /// <summary>
 /// How a zoomed-out map shows many Parcels: one united surface instead of thousands of polygons.
 /// <see cref="CloseMetres"/> merges Parcels closer than twice this distance (roads, digitising slivers);
-/// <see cref="SimplifyMetres"/> drops corners that would be sub-pixel at that zoom.
+/// <see cref="SimplifyMetres"/> drops corners that would be sub-pixel at that zoom. If the result has more corners than
+/// <see cref="VertexBudget"/>, both are doubled until it fits (more Parcels = coarser surface, never a slow map).
 /// </summary>
-public sealed record CoverageLevel(string Name, double CloseMetres, double SimplifyMetres)
+public sealed record CoverageLevel(string Name, double CloseMetres, double SimplifyMetres, int VertexBudget)
 {
     /// <summary>Region view (zoom below 12): blocks and villages as blobs.</summary>
-    public static readonly CoverageLevel Overview = new("overview", 30, 20);
+    public static readonly CoverageLevel Overview = new("overview", 30, 20, 20_000);
 
     /// <summary>Neighbourhood view (zoom 12 up to the detail zoom): blocks, with roads still visible.</summary>
-    public static readonly CoverageLevel Mid = new("mid", 2, 2);
+    public static readonly CoverageLevel Mid = new("mid", 2, 2, 60_000);
 
-    public static readonly IReadOnlyList<CoverageLevel> All = new[] { Overview, Mid };
+    /// <summary>Detail zoom, but more Parcels in view than the browser draws one by one: close to the real outlines.</summary>
+    public static readonly CoverageLevel Fine = new("fine", 0.5, 0.5, 150_000);
+
+    public static readonly IReadOnlyList<CoverageLevel> All = new[] { Overview, Mid, Fine };
 }
 
 /// <summary>
@@ -50,7 +54,26 @@ public static class ParcelCoverageBuilder
             polygons.Add(polygon.IsValid ? polygon : polygon.Buffer(0));
         }
 
-        Geometry surface = CascadedPolygonUnion.Union(polygons.Where(g => !g.IsEmpty).ToList()) ?? Factory.CreatePolygon();
+        Geometry union = CascadedPolygonUnion.Union(polygons.Where(g => !g.IsEmpty).ToList()) ?? Factory.CreatePolygon();
+
+        // Too heavy for the browser? Merge and simplify harder (x2 each time) until it fits the level's budget.
+        for (var attempt = 0; ; attempt++)
+        {
+            var result = Finish(union, level, kx, ky);
+            if (VertexCount(result) <= level.VertexBudget || attempt == MaxEscalations)
+            {
+                return result;
+            }
+
+            level = level with { CloseMetres = Math.Max(1, level.CloseMetres * 2), SimplifyMetres = Math.Max(1, level.SimplifyMetres * 2) };
+        }
+    }
+
+    private const int MaxEscalations = 6;
+
+    private static List<GeoPolygon> Finish(Geometry union, CoverageLevel level, double kx, double ky)
+    {
+        var surface = union;
         if (level.CloseMetres > 0)
         {
             surface = surface.Buffer(level.CloseMetres, CheapBuffer).Buffer(-level.CloseMetres, CheapBuffer);

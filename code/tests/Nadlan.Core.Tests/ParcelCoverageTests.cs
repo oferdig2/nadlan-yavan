@@ -55,6 +55,32 @@ public class ParcelCoverageTests
     }
 
     [Fact]
+    public void Over_budget_the_surface_merges_harder_until_it_fits()
+    {
+        var parcels = Enumerable.Range(0, 4).Select(i => Square(i * 80, 0)).ToList(); // 4 blocks, 30 m apart: 20 corners
+
+        var loose = ParcelCoverageBuilder.Build(parcels, new CoverageLevel("t", 2, 2, 1000));
+        var tight = ParcelCoverageBuilder.Build(parcels, new CoverageLevel("t", 2, 2, 12));
+
+        Assert.Equal(4, loose.Count);
+        Assert.Single(tight);
+        Assert.True(ParcelCoverageBuilder.VertexCount(tight) <= 12);
+    }
+
+    [Fact]
+    public void Start_view_ignores_a_parcel_drawn_far_away_by_mistake()
+    {
+        var points = Enumerable.Range(0, 100).Select(i => new GeoPoint(23.28 + i * 1e-4, 38.62 + i * 1e-4)).ToList();
+        points.Add(new GeoPoint(21.0, 36.0)); // one stray
+
+        var box = ParcelExtent.Of(points)!.Value;
+
+        Assert.True(box.West > 23 && box.South > 38, $"{box.West},{box.South}");
+        Assert.Null(ParcelExtent.Of(Array.Empty<GeoPoint>()));
+        Assert.Equal(new GeoBounds(23.3, 38.6, 23.3, 38.6), ParcelExtent.Of(new[] { new GeoPoint(23.3, 38.6) }));
+    }
+
+    [Fact]
     public void A_self_crossing_legacy_polygon_does_not_break_the_union()
     {
         GeoPoint P(double x, double y) => new(Lon0 + x * MetreLon, Lat0 + y * MetreLat);
@@ -111,6 +137,7 @@ public class ParcelCoverageTests
         public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private sealed class AssetsOn(params long[] assetIds) : IAssetStore

@@ -12,6 +12,10 @@ public sealed class MySqlParcelStore : IParcelStore
     // SRID 4326 is lat-long in MySQL by default; we always speak lon-lat (KML/GeoJSON order).
     private const string FromWkt = "ST_GeomFromText(@Wkt, 4326, 'axis-order=long-lat')";
 
+    // The first corner of a Parcel: where it is, for the map's start view.
+    private const string AnchorLon = "ST_Longitude(ST_PointN(ST_ExteriorRing(p.geometry), 1))";
+    private const string AnchorLat = "ST_Latitude(ST_PointN(ST_ExteriorRing(p.geometry), 1))";
+
     private const string SelectColumns = """
         SELECT p.parcel_id, p.country_id, p.registry_id, p.registry_id_is_provisional, p.geographic_area_id,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt, p.official_area_sqm, p.ot, p.ot_ext,
@@ -93,6 +97,15 @@ public sealed class MySqlParcelStore : IParcelStore
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<ParcelRow>(new CommandDefinition(sql, args, cancellationToken: ct));
         return rows.Select(r => r.ToParcel()).ToList();
+    }
+
+    public async Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery query, CancellationToken ct = default)
+    {
+        var (where, args) = Filter(query);
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<(double Lon, double Lat)>(new CommandDefinition(
+            $"SELECT {AnchorLon}, {AnchorLat} FROM parcel p WHERE {where}", args, cancellationToken: ct));
+        return rows.Select(r => new GeoPoint(r.Lon, r.Lat)).ToList();
     }
 
     public async Task<long> CountAsync(ParcelQuery query, CancellationToken ct = default)

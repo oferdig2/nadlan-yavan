@@ -28,12 +28,19 @@
     });
   }
 
-  function start(config, ref) {
+  /** @param {object|null} extent  from GET /api/parcels/extent: where the user's Parcels lie (Skroponeria first) */
+  function start(config, ref, extent) {
     Nadlan.clientConfig = config; // read-only settings for components (storage on/off, max file size)
     var map = new google.maps.Map(document.getElementById("map"), {
       center: config.defaultCenter, zoom: config.defaultZoom, mapTypeId: "hybrid",
       streetViewControl: false, fullscreenControl: false, gestureHandling: "greedy"
     });
+
+    // Open on the Parcels, not on a fixed point: fitted before the first search runs (that waits for "idle").
+    if (extent && extent.count) {
+      map.fitBounds({ west: extent.west, south: extent.south, east: extent.east, north: extent.north }, 40);
+      google.maps.event.addListenerOnce(map, "idle", function () { if (map.getZoom() > 17) { map.setZoom(17); } }); // one Parcel: not max zoom
+    }
 
     var state = { mode: "parcels", scope: "view", items: [], fitAfterLoad: false }; // the rectangle lives in rectangle.getBounds()
     var selection = Nadlan.createAssetSelection();
@@ -69,7 +76,8 @@
 
     parcelOverlay = Nadlan.createParcelMapOverlay(map, {
       onClick: function (p) { popups.showParcel(p); },
-      onSurfaceClick: function (latLng) { map.setCenter(latLng); map.setZoom(config.parcelDetailMinZoom || 15); }
+      // Zoom in where the surface was clicked: to the detail zoom, or further when already there ("too many" view).
+      onSurfaceClick: function (latLng) { map.setCenter(latLng); map.setZoom(Math.min(20, Math.max(config.parcelDetailMinZoom || 15, map.getZoom() + 2))); }
     });
     assetOverlay = Nadlan.createAssetMapOverlay(map, {
       onClick: function (group) { popups.showParcel(group); },
@@ -172,11 +180,14 @@
 
       var query = $.extend({}, filter, currentArea() || {});
       if (overview(mode, filter)) { loadOverview(seq, query); return; }
-      showSurface(null);
       var url = mode === "assets" ? "/api/assets" : "/api/parcels";
+      // Parcels are never capped: past Maps:MaxParcelPolygons in view the server answers "too many" and the surface is drawn.
+      if (mode === "parcels" && surfaceAllowed(filter)) { query.allowSurface = true; }
       setStatus("Searching…");
       Nadlan.api.get(url, query).then(function (res) {
         if (seq !== requestSeq || mode !== state.mode) { return; } // superseded by a newer search / mode switch
+        if (res.tooMany) { showTooMany(seq, res); return; }
+        if (mode === "parcels") { showSurface(null); }
         state.items = res.items;
         (mode === "assets" ? assetOverlay : parcelOverlay).setItems(res.items);
         results.setItems(res.items, res.truncated);
@@ -195,8 +206,21 @@
 
     // Not with a KAEK/area filter (that set is small, and the surface would show every Parcel), and not for users who
     // see only some Parcels: they get their own polygons at any zoom.
+    function surfaceAllowed(filter) { return seesAllParcels && !filter.registryId && !filter.areaIds.length; }
+
     function overview(mode, filter) {
-      return mode === "parcels" && seesAllParcels && map.getZoom() < detailZoom && !filter.registryId && !filter.areaIds.length;
+      return mode === "parcels" && surfaceAllowed(filter) && map.getZoom() < detailZoom;
+    }
+
+    // Detail zoom, but more Parcels in view than are drawn one by one: the fine surface instead of dropping any.
+    function showTooMany(seq, res) {
+      state.items = [];
+      parcelOverlay.setItems([]);
+      results.setMessage(res.count.toLocaleString("en-US") + " parcels here - too many to draw one by one, so they show as one surface. Zoom in a little to see them separately.");
+      setStatus("");
+      var cached = surfaces.fine;
+      if (cached && cached.version === res.coverageVersion) { showSurface("fine"); return; }
+      loadSurface(seq, "fine");
     }
 
     function showSurface(level) {
@@ -322,9 +346,10 @@
     if (!Nadlan.session.canAny(["VIEW_ALL_PARCELS", "EDIT_ALL_PARCELS"])) { setMode("assets"); }
   }
 
-  Promise.all([Nadlan.api.get("/api/config/client"), Nadlan.reference.load(), Nadlan.session.ready])
+  Promise.all([Nadlan.api.get("/api/config/client"), Nadlan.reference.load(), Nadlan.session.ready,
+    Nadlan.api.get("/api/parcels/extent").catch(function () { return null; })]) // no extent: the default view
     .then(function (loaded) {
-      return loadGoogleMaps(loaded[0].googleMapsApiKey).then(function () { start(loaded[0], loaded[1]); });
+      return loadGoogleMaps(loaded[0].googleMapsApiKey).then(function () { start(loaded[0], loaded[1], loaded[3]); });
     })
     .catch(function (err) { setStatus(err.message, true); });
 })(window, document, jQuery);

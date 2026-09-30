@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Geo;
 using Nadlan.Core.GeographicAreas;
@@ -6,6 +7,7 @@ using Nadlan.Core.Parcels;
 using Nadlan.Core.Security;
 using Nadlan.Core.Validation;
 using Nadlan.Host.Assets;
+using Nadlan.Host.Configuration;
 using Nadlan.Host.Geo;
 
 namespace Nadlan.Host.Parcels;
@@ -31,28 +33,67 @@ public static class ParcelEndpoints
         string? OT, string? OTExt, string? PlotNumber, string? PlotExt, decimal? Inclination, decimal? BuildFactor,
         string? Notes, bool AcceptOverlaps);
 
-    private const int MaxResults = 2000;
-
     public static void MapParcelEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/parcels");
 
-        group.MapGet("/", async ([AsParameters] ParcelQueryParams q, UserAccess me, IParcelStore parcels, IGeographicAreaStore areas, CancellationToken ct) =>
+        // No cap: every matching Parcel is returned. The map instead passes allowSurface=true (user sees all Parcels, no
+        // filter): if the view holds more than Maps:MaxParcelPolygons it gets { tooMany, count } and draws the united
+        // surface, so nothing is ever silently left out.
+        group.MapGet("/", async ([AsParameters] ParcelQueryParams q, bool? allowSurface, UserAccess me, IParcelStore parcels,
+            IGeographicAreaStore areas, ParcelCoverageService coverage, IOptions<NadlanOptions> options, CancellationToken ct) =>
         {
-            var found = await parcels.QueryAsync(new ParcelQuery
+            var query = new ParcelQuery
             {
                 Area = GeoJson.Bounds(q.West, q.South, q.East, q.North),
                 RegistryId = q.RegistryId,
                 GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),
-                Limit = MaxResults,
+                Limit = int.MaxValue,
                 Scope = me.Scope,
-            }, ct);
+            };
+
+            if (allowSurface == true && me.Scope.AllParcels)
+            {
+                var count = await parcels.CountAsync(query, ct);
+                if (count > options.Value.Maps.MaxParcelPolygons)
+                {
+                    return Results.Ok(new { tooMany = true, count, coverageVersion = coverage.Current?.Version, items = Array.Empty<object>() });
+                }
+            }
+
+            var found = await parcels.QueryAsync(query, ct);
             var areaNames = await AreaNamesAsync(areas, ct);
             return Results.Ok(new
             {
-                truncated = found.Count >= MaxResults,
+                tooMany = false,
+                count = found.Count,
                 items = found.Select(p => new { summary = Summary(p, areaNames), geometry = GeoJson.Polygon(p.Geometry) }),
             });
+        });
+
+        // Where the map starts: around the Parcels the user may see - in the start area (Maps:StartArea, Skroponeria)
+        // if it has any, else around all of them. Null bounds = no Parcels yet (the page keeps its default view).
+        group.MapGet("/extent", async (UserAccess me, IParcelStore parcels, IGeographicAreaStore areas, IOptions<NadlanOptions> options, CancellationToken ct) =>
+        {
+            var wanted = options.Value.Maps.StartArea;
+            var start = string.IsNullOrWhiteSpace(wanted) ? null : (await areas.ListAsync(ct)).FirstOrDefault(a => a.IsActive &&
+                (string.Equals(a.Code, wanted, StringComparison.OrdinalIgnoreCase) || string.Equals(a.Name, wanted, StringComparison.OrdinalIgnoreCase)));
+
+            IReadOnlyList<GeoPoint> points = Array.Empty<GeoPoint>();
+            if (start is not null)
+            {
+                points = await parcels.ListAnchorsAsync(new ParcelQuery { GeographicAreaIds = new[] { start.GeographicAreaId }, Scope = me.Scope }, ct);
+            }
+
+            var inStartArea = points.Count > 0;
+            if (!inStartArea)
+            {
+                points = await parcels.ListAnchorsAsync(new ParcelQuery { Scope = me.Scope }, ct);
+            }
+
+            return ParcelExtent.Of(points) is GeoBounds b
+                ? Results.Ok(new { count = points.Count, area = inStartArea ? start!.Name : null, west = b.West, south = b.South, east = b.East, north = b.North })
+                : Results.Ok(new { count = 0 });
         });
 
         // Zoomed out, the map shows the coverage surface instead of polygons; the list then shows only this count.
