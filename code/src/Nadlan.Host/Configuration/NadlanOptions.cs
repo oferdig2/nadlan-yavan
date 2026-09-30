@@ -60,6 +60,9 @@ public sealed class NadlanOptions
         public double DefaultCenterLat { get; set; } = 38.62;
         public double DefaultCenterLon { get; set; } = 23.28;
         public int DefaultZoom { get; set; } = 12;
+
+        /// <summary>From this zoom on, Parcels are drawn one by one; below it, the united surface (users who see all Parcels).</summary>
+        public int ParcelDetailMinZoom { get; set; } = 15;
     }
 }
 
@@ -76,6 +79,7 @@ public static class ClientConfigEndpoints
                 googleMapsApiKey = maps.GoogleApiKey,
                 defaultCenter = new { lat = maps.DefaultCenterLat, lng = maps.DefaultCenterLon },
                 defaultZoom = maps.DefaultZoom,
+                parcelDetailMinZoom = maps.ParcelDetailMinZoom,
                 storageConfigured = storage.IsConfigured,
                 maxFileSizeBytes = files.MaxFileSizeBytes,
             });

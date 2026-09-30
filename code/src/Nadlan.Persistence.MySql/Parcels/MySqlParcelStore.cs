@@ -86,6 +86,25 @@ public sealed class MySqlParcelStore : IParcelStore
 
     public async Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery query, CancellationToken ct = default)
     {
+        var (where, args) = Filter(query);
+        args.Add("limit", query.Limit);
+        var sql = $"{SelectColumns} WHERE {where} ORDER BY p.parcel_id LIMIT @limit";
+
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<ParcelRow>(new CommandDefinition(sql, args, cancellationToken: ct));
+        return rows.Select(r => r.ToParcel()).ToList();
+    }
+
+    public async Task<long> CountAsync(ParcelQuery query, CancellationToken ct = default)
+    {
+        var (where, args) = Filter(query);
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition($"SELECT COUNT(*) FROM parcel p WHERE {where}", args, cancellationToken: ct));
+    }
+
+    /// <summary>The WHERE clause shared by the list and the count: access rules first, then the filters.</summary>
+    private static (string Where, DynamicParameters Args) Filter(ParcelQuery query)
+    {
         var scope = query.Scope ?? throw new InvalidOperationException("ParcelQuery.Scope is required (use AccessScope.Everything for tools).");
         var where = new List<string>();
         var args = new DynamicParameters();
@@ -108,12 +127,39 @@ public sealed class MySqlParcelStore : IParcelStore
             args.Add("areaIds", query.GeographicAreaIds);
         }
 
-        args.Add("limit", query.Limit);
-        var sql = $"{SelectColumns} WHERE {string.Join(" AND ", where)} ORDER BY p.parcel_id LIMIT @limit";
+        return (string.Join(" AND ", where), args);
+    }
 
+    public async Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default)
+    {
         await using var conn = await _db.OpenAsync(ct);
-        var rows = await conn.QueryAsync<ParcelRow>(new CommandDefinition(sql, args, cancellationToken: ct));
-        return rows.Select(r => r.ToParcel()).ToList();
+        var row = await conn.QuerySingleAsync<(long Count, long? MaxId, DateTime? LastUpdated)>(new CommandDefinition(
+            "SELECT COUNT(*), MAX(parcel_id), MAX(updated_utc) FROM parcel", cancellationToken: ct));
+        return new ParcelFingerprint(row.Count, row.MaxId ?? 0, row.LastUpdated);
+    }
+
+    public async Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<(bool Provisional, string Wkt)>(new CommandDefinition(
+            "SELECT registry_id_is_provisional, ST_AsText(geometry, 'axis-order=long-lat') FROM parcel", cancellationToken: ct));
+        return rows.Select(r => (r.Provisional, GeoPolygon.FromWkt(r.Wkt))).ToList();
+    }
+
+    public async Task<bool> DeleteAsync(long parcelId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM parcel_legal_owner WHERE parcel_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM resource_access WHERE resource_type = 'Parcel' AND resource_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
+        // Import traceability stays, but no longer points at a Parcel that is gone (a re-import creates it again).
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE import_record SET target_entity_id = NULL WHERE target_entity_type = 'Parcel' AND target_entity_id = @parcelId",
+            new { parcelId }, tx, cancellationToken: ct));
+        var deleted = await conn.ExecuteAsync(new CommandDefinition("DELETE FROM parcel WHERE parcel_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return deleted > 0;
     }
 
     public async Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon candidate, double minOverlapSqm, CancellationToken ct = default, long? excludeParcelId = null)

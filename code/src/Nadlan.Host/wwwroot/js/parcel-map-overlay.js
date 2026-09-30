@@ -28,10 +28,14 @@
 
   /**
    * @param {google.maps.Map} map
-   * @param {{ onClick: function(object): void }} options  onClick receives the Parcel summary.
+   * @param {{ onClick: function(object): void, onSurfaceClick?: function(google.maps.LatLng): void }} options
+   *        onClick receives the Parcel summary; onSurfaceClick the point clicked on the zoomed-out surface.
    */
   function createParcelMapOverlay(map, options) {
     var layer = new google.maps.Data({ map: map });
+    // Zoomed out: all Parcels united into one surface per kind (server-side, see ParcelCoverageService) instead of
+    // thousands of polygons. Same colours and opacity sliders; a click zooms in there.
+    var surface = new google.maps.Data({ map: map });
     var selectedId = null;
     var interactive = true;
     var opacity = { normal: loadOpacity(STYLE_NORMAL), provisional: loadOpacity(STYLE_PROVISIONAL) };
@@ -54,6 +58,13 @@
       layer.overrideStyle(e.feature, { strokeWeight: 3, fillOpacity: Math.min(0.85, fill + 0.2) });
     });
     layer.addListener("mouseout", function (e) { layer.revertStyle(e.feature); });
+
+    surface.setStyle(function (feature) {
+      var base = feature.getProperty("kind") === "provisional" ? STYLE_PROVISIONAL : STYLE_NORMAL;
+      return { clickable: interactive, strokeColor: base.strokeColor, strokeWeight: 1, fillColor: base.fillColor,
+        fillOpacity: Math.max(opacity[base.key], 0.15), zIndex: base.zIndex };
+    });
+    surface.addListener("click", function (e) { if (options.onSurfaceClick) { options.onSurfaceClick(e.latLng); } });
     layer.addListener("click", function (e) {
       selectedId = e.feature.getId();
       refresh();
@@ -62,6 +73,7 @@
 
     function refresh() {
       layer.setStyle(layer.getStyle()); // re-evaluates the style function
+      surface.setStyle(surface.getStyle());
     }
 
     var legend = document.createElement("div");
@@ -113,11 +125,24 @@
           })
         });
       },
+      /** @param {{ real: object, provisional: object }|null} geo  MultiPolygons from GET /api/parcels/coverage; null = none */
+      setSurface: function (geo) {
+        surface.forEach(function (f) { surface.remove(f); });
+        if (!geo) { return; }
+        surface.addGeoJson({ type: "FeatureCollection", features: [
+          { type: "Feature", geometry: geo.real, properties: { kind: "normal" } },
+          { type: "Feature", geometry: geo.provisional, properties: { kind: "provisional" } }
+        ].filter(function (f) { return f.geometry.coordinates.length > 0; }) });
+      },
       select: function (parcelId) { selectedId = parcelId; refresh(); },
       clearSelection: function () { selectedId = null; refresh(); },
       // Off while drawing, so clicks reach the map instead of the polygons.
       setInteractive: function (value) { interactive = value; refresh(); },
-      setVisible: function (visible) { layer.setMap(visible ? map : null); legend.style.display = visible ? "" : "none"; }
+      setVisible: function (value) {
+        layer.setMap(value ? map : null);
+        surface.setMap(value ? map : null);
+        legend.style.display = value ? "" : "none";
+      }
     };
   }
 

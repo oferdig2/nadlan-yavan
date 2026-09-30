@@ -51,7 +51,7 @@
     }
 
     function createCard(initial) {
-      var state = { parcelId: initial.parcelId, parcel: initial, pinned: false, expanded: false, details: null };
+      var state = { parcelId: initial.parcelId, parcel: initial, pinned: false, expanded: false, minimized: false, chipPos: null, details: null };
       var $card = $(
         "<section class=\"map-card\" role=\"dialog\">" +
           "<header class=\"card-header\">" +
@@ -60,10 +60,14 @@
               "<button type=\"button\" data-action=\"edit-parcel\" hidden>Edit</button>" +
               "<button type=\"button\" data-action=\"history\">History</button>" +
               "<button type=\"button\" data-action=\"expand\">Expand</button>" +
-              "<button type=\"button\" data-action=\"pin\">Pin</button>" +
-              "<button type=\"button\" data-action=\"close\" title=\"Close\">×</button>" +
+              "<button type=\"button\" class=\"card-icon\" data-action=\"pin\" aria-pressed=\"false\" title=\"Pin: keep this card while you click other parcels\">📌</button>" +
+              "<button type=\"button\" class=\"card-icon\" data-action=\"minimize\" title=\"Minimize to a small chip\">▁</button>" +
+              "<button type=\"button\" class=\"card-icon\" data-action=\"close\" title=\"Close\">×</button>" +
             "</span>" +
           "</header>" +
+          // Minimized: only this chip shows - the KAEK and Maximize; drag it anywhere.
+          "<div class=\"card-chip\" title=\"Drag to move\"><span class=\"card-chip-kaek kaek\"></span>" +
+            "<button type=\"button\" class=\"card-icon\" data-action=\"maximize\" title=\"Maximize\">⤢</button></div>" +
           "<div class=\"card-body\">" + parcelHtml(initial) + "</div>" +
           "<div class=\"card-details\" hidden></div>" +
           "<div class=\"card-section card-owners\" hidden><div class=\"card-section-head\"><span>Legal owners</span>" +
@@ -82,6 +86,7 @@
           state.parcel = d.summary;
           state.details = d;
           $card.find(".card-body").html(parcelHtml(d.summary));
+          chipText();
           // What this user may do here (the server decides; buttons only follow).
           var rights = d.rights || {};
           $card.find("[data-action=edit-parcel]").prop("hidden", !rights.canEdit);
@@ -115,17 +120,62 @@
       }
 
       $card.on("click", "[data-action=close]", function () { close(); });
-      $card.on("click", "[data-action=pin]", function () {
-        state.pinned = !state.pinned;
-        $(this).text(state.pinned ? "Unpin" : "Pin");
-        $card.toggleClass("pinned", state.pinned);
-        if (state.pinned && unpinned === card) {
+      function setPinned(pinned) {
+        state.pinned = pinned;
+        $card.toggleClass("pinned", pinned);
+        $card.find("[data-action=pin]").attr({ "aria-pressed": String(pinned), title: pinned ? "Unpin" : "Pin: keep this card while you click other parcels" });
+        if (pinned && unpinned === card) {
           unpinned = null;
-        } else if (!state.pinned) {
+        } else if (!pinned && unpinned !== card) {
           if (unpinned) { unpinned.close(true); }
           unpinned = card;
         }
         layout();
+      }
+
+      $card.on("click", "[data-action=pin]", function () { setPinned(!state.pinned); });
+
+      // Minimized = a small draggable chip (KAEK + Maximize). It stays while other parcels are clicked, so it is pinned.
+      function chipText() { $card.find(".card-chip-kaek").text(state.parcel.registryId || "#" + state.parcelId); }
+
+      $card.on("click", "[data-action=minimize]", function () {
+        var rect = $card[0].getBoundingClientRect();
+        if (!state.pinned) { setPinned(true); }
+        state.minimized = true;
+        chipText();
+        var pos = state.chipPos || { left: rect.left, top: rect.top };
+        $card.addClass("minimized").css({ left: pos.left + "px", top: pos.top + "px" });
+      });
+      $card.on("click", "[data-action=maximize]", function () {
+        state.minimized = false;
+        $card.removeClass("minimized").css({ left: "", top: "" });
+        layout();
+      });
+
+      // Drag the chip by any part but its button; kept inside the window.
+      $card.on("pointerdown", ".card-chip", function (e) {
+        if (!state.minimized || $(e.target).closest("button").length) { return; }
+        var el = $card[0];
+        var rect = el.getBoundingClientRect();
+        var dx = e.clientX - rect.left, dy = e.clientY - rect.top;
+        el.setPointerCapture(e.pointerId);
+        $card.addClass("dragging");
+        function move(ev) {
+          var left = Math.min(Math.max(0, ev.clientX - dx), window.innerWidth - rect.width);
+          var top = Math.min(Math.max(0, ev.clientY - dy), window.innerHeight - rect.height);
+          state.chipPos = { left: left, top: top };
+          el.style.left = left + "px";
+          el.style.top = top + "px";
+        }
+        function up(ev) {
+          el.releasePointerCapture(ev.pointerId);
+          el.removeEventListener("pointermove", move);
+          el.removeEventListener("pointerup", up);
+          $card.removeClass("dragging");
+        }
+        el.addEventListener("pointermove", move);
+        el.addEventListener("pointerup", up);
+        e.preventDefault();
       });
       $card.on("click", "[data-action=expand]", function () {
         state.expanded = !state.expanded;
@@ -189,6 +239,10 @@
         cards.push(unpinned);
         $layer.append(unpinned.$el);
         layout();
+      },
+      /** Closes every card of a Parcel that no longer exists (deleted). */
+      closeParcel: function (parcelId) {
+        cards.filter(function (c) { return c.state.parcelId === parcelId; }).forEach(function (c) { c.close(true); });
       },
       /** Re-fetches every open card showing this Parcel (e.g. after an Asset was created or edited). */
       refreshParcel: function (parcelId) {

@@ -6,6 +6,7 @@ public static class ActivityActions
     public const string ParcelCreated = "ParcelCreated";
     public const string ParcelEdited = "ParcelEdited";
     public const string ParcelGeometryChanged = "ParcelGeometryChanged";
+    public const string ParcelDeleted = "ParcelDeleted";
     public const string LegalOwnerAdded = "LegalOwnerAdded";
     public const string LegalOwnerRemoved = "LegalOwnerRemoved";
     public const string AssetCreated = "AssetCreated";

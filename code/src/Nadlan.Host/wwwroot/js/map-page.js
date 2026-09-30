@@ -67,7 +67,10 @@
       }
     });
 
-    parcelOverlay = Nadlan.createParcelMapOverlay(map, { onClick: function (p) { popups.showParcel(p); } });
+    parcelOverlay = Nadlan.createParcelMapOverlay(map, {
+      onClick: function (p) { popups.showParcel(p); },
+      onSurfaceClick: function (latLng) { map.setCenter(latLng); map.setZoom(config.parcelDetailMinZoom || 15); }
+    });
     assetOverlay = Nadlan.createAssetMapOverlay(map, {
       onClick: function (group) { popups.showParcel(group); },
       isSelected: function (id) { return selection.has(id); }
@@ -168,6 +171,8 @@
       if (state.scope === "rectangle" && !rectangle.getBounds()) { clearResults("Draw a rectangle to search in."); return; }
 
       var query = $.extend({}, filter, currentArea() || {});
+      if (overview(mode, filter)) { loadOverview(seq, query); return; }
+      showSurface(null);
       var url = mode === "assets" ? "/api/assets" : "/api/parcels";
       setStatus("Searching…");
       Nadlan.api.get(url, query).then(function (res) {
@@ -180,6 +185,54 @@
       }, function (err) {
         if (seq === requestSeq) { setStatus("Search failed: " + err.message, true); }
       });
+    }
+
+    // ---- Zoomed out: one surface instead of thousands of polygons (drawing them all is what slows the map) --------
+    var detailZoom = config.parcelDetailMinZoom || 15;
+    var seesAllParcels = Nadlan.session.canAny(["VIEW_ALL_PARCELS", "EDIT_ALL_PARCELS"]);
+    var surfaces = {};      // level -> { version, surface } from GET /api/parcels/coverage
+    var shownSurface = null; // "level|version" on the map now
+
+    // Not with a KAEK/area filter (that set is small, and the surface would show every Parcel), and not for users who
+    // see only some Parcels: they get their own polygons at any zoom.
+    function overview(mode, filter) {
+      return mode === "parcels" && seesAllParcels && map.getZoom() < detailZoom && !filter.registryId && !filter.areaIds.length;
+    }
+
+    function showSurface(level) {
+      var key = level ? level + "|" + surfaces[level].version : null;
+      if (key === shownSurface) { return; }
+      shownSurface = key;
+      parcelOverlay.setSurface(level ? surfaces[level].surface : null);
+    }
+
+    function loadOverview(seq, query) {
+      var level = map.getZoom() < 12 ? "overview" : "mid";
+      setStatus("Searching…");
+      Nadlan.api.get("/api/parcels/count", query).then(function (res) {
+        if (seq !== requestSeq || state.mode !== "parcels") { return; }
+        state.items = [];
+        parcelOverlay.setItems([]);
+        results.setMessage(res.count.toLocaleString("en-US") + " parcel(s) here. Zoom in to see them one by one and to list them - or click the surface.");
+        setStatus("");
+        var cached = surfaces[level];
+        if (cached && cached.version === res.coverageVersion) { showSurface(level); return; }
+        loadSurface(seq, level);
+      }, function (err) { if (seq === requestSeq) { setStatus("Search failed: " + err.message, true); } });
+    }
+
+    function loadSurface(seq, level) {
+      Nadlan.api.get("/api/parcels/coverage", { level: level }).then(function (res) {
+        if (seq !== requestSeq || state.mode !== "parcels") { return; }
+        if (res.pending) { // the server is computing it (just after a start)
+          setStatus("Preparing the overview…");
+          setTimeout(function () { if (seq === requestSeq) { loadSurface(seq, level); } }, 2000);
+          return;
+        }
+        surfaces[level] = { version: res.version, surface: res.surface };
+        showSurface(level);
+        setStatus("");
+      }, function (err) { if (seq === requestSeq) { setStatus("Overview failed: " + err.message, true); } });
     }
 
     // Nothing from another mode or an older filter may stay on screen (e.g. Parcels shown as Assets).
@@ -248,6 +301,12 @@
       Nadlan.parcelEditor.open({
         drawTool: drawTool,
         parcelId: parcelId,
+        onDeleted: function (id, name) {
+          popups.closeParcel(id);
+          parcelOverlay.clearSelection();
+          setStatus("Parcel " + name + " deleted.");
+          reload();
+        },
         onSaved: function () {
           setStatus("Parcel saved.");
           popups.refreshParcel(parcelId);

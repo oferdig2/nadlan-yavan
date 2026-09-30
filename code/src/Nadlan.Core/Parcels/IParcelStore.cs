@@ -74,4 +74,21 @@ public interface IParcelStore
     Task UpdateAsync(Parcel parcel, CancellationToken ct = default);
 
     Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double minOverlapSqm, CancellationToken ct = default);
+
+    /// <summary>Changes whenever a Parcel is added, edited or deleted (cheap: count, max id, last update).</summary>
+    Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default);
+
+    /// <summary>Every Parcel's polygon and whether its KAEK is provisional - input for the zoomed-out surface.</summary>
+    Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default);
+
+    /// <summary>How many Parcels match (same filters and access rules as <see cref="QueryAsync"/>, no limit).</summary>
+    Task<long> CountAsync(ParcelQuery query, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes the Parcel with its legal owners and object grants. The caller makes sure no Asset uses it and removes its
+    /// files first. False if it did not exist.
+    /// </summary>
+    Task<bool> DeleteAsync(long parcelId, CancellationToken ct = default);
 }
+
+public readonly record struct ParcelFingerprint(long Count, long MaxId, DateTime? LastUpdatedUtc);

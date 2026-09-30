@@ -21,7 +21,7 @@
       modal: options.modal !== false,
       position: options.position || { my: "center", at: "center", of: window },
       buttons: options.buttons.map(function (b) {
-        return { text: b.text, "class": b.primary ? "btn-primary" : "", click: b.click };
+        return { text: b.text, "class": b.primary ? "btn-primary" : b.danger ? "btn-danger" : "", click: b.click };
       }),
       close: function () {
         if (closed) { return; }

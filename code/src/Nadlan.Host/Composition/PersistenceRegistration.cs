@@ -60,6 +60,9 @@ public static class PersistenceRegistration
         services.AddSingleton<AssetContactService>();
         services.AddSingleton<ReferenceAdminService>();
         services.AddSingleton<AccessPolicy>();
+        services.AddSingleton<ParcelDeletionService>();
+        services.AddSingleton<Nadlan.Host.Parcels.ParcelCoverageService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nadlan.Host.Parcels.ParcelCoverageService>());
         services.AddSingleton<AuthService>();
         services.AddSingleton<UserAdminService>();
         return services;

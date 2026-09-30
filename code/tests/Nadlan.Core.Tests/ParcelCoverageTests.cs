@@ -1,0 +1,146 @@
+using Nadlan.Core.Activity;
+using Nadlan.Core.Assets;
+using Nadlan.Core.Files;
+using Nadlan.Core.Geo;
+using Nadlan.Core.Parcels;
+using Nadlan.Core.Security;
+using Nadlan.Core.Validation;
+
+namespace Nadlan.Core.Tests;
+
+/// <summary>The zoomed-out surface (union + closing + simplify) and Parcel deletion.</summary>
+public class ParcelCoverageTests
+{
+    // Metres around Skroponeria (lat 38.6) to degrees.
+    private const double Lat0 = 38.6, Lon0 = 23.3;
+    private static readonly double MetreLon = 1 / (111_320 * Math.Cos(Lat0 * Math.PI / 180));
+    private const double MetreLat = 1 / 110_540.0;
+
+    private static GeoPolygon Square(double xMetres, double yMetres, double size = 50)
+    {
+        GeoPoint P(double x, double y) => new(Lon0 + x * MetreLon, Lat0 + y * MetreLat);
+        var ring = new[] { P(xMetres, yMetres), P(xMetres + size, yMetres), P(xMetres + size, yMetres + size), P(xMetres, yMetres + size), P(xMetres, yMetres) };
+        return new GeoPolygon(new[] { ring });
+    }
+
+    [Fact]
+    public void Neighbours_with_a_digitising_sliver_become_one_block()
+    {
+        var parcels = new[] { Square(0, 0), Square(51, 0), Square(0, 50.5) }; // 1 m and 0.5 m gaps
+
+        var surface = ParcelCoverageBuilder.Build(parcels, CoverageLevel.Mid);
+
+        Assert.Single(surface);
+    }
+
+    [Fact]
+    public void A_road_keeps_blocks_apart_in_the_mid_view_but_not_in_the_overview()
+    {
+        var parcels = new[] { Square(0, 0), Square(90, 0) }; // 40 m apart
+
+        Assert.Equal(2, ParcelCoverageBuilder.Build(parcels, CoverageLevel.Mid).Count);
+        Assert.Single(ParcelCoverageBuilder.Build(parcels, CoverageLevel.Overview));
+    }
+
+    [Fact]
+    public void Surface_has_far_fewer_corners_than_the_parcels()
+    {
+        var parcels = Enumerable.Range(0, 20).SelectMany(i => Enumerable.Range(0, 20).Select(j => Square(i * 50, j * 50))).ToList();
+
+        var surface = ParcelCoverageBuilder.Build(parcels, CoverageLevel.Mid);
+
+        Assert.Single(surface);
+        Assert.True(ParcelCoverageBuilder.VertexCount(surface) < 20, $"{ParcelCoverageBuilder.VertexCount(surface)} corners");
+        Assert.True(ParcelCoverageBuilder.VertexCount(parcels) >= 2000);
+    }
+
+    [Fact]
+    public void A_self_crossing_legacy_polygon_does_not_break_the_union()
+    {
+        GeoPoint P(double x, double y) => new(Lon0 + x * MetreLon, Lat0 + y * MetreLat);
+        var bowtie = new GeoPolygon(new[] { new[] { P(200, 0), P(250, 50), P(250, 0), P(200, 50), P(200, 0) } });
+
+        var surface = ParcelCoverageBuilder.Build(new[] { Square(0, 0), bowtie }, CoverageLevel.Mid);
+
+        Assert.NotEmpty(surface);
+        Assert.Empty(ParcelCoverageBuilder.Build(Array.Empty<GeoPolygon>(), CoverageLevel.Mid));
+    }
+
+    [Fact]
+    public async Task A_parcel_an_asset_stands_on_is_not_deleted()
+    {
+        var parcels = new Parcels();
+        var service = new ParcelDeletionService(parcels, new AssetsOn(7), new NoFiles(), new FileService(new NoFiles(), null!, null!, new FileStorageSettings()));
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => service.DeleteAsync(1));
+
+        Assert.Equal("PARCEL_HAS_ASSETS", ex.Code);
+        Assert.Contains("#7", ex.Message);
+        Assert.False(parcels.Deleted);
+    }
+
+    [Fact]
+    public async Task Deleting_a_free_parcel_keeps_its_polygon_in_the_history()
+    {
+        var parcels = new Parcels();
+        var log = new Log();
+        var service = new ParcelDeletionService(parcels, new AssetsOn(), new NoFiles(), new FileService(new NoFiles(), null!, null!, new FileStorageSettings()), log);
+
+        var result = await service.DeleteAsync(1);
+
+        Assert.True(parcels.Deleted);
+        Assert.Equal("TMP-SKR-OT1-P1", result.RegistryId);
+        var entry = Assert.Single(log.Entries);
+        Assert.Equal(ActivityActions.ParcelDeleted, entry.ActionType);
+        Assert.Contains("POLYGON", System.Text.Json.JsonSerializer.Serialize(entry.Metadata));
+    }
+
+    private sealed class Parcels : IParcelStore
+    {
+        public bool Deleted { get; private set; }
+        public Task<Parcel?> GetAsync(long id, CancellationToken ct = default) =>
+            Task.FromResult<Parcel?>(Deleted ? null : new Parcel { ParcelId = 1, RegistryId = "TMP-SKR-OT1-P1", RegistryIdIsProvisional = true, Geometry = Square(0, 0) });
+        public Task<bool> DeleteAsync(long parcelId, CancellationToken ct = default) { Deleted = true; return Task.FromResult(true); }
+        public Task<Parcel?> GetByRegistryIdAsync(int c, string r, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> IsValidGeometryAsync(GeoPolygon p, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<long> InsertAsync(Parcel p, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task UpdateAsync(Parcel p, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon c, double m, CancellationToken ct = default, long? exclude = null) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double m, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
+    }
+
+    private sealed class AssetsOn(params long[] assetIds) : IAssetStore
+    {
+        public Task<IReadOnlyList<AssetMapItem>> ListByParcelAsync(long parcelId, AccessScope scope, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<AssetMapItem>>(assetIds.Select(id => new AssetMapItem { AssetId = id, ParcelId = parcelId, Geometry = Square(0, 0) }).ToList());
+        public Task<Asset?> GetAsync(long assetId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<long> InsertAsync(Asset asset, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task UpdateAsync(Asset asset, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<AssetMapItem>> QueryAsync(AssetQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<AssetPortfolioMembership>> ListPortfoliosAsync(long assetId, CancellationToken ct = default) => throw new NotSupportedException();
+    }
+
+    private sealed class NoFiles : IFileAttachmentStore
+    {
+        public Task<IReadOnlyList<FileListItem>> ListReadyAsync(string t, long id, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<FileListItem>>(Array.Empty<FileListItem>());
+        public Task<long> InsertPendingAsync(FileAttachment f, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<FileAttachment?> GetAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> MarkReadyAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task UpdateMetadataAsync(long id, int t, string? c, string? n, int? s, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task DeleteAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> DeletePendingAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime before, int limit, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default) => throw new NotSupportedException();
+    }
+
+    private sealed class Log : IActivityLog
+    {
+        public List<ActivityEntry> Entries { get; } = new();
+        public Task RecordAsync(ActivityEntry entry, CancellationToken ct = default) { Entries.Add(entry); return Task.CompletedTask; }
+        public Task<IReadOnlyList<ActivityItem>> ListAsync(string t, long id, int limit, CancellationToken ct = default) => throw new NotSupportedException();
+    }
+}

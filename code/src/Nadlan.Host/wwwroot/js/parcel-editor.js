@@ -46,7 +46,8 @@
   }
 
   /**
-   * @param {{ drawTool: object, parcelId?: number, onSaved: function(number): void, onShowParcel: function(number): void }} options
+   * @param {{ drawTool: object, parcelId?: number, onSaved: function(number): void, onShowParcel: function(number): void,
+   *           onDeleted?: function(number, string): void }} options
    *        parcelId set = edit that Parcel; otherwise create a new one.
    */
   function open(options) {
@@ -97,7 +98,7 @@
         buttons: [
           { text: "Save parcel", primary: true, click: save },
           { text: "Cancel", click: function () { d.close(); } }
-        ],
+        ].concat(editing && Nadlan.session.user() && Nadlan.session.user().isAdmin ? [{ text: "Delete parcel", danger: true, click: remove }] : []),
         onClose: function () { draw.clear(); openDialog = null; }
       });
       openDialog = d;
@@ -144,6 +145,28 @@
             d.showError(err.message);
           }
         });
+      }
+
+      // Admin only (the server checks too). Refused while an Asset stands on the Parcel; its files go with it.
+      function remove() {
+        var name = detail.fields.registryId || "#" + options.parcelId;
+        d.showError("");
+        Nadlan.api.get("/api/parcels/" + options.parcelId + "/delete-preview").then(function (p) {
+          if (p.assets > 0) {
+            d.showError("Parcel " + name + " carries " + p.assets + " Asset(s), so it can't be deleted.");
+            return null;
+          }
+          return Nadlan.dialog.confirm("Delete parcel", "Delete parcel <strong>" + esc(name) + "</strong>" +
+            (p.files ? " and its <strong>" + p.files + " file(s)</strong>" : "") +
+            "? Legal owners and access grants on it go too. This can't be undone (the history keeps the polygon).", "Delete");
+        }).then(function (ok) {
+          if (!ok) { return; }
+          d.busy(true);
+          return Nadlan.api.del("/api/parcels/" + options.parcelId).then(function () {
+            d.close();
+            if (options.onDeleted) { options.onDeleted(options.parcelId, name); }
+          });
+        }).catch(function (err) { d.busy(false); d.showError(err.message); });
       }
 
       function showOverlaps(overlaps) {

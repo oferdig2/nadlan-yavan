@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Nadlan.Core.Assets;
+using Nadlan.Core.Geo;
 using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Security;
@@ -54,6 +55,55 @@ public static class ParcelEndpoints
             });
         });
 
+        // Zoomed out, the map shows the coverage surface instead of polygons; the list then shows only this count.
+        group.MapGet("/count", async ([AsParameters] ParcelQueryParams q, UserAccess me, IParcelStore parcels, ParcelCoverageService coverage, CancellationToken ct) =>
+            Results.Ok(new
+            {
+                count = await parcels.CountAsync(new ParcelQuery
+                {
+                    Area = GeoJson.Bounds(q.West, q.South, q.East, q.North),
+                    RegistryId = q.RegistryId,
+                    GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),
+                    Scope = me.Scope,
+                }, ct),
+                coverageVersion = coverage.Current?.Version,
+            }));
+
+        // All Parcels united into one surface (per kind), for zoomed-out views. It shows where every Parcel lies,
+        // so only for users who may see all Parcels; the others see few and get their polygons at any zoom.
+        group.MapGet("/coverage", (string? level, UserAccess me, ParcelCoverageService coverage) =>
+        {
+            if (!me.Scope.AllParcels)
+            {
+                return Results.Json(new { error = "COVERAGE_FORBIDDEN", message = "The overview needs permission to see all Parcels." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var name = CoverageLevel.All.FirstOrDefault(l => string.Equals(l.Name, level, StringComparison.OrdinalIgnoreCase))?.Name
+                       ?? throw new DomainValidationException("COVERAGE_LEVEL_INVALID", "level must be overview or mid.");
+            var snapshot = coverage.Current;
+            return snapshot is null
+                ? Results.Json(new { pending = true }, statusCode: StatusCodes.Status202Accepted)
+                : Results.Text($"{{\"version\":\"{snapshot.Version}\",\"parcelCount\":{snapshot.ParcelCount},\"level\":\"{name}\",\"surface\":{snapshot.Json[name]}}}",
+                    "application/json");
+        });
+
+        // Admin only: what a delete would remove, then the delete itself.
+        group.MapGet("/{parcelId:long}/delete-preview", async (long parcelId, UserAccess me, ParcelDeletionService deletion, CancellationToken ct) =>
+        {
+            RequireAdmin(me);
+            var (assets, files) = await deletion.PreviewAsync(parcelId, ct);
+            return Results.Ok(new { assets, files });
+        });
+
+        group.MapDelete("/{parcelId:long}", async (long parcelId, UserAccess me, ParcelDeletionService deletion, ParcelCoverageService coverage, CancellationToken ct) =>
+        {
+            RequireAdmin(me);
+            var result = await deletion.DeleteAsync(parcelId, ct);
+            coverage.MarkDirty();
+            return Results.Ok(new { result.RegistryId, result.FilesDeleted });
+        });
+
         group.MapGet("/{parcelId:long}", async (long parcelId, UserAccess me, AccessPolicy policy, IParcelStore parcels,
             IGeographicAreaStore areas, CancellationToken ct) =>
         {
@@ -93,7 +143,7 @@ public static class ParcelEndpoints
             return Results.Ok((await assets.ListByParcelAsync(parcelId, me.Scope, ct)).Select(AssetEndpoints.Summary));
         });
 
-        group.MapPost("/", async (CreateParcelDto dto, UserAccess me, ParcelService service, CancellationToken ct) =>
+        group.MapPost("/", async (CreateParcelDto dto, UserAccess me, ParcelService service, ParcelCoverageService coverage, CancellationToken ct) =>
         {
             if (!me.Has(Permissions.EditAllParcels))
             {
@@ -117,13 +167,16 @@ public static class ParcelEndpoints
                 CreatedByUserId = me.UserId,
             }, ct);
 
+            coverage.MarkDirty();
             return ToResult(result);
         });
 
         // Edit: attributes, real KAEK for a provisional one, and (optionally) the polygon.
-        group.MapPut("/{parcelId:long}", async (long parcelId, CreateParcelDto dto, UserAccess me, AccessPolicy policy, ParcelService service, CancellationToken ct) =>
+        group.MapPut("/{parcelId:long}", async (long parcelId, CreateParcelDto dto, UserAccess me, AccessPolicy policy, ParcelService service,
+            ParcelCoverageService coverage, CancellationToken ct) =>
         {
             await policy.RequireParcelEditAsync(me, parcelId, ct);
+            coverage.MarkDirty();
             return ToResult(await service.UpdateAsync(new UpdateParcelRequest
             {
                 ParcelId = parcelId,
@@ -172,6 +225,14 @@ public static class ParcelEndpoints
     }
 
     public sealed record LegalOwnerDto(decimal? OwnershipPercent, string? Notes);
+
+    private static void RequireAdmin(UserAccess me)
+    {
+        if (!me.IsAdmin)
+        {
+            throw new ForbiddenException("PARCEL_DELETE_FORBIDDEN", "Only an administrator can delete Parcels.");
+        }
+    }
 
     private static IResult ToResult(CreateParcelResult result) => result.Outcome switch
     {
