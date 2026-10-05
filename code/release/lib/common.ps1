@@ -398,7 +398,16 @@ function Get-LatestServerPackage {
 function Get-ServerPackage([bool]$Build, [bool]$RunTests) {
     $latest = Get-LatestServerPackage
     if (-not $Build -and $latest) {
-        $Build = -not (Read-YesNo "Deploy the existing package $(Split-Path -Leaf $latest)? (n = build a new one from the current code)" $false)
+        # Name: nadlan-server-<time>-<commit>[-dirty].tar.gz. Say plainly when it is older than the code: reusing an old
+        # package silently re-runs old server scripts.
+        $name = Split-Path -Leaf $latest
+        $packageCommit = ([regex]::Match($name, '-([0-9a-f]{7,})(-dirty)?\.tar\.gz$')).Groups[1].Value
+        $head = "$((Invoke-Native "git" @("-C", $CodeRoot, "rev-parse", "--short", "HEAD")).Out)".Trim()
+        $note = if ($packageCommit -and $head -and -not $head.StartsWith($packageCommit) -and -not $packageCommit.StartsWith($head)) {
+            " It was built from commit $packageCommit, OLDER than your code ($head)."
+        } else { "" }
+        if ($note) { Write-Warning "The newest built package is $name.$note" }
+        $Build = -not (Read-YesNo "Deploy the existing package $name?$note (n = build a new one from the current code)" $false)
     }
     if (-not $Build -and $latest) { return $latest }
     Assert-CleanWorkingTree

@@ -95,7 +95,9 @@ else
 
     if [[ ! -f "$ENV_FILE" ]]; then
         APP_PW=$(new_password)
-        mysql -e "CREATE DATABASE IF NOT EXISTS nadlanyavan CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+        # Named explicitly: under systemd-run (how the release scripts start this) HOME is unset, so mysql wouldn't find
+        # ~/.my.cnf and would try root without a password.
+        mysql --defaults-extra-file=/root/.my.cnf -e "CREATE DATABASE IF NOT EXISTS nadlanyavan CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
                   CREATE USER IF NOT EXISTS 'nadlan'@'127.0.0.1' IDENTIFIED BY '$APP_PW';
                   ALTER USER 'nadlan'@'127.0.0.1' IDENTIFIED BY '$APP_PW';
                   GRANT ALL PRIVILEGES ON nadlanyavan.* TO 'nadlan'@'127.0.0.1';"
