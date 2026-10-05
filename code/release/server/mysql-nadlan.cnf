@@ -1,0 +1,29 @@
+# Nadlan: MySQL 8.4 sized for a 1 GB instance (t3.micro) that also runs the app.
+# Expected resident memory ~250-300 MB: 128 MB InnoDB buffer pool + ~120 MB server overhead + small per-connection buffers.
+# On a bigger instance raise innodb_buffer_pool_size first (about half of the RAM left after the app), then restart mysqld.
+[mysqld]
+bind-address = 127.0.0.1
+mysqlx = OFF
+skip-name-resolve = ON
+skip-log-bin
+performance_schema = OFF
+
+innodb_buffer_pool_size = 128M
+innodb_log_buffer_size = 8M
+innodb_redo_log_capacity = 64M
+innodb_flush_method = O_DIRECT
+
+max_connections = 40
+thread_cache_size = 4
+table_open_cache = 400
+table_definition_cache = 400
+host_cache_size = 0
+
+key_buffer_size = 8M
+tmp_table_size = 16M
+max_heap_table_size = 16M
+temptable_max_ram = 32M
+sort_buffer_size = 256K
+join_buffer_size = 256K
+read_buffer_size = 128K
+read_rnd_buffer_size = 256K

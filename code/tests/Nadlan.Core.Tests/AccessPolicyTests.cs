@@ -168,6 +168,26 @@ public class AccessPolicyTests
     }
 
     [Fact]
+    public async Task A_user_manager_who_is_not_Admin_cannot_take_over_an_Admin_or_raise_themselves()
+    {
+        var (service, users) = AdminService(); // 1 = Admin, 2 = Agent
+        users.Add(User(3, "manager@example.gr", null) with { SecurityRoleId = 2, RoleCode = "VIEWER", RoleName = "Viewer" });
+        var manager = new UserAccess { UserId = 3, RoleCode = "VIEWER", DisplayName = "Manager", Permissions = new HashSet<string> { Permissions.ManageUsers } };
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.SetPasswordAsync(manager, 1, "taken over 123", false));
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.CreatePasswordLinkAsync(manager, 1));
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.CreateApiTokenAsync(manager, 1, "steal", null));
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.SignOutEverywhereAsync(manager, 1));
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.UpdateAsync(manager, 2, new UserInput("agent@example.gr", null, null, 1, true, false))); // make Admin
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.CreateAsync(manager, new UserInput("new@example.gr", null, null, 1, true, false), null));
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.UpdateAsync(manager, 3, new UserInput("manager@example.gr", null, null, 3, true, false))); // self
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.UpdateRoleAsync(manager, 2, "Viewer", null, true, new[] { "VIEW_ALL_ASSETS" }));
+
+        await service.SetPasswordAsync(manager, 2, "agent new pass 1", true); // an ordinary user: fine
+        Assert.True(users.Get(2).HasPassword);
+    }
+
+    [Fact]
     public async Task Non_admins_cannot_manage_users()
     {
         var (service, _) = AdminService();

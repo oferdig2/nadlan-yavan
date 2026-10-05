@@ -12,8 +12,12 @@ public interface IParcelLegalOwnerStore
 {
     Task<IReadOnlyList<LegalOwner>> ListAsync(long parcelId, CancellationToken ct = default);
 
-    /// <summary>Adds the owner, or updates percent/notes if this Contact already owns the Parcel.</summary>
-    Task UpsertAsync(long parcelId, long contactId, decimal? ownershipPercent, string? notes, CancellationToken ct = default);
+    /// <summary>
+    /// Adds the owner, or updates percent/notes if this Contact already owns the Parcel - unless the Parcel's owners would
+    /// then hold more than 100%. Checked and written in one transaction with the Parcel locked, so two owners added at
+    /// once can't both fit. Returns null when saved, else the total that was refused.
+    /// </summary>
+    Task<decimal?> UpsertAsync(long parcelId, long contactId, decimal? ownershipPercent, string? notes, CancellationToken ct = default);
 
     Task<bool> RemoveAsync(long parcelId, long contactId, CancellationToken ct = default);
 }
@@ -54,15 +58,11 @@ public sealed class LegalOwnerService
             throw new DomainValidationException("LEGAL_OWNER_CONTACT_INACTIVE", $"{contact.DisplayName} is inactive and can't be added as a legal owner.");
         }
 
-        var others = current.Where(o => o.ContactId != contactId);
-        var total = others.Sum(o => o.OwnershipPercent ?? 0) + (ownershipPercent ?? 0);
-        if (total > 100)
+        if (await _owners.UpsertAsync(parcelId, contactId, ownershipPercent, TextNormalize.NullIfBlank(notes), ct) is decimal total)
         {
             throw new DomainValidationException("LEGAL_OWNER_PERCENT_TOTAL",
                 $"Ownership would add up to {total:0.###}% for this Parcel. The total can't exceed 100%.");
         }
-
-        await _owners.UpsertAsync(parcelId, contactId, ownershipPercent, TextNormalize.NullIfBlank(notes), ct);
         await _activity.RecordAsync(new ActivityEntry("Parcel", parcelId, ActivityActions.LegalOwnerAdded,
             $"Legal owner {contact.DisplayName}{(ownershipPercent is decimal p ? $" ({p:0.###}%)" : "")} set on Parcel {parcel.RegistryId}.",
             new { contactId, ownershipPercent }), ct);

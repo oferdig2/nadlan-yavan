@@ -29,7 +29,7 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         await using var conn = await _db.OpenAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<FileAttachment>(new CommandDefinition("""
             SELECT file_attachment_id, file_type_id, attached_to_type, attached_to_id, storage_key, original_file_name,
-                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_by_user_id, uploaded_utc
+                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_by_user_id, uploaded_utc, has_thumbnail
             FROM file_attachment WHERE file_attachment_id = @fileAttachmentId
             """, new { fileAttachmentId }, cancellationToken: ct));
     }
@@ -40,7 +40,7 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         var rows = await conn.QueryAsync<FileListItem>(new CommandDefinition("""
             SELECT f.file_attachment_id, f.file_type_id, t.code AS file_type_code, t.name AS file_type_name, t.category,
                    f.attached_to_type, f.attached_to_id, f.storage_key, f.original_file_name, f.mime_type, f.file_size,
-                   f.caption, f.notes, f.sort_order, f.uploaded_utc
+                   f.caption, f.notes, f.sort_order, f.uploaded_utc, f.has_thumbnail
             FROM file_attachment f
             JOIN file_type t ON t.file_type_id = f.file_type_id
             WHERE f.attached_to_type = @attachedToType AND f.attached_to_id = @attachedToId AND f.upload_status = 'Ready'
@@ -57,6 +57,13 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
             SET upload_status = 'Ready', s3_upload_id = NULL, completed_utc = UTC_TIMESTAMP(3), updated_utc = UTC_TIMESTAMP(3)
             WHERE file_attachment_id = @fileAttachmentId AND upload_status = 'Pending'
             """, new { fileAttachmentId }, cancellationToken: ct)) == 1;
+    }
+
+    public async Task SetHasThumbnailAsync(long fileAttachmentId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE file_attachment SET has_thumbnail = 1 WHERE file_attachment_id = @fileAttachmentId", new { fileAttachmentId }, cancellationToken: ct));
     }
 
     public async Task UpdateMetadataAsync(long fileAttachmentId, int fileTypeId, string? caption, string? notes, int? sortOrder, CancellationToken ct = default)
@@ -89,7 +96,7 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<FileAttachment>(new CommandDefinition("""
             SELECT file_attachment_id, file_type_id, attached_to_type, attached_to_id, storage_key, original_file_name,
-                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_by_user_id, uploaded_utc
+                   mime_type, file_size, caption, notes, sort_order, upload_status, s3_upload_id, uploaded_by_user_id, uploaded_utc, has_thumbnail
             FROM file_attachment
             WHERE upload_status = 'Pending' AND uploaded_utc < @startedBeforeUtc
             ORDER BY uploaded_utc

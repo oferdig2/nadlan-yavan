@@ -6,7 +6,8 @@ using Nadlan.Core.Validation;
 
 namespace Nadlan.Core.Parcels;
 
-public sealed record ParcelDeletionResult(string? RegistryId, int FilesDeleted);
+/// <summary>FilesLeftInStorage: storage keys whose bytes could not be removed (the rows are gone; the caller logs them).</summary>
+public sealed record ParcelDeletionResult(string? RegistryId, int FilesDeleted, IReadOnlyList<string> FilesLeftInStorage);
 
 /// <summary>
 /// Deletes a Parcel (Admin only - the endpoint checks). A Parcel an Asset stands on is refused: the Asset would lose its
@@ -49,20 +50,41 @@ public sealed class ParcelDeletionService
                 $"Parcel {parcel.RegistryId} carries {assetIds.Count} Asset(s) ({string.Join(", ", assetIds.Select(id => "#" + id))}), so it can't be deleted.");
         }
 
-        var files = await _files.ListReadyAsync(FileTargetTypes.Parcel, parcelId, ct);
-        foreach (var file in files)
+        var files = new List<FileAttachment>();
+        foreach (var item in await _files.ListReadyAsync(FileTargetTypes.Parcel, parcelId, ct))
         {
-            await _fileService.DeleteAsync(file.FileAttachmentId, ct); // object in S3, row, "file deleted" history
+            if (await _files.GetAsync(item.FileAttachmentId, ct) is { } file)
+            {
+                files.Add(file);
+            }
         }
 
-        if (!await _parcels.DeleteAsync(parcelId, ct))
+        // The database first, in one locked transaction that re-checks for Assets (one may have been added since the
+        // check above); only once the Parcel is really gone are its files' bytes removed.
+        switch (await _parcels.DeleteAsync(parcelId, ct))
         {
-            throw new EntityNotFoundException("Parcel", parcelId);
+            case ParcelDeleteOutcome.NotFound:
+                throw new EntityNotFoundException("Parcel", parcelId);
+            case ParcelDeleteOutcome.HasAssets:
+                throw new DomainValidationException("PARCEL_HAS_ASSETS", $"An Asset was just added on Parcel {parcel.RegistryId}, so it can't be deleted.");
+        }
+
+        var leftInStorage = new List<string>();
+        foreach (var file in files)
+        {
+            try
+            {
+                await _fileService.DeleteStoredObjectAsync(file, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                leftInStorage.Add($"{file.StorageKey} ({ex.Message})");
+            }
         }
 
         await _activity.RecordAsync(new ActivityEntry("Parcel", parcelId, ActivityActions.ParcelDeleted,
             $"Parcel {parcel.RegistryId} deleted{(files.Count > 0 ? $" with {files.Count} file(s)" : "")}.",
             new { parcel.RegistryId, parcel.RegistryIdIsProvisional, parcel.GeographicAreaId, parcel.OfficialAreaSqm, geometry = parcel.Geometry.ToWkt() }), ct);
-        return new ParcelDeletionResult(parcel.RegistryId, files.Count);
+        return new ParcelDeletionResult(parcel.RegistryId, files.Count, leftInStorage);
     }
 }

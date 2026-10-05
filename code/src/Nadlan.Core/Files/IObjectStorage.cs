@@ -30,6 +30,9 @@ public interface IObjectStorage
     Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default);
 
     Task DeleteObjectAsync(string key, CancellationToken ct = default);
+
+    /// <summary>Stores a small object in one request (preview images; files themselves go up multipart from the browser).</summary>
+    Task PutObjectAsync(string key, byte[] content, string contentType, CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 /// <summary>

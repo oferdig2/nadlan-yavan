@@ -130,7 +130,10 @@ public class ReviewRegressionTests
     [InlineData("1.234,5", 1234.5)]
     [InlineData("0,800", 0.8)]      // a leading 0 group is never thousands
     [InlineData("1.250.000", 1250000)]
-    [InlineData("250.000", 250)]    // single dot stays a decimal point
+    [InlineData("250.000", 250000)] // Greek thousands: a price typed as 250.000 is not 250
+    [InlineData("0.800", 0.8)]
+    [InlineData("12.5", 12.5)]
+    [InlineData("1.2500", 1.25)]
     public void Greek_and_english_number_input(string text, double expected)
     {
         Assert.Equal((decimal)expected, Nadlan.Core.Text.TextNormalize.ParseDecimal(text));

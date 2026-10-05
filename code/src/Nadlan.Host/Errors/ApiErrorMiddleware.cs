@@ -37,9 +37,17 @@ public sealed class ApiErrorMiddleware
         {
             await WriteAsync(context, StatusCodes.Status403Forbidden, ex.Code, ex.Message);
         }
+        catch (EditConflictException ex)
+        {
+            await WriteAsync(context, StatusCodes.Status409Conflict, ex.Code, ex.Message);
+        }
         catch (BadHttpRequestException ex)
         {
-            await WriteAsync(context, ex.StatusCode, ex.StatusCode == StatusCodes.Status413PayloadTooLarge ? "PAYLOAD_TOO_LARGE" : "BAD_REQUEST", ex.Message);
+            // Includes what the endpoint couldn't bind (RouteHandlerOptions.ThrowOnBadRequest): malformed JSON, "abc" for a number.
+            var message = ex.InnerException is System.Text.Json.JsonException
+                ? "The request could not be read: it is not valid JSON, or a value has the wrong type."
+                : ex.Message;
+            await WriteAsync(context, ex.StatusCode, ex.StatusCode == StatusCodes.Status413PayloadTooLarge ? "PAYLOAD_TOO_LARGE" : "BAD_REQUEST", message);
         }
         catch (StorageUnavailableException ex)
         {
@@ -56,6 +64,12 @@ public sealed class ApiErrorMiddleware
             // A referenced row doesn't exist (stale id from another tab, deleted meanwhile).
             await WriteAsync(context, StatusCodes.Status400BadRequest, "REFERENCE_NOT_FOUND",
                 "Something this refers to no longer exists. Reload and try again.");
+        }
+        catch (MySqlException ex) when (ex.ErrorCode is MySqlErrorCode.RowIsReferenced or MySqlErrorCode.RowIsReferenced2)
+        {
+            // Deleting something another row was just linked to (a race the services check for, caught by the database).
+            await WriteAsync(context, StatusCodes.Status409Conflict, "IN_USE",
+                "Something else was just linked to this, so it can't be removed. Reload and try again.");
         }
         catch (Exception ex) when (!context.Response.HasStarted && ex is not OperationCanceledException)
         {

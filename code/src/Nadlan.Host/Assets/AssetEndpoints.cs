@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Nadlan.Core.Editing;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Contacts;
 using Nadlan.Core.Security;
@@ -31,7 +32,7 @@ public static class AssetEndpoints
 
     public sealed record AssetDto(
         long? ParcelId, long ManagingContactId, int? PropertyTypeId, int AssetStatusId, decimal? AskPrice,
-        string? CurrencyCode, decimal? HouseSqm, string? SpecialConditions, string? Remarks, bool? IsExclusive);
+        string? CurrencyCode, decimal? HouseSqm, string? SpecialConditions, string? Remarks, bool? IsExclusive, string? Version = null);
 
     private const int MaxResults = 2000;
 
@@ -63,7 +64,7 @@ public static class AssetEndpoints
         });
 
         group.MapGet("/{assetId:long}", async (long assetId, UserAccess me, AccessPolicy policy, IAssetStore assets,
-            IContactStore contacts, CancellationToken ct) =>
+            IContactStore contacts, IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.RequireAssetViewAsync(me, assetId, ct);
             var asset = await assets.GetAsync(assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId);
@@ -86,6 +87,7 @@ public static class AssetEndpoints
             return Results.Ok(new
             {
                 asset,
+                version = await versions.GetAsync(EditTargets.Asset, assetId, ct), // sent back on save (edit check)
                 managingContact = contact is null ? null : new { contact.ContactId, contact.DisplayName, contact.Email, Phone = contact.CellPhone ?? contact.Phone },
                 portfolios,
                 rights = new
@@ -122,9 +124,10 @@ public static class AssetEndpoints
         });
 
         group.MapPut("/{assetId:long}", async (long assetId, AssetDto dto, UserAccess me, AccessPolicy policy, IAssetStore assets,
-            AssetService service, CancellationToken ct) =>
+            AssetService service, IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.RequireAssetEditAsync(me, assetId, ct);
+            await using var edit = await versions.BeginEditAsync(EditTargets.Asset, assetId, dto.Version, ct);
             var input = ToAsset(dto, assetId);
             if (!rights.CanChangeManagingContact)
             {

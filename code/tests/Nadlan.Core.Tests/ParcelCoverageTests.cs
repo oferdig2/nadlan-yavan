@@ -126,7 +126,7 @@ public class ParcelCoverageTests
         public bool Deleted { get; private set; }
         public Task<Parcel?> GetAsync(long id, CancellationToken ct = default) =>
             Task.FromResult<Parcel?>(Deleted ? null : new Parcel { ParcelId = 1, RegistryId = "TMP-SKR-OT1-P1", RegistryIdIsProvisional = true, Geometry = Square(0, 0) });
-        public Task<bool> DeleteAsync(long parcelId, CancellationToken ct = default) { Deleted = true; return Task.FromResult(true); }
+        public Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default) { Deleted = true; return Task.FromResult(ParcelDeleteOutcome.Deleted); }
         public Task<Parcel?> GetByRegistryIdAsync(int c, string r, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<bool> IsValidGeometryAsync(GeoPolygon p, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> InsertAsync(Parcel p, CancellationToken ct = default) => throw new NotSupportedException();

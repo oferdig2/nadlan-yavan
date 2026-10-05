@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Nadlan.Core.Security;
+using Nadlan.Core.Validation;
 using Nadlan.Host.Configuration;
 
 namespace Nadlan.Host.Auth;
@@ -114,11 +115,12 @@ public static class AuthEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
+            var baseUrl = BaseUrl(http, options.Value); // fails (400) when no public address is configured
             var created = await auth.CreateResetTokenAsync(dto.Email, ct);
             if (created is { } c)
             {
                 var (token, user) = c;
-                var link = $"{BaseUrl(http, options.Value)}/password.html?token={Uri.EscapeDataString(token)}";
+                var link = $"{baseUrl}/password.html?token={Uri.EscapeDataString(token)}";
                 try
                 {
                     await email.SendAsync(user.Email, "Nadlan - reset your password",
@@ -148,14 +150,40 @@ public static class AuthEndpoints
         }).AllowAnonymous();
     }
 
-    /// <summary>Only same-site paths, so a crafted link can't bounce the user to another site after sign-in.</summary>
+    /// <summary>
+    /// Only paths on this site, so a crafted link can't bounce the user to another site after sign-in. Browsers drop tabs and
+    /// newlines from URLs ("/\t/evil" becomes "//evil"), so any control character, space or backslash is refused outright,
+    /// and what is left must still resolve to this site.
+    /// </summary>
     internal static string SafeReturnUrl(string? returnUrl)
-        => !string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith('/') && !returnUrl.StartsWith("//") && !returnUrl.StartsWith("/\\")
-            ? returnUrl
-            : "/";
+    {
+        if (string.IsNullOrEmpty(returnUrl) || returnUrl[0] != '/' || returnUrl.Length > 1 && returnUrl[1] == '/'
+            || returnUrl.Any(c => char.IsControl(c) || char.IsWhiteSpace(c) || c == '\\'))
+        {
+            return "/";
+        }
 
+        var probe = new Uri(new Uri("http://nadlan.invalid"), returnUrl);
+        return probe.Host == "nadlan.invalid" ? returnUrl : "/";
+    }
+
+    /// <summary>
+    /// Base of links in emails and Admin-made password links. Never taken from the request's Host header (anyone can send
+    /// any Host and so make a reset email point to their own site): the configured Nadlan:Auth:PublicBaseUrl, or - for
+    /// local development only - the request's address when it is this machine.
+    /// </summary>
     internal static string BaseUrl(HttpContext http, NadlanOptions options)
-        => string.IsNullOrWhiteSpace(options.Auth.PublicBaseUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(options.Auth.PublicBaseUrl))
+        {
+            return options.Auth.PublicBaseUrl.Trim().TrimEnd('/');
+        }
+
+        var host = http.Request.Host.Host;
+        var local = string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) || host == "127.0.0.1" || host == "[::1]" || host == "::1";
+        return local && http.Connection.RemoteIpAddress is { } ip && System.Net.IPAddress.IsLoopback(ip)
             ? $"{http.Request.Scheme}://{http.Request.Host}"
-            : options.Auth.PublicBaseUrl.TrimEnd('/');
+            : throw new DomainValidationException("PUBLIC_URL_NOT_SET",
+                "The server's public address is not set, so no link can be made. An Admin sets Nadlan:Auth:PublicBaseUrl (e.g. https://nadlan.example.com).");
+    }
 }

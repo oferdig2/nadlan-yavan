@@ -82,9 +82,10 @@ internal static class GeoJson
             return null;
         }
 
-        if (west is not double w || south is not double s || east is not double e || north is not double n || s >= n)
+        if (west is not double w || south is not double s || east is not double e || north is not double n
+            || !double.IsFinite(w) || !double.IsFinite(s) || !double.IsFinite(e) || !double.IsFinite(n) || s >= n)
         {
-            throw new DomainValidationException("INVALID_BOUNDS", "Map bounds need all four edges and south < north.");
+            throw new DomainValidationException("INVALID_BOUNDS", "Map bounds need four numeric edges and south < north.");
         }
 
         // Zoomed far out, Google Maps reports -180..180 or a view that crosses the antimeridian (west > east).

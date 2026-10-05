@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Nadlan.Core.Editing;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Geo;
 using Nadlan.Core.GeographicAreas;
@@ -31,15 +32,16 @@ public static class ParcelEndpoints
     public sealed record CreateParcelDto(
         string? RegistryId, int? GeographicAreaId, double[][][]? Coordinates, decimal? OfficialAreaSqm,
         string? OT, string? OTExt, string? PlotNumber, string? PlotExt, decimal? Inclination, decimal? BuildFactor,
-        string? Notes, bool AcceptOverlaps);
+        string? Notes, bool AcceptOverlaps, string? Version = null);
 
     public static void MapParcelEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/parcels");
 
-        // No cap: every matching Parcel is returned. The map instead passes allowSurface=true (user sees all Parcels, no
-        // filter): if the view holds more than Maps:MaxParcelPolygons it gets { tooMany, count } and draws the united
-        // surface, so nothing is ever silently left out.
+        // Never silently cut: past Maps:MaxParcelPolygons matches the answer is { tooMany, count } and no items. With
+        // allowSurface=true (user sees all Parcels, no filter) the map then draws the united surface (surface = true);
+        // otherwise (a filter, or a user who sees only some Parcels) it asks to narrow the search. One request can so never
+        // pull and draw an unbounded number of polygons.
         group.MapGet("/", async ([AsParameters] ParcelQueryParams q, bool? allowSurface, UserAccess me, IParcelStore parcels,
             IGeographicAreaStore areas, ParcelCoverageService coverage, IOptions<NadlanOptions> options, CancellationToken ct) =>
         {
@@ -52,13 +54,11 @@ public static class ParcelEndpoints
                 Scope = me.Scope,
             };
 
-            if (allowSurface == true && me.Scope.AllParcels)
+            var count = await parcels.CountAsync(query, ct);
+            if (count > options.Value.Maps.MaxParcelPolygons)
             {
-                var count = await parcels.CountAsync(query, ct);
-                if (count > options.Value.Maps.MaxParcelPolygons)
-                {
-                    return Results.Ok(new { tooMany = true, count, coverageVersion = coverage.Current?.Version, items = Array.Empty<object>() });
-                }
+                var surface = allowSurface == true && me.Scope.AllParcels;
+                return Results.Ok(new { tooMany = true, surface, count, coverageVersion = surface ? coverage.Current?.Version : null, items = Array.Empty<object>() });
             }
 
             var found = await parcels.QueryAsync(query, ct);
@@ -137,16 +137,22 @@ public static class ParcelEndpoints
             return Results.Ok(new { assets, files });
         });
 
-        group.MapDelete("/{parcelId:long}", async (long parcelId, UserAccess me, ParcelDeletionService deletion, ParcelCoverageService coverage, CancellationToken ct) =>
+        group.MapDelete("/{parcelId:long}", async (long parcelId, UserAccess me, ParcelDeletionService deletion, ParcelCoverageService coverage,
+            ILoggerFactory logs, CancellationToken ct) =>
         {
             RequireAdmin(me);
             var result = await deletion.DeleteAsync(parcelId, ct);
             coverage.MarkDirty();
+            foreach (var left in result.FilesLeftInStorage)
+            {
+                logs.CreateLogger("Nadlan.Parcels").LogWarning("Parcel {ParcelId} deleted; its file {File} stayed in storage", parcelId, left);
+            }
+
             return Results.Ok(new { result.RegistryId, result.FilesDeleted });
         });
 
         group.MapGet("/{parcelId:long}", async (long parcelId, UserAccess me, AccessPolicy policy, IParcelStore parcels,
-            IGeographicAreaStore areas, CancellationToken ct) =>
+            IGeographicAreaStore areas, IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.RequireParcelViewAsync(me, parcelId, ct);
             var parcel = await parcels.GetAsync(parcelId, ct) ?? throw new EntityNotFoundException("Parcel", parcelId);
@@ -159,6 +165,7 @@ public static class ParcelEndpoints
                 parcel.Notes,
                 parcel.CreatedUtc,
                 geometry = GeoJson.Polygon(parcel.Geometry),
+                version = await versions.GetAsync(EditTargets.Parcel, parcelId, ct), // sent back on save (edit check)
                 // Raw values for the edit form (the summary joins OT/plot with their extensions).
                 fields = new
                 {
@@ -184,7 +191,8 @@ public static class ParcelEndpoints
             return Results.Ok((await assets.ListByParcelAsync(parcelId, me.Scope, ct)).Select(AssetEndpoints.Summary));
         });
 
-        group.MapPost("/", async (CreateParcelDto dto, UserAccess me, ParcelService service, ParcelCoverageService coverage, CancellationToken ct) =>
+        group.MapPost("/", async (CreateParcelDto dto, UserAccess me, AccessPolicy policy, ParcelService service, ParcelCoverageService coverage,
+            CancellationToken ct) =>
         {
             if (!me.Has(Permissions.EditAllParcels))
             {
@@ -209,16 +217,17 @@ public static class ParcelEndpoints
             }, ct);
 
             coverage.MarkDirty();
-            return ToResult(result);
+            return await ToResultAsync(result, me, policy, ct);
         });
 
         // Edit: attributes, real KAEK for a provisional one, and (optionally) the polygon.
         group.MapPut("/{parcelId:long}", async (long parcelId, CreateParcelDto dto, UserAccess me, AccessPolicy policy, ParcelService service,
-            ParcelCoverageService coverage, CancellationToken ct) =>
+            ParcelCoverageService coverage, IEditVersionStore versions, CancellationToken ct) =>
         {
             await policy.RequireParcelEditAsync(me, parcelId, ct);
+            await using var edit = await versions.BeginEditAsync(EditTargets.Parcel, parcelId, dto.Version, ct);
             coverage.MarkDirty();
-            return ToResult(await service.UpdateAsync(new UpdateParcelRequest
+            return await ToResultAsync(await service.UpdateAsync(new UpdateParcelRequest
             {
                 ParcelId = parcelId,
                 RegistryId = dto.RegistryId,
@@ -233,7 +242,7 @@ public static class ParcelEndpoints
                 BuildFactor = dto.BuildFactor,
                 Notes = dto.Notes,
                 AcceptOverlaps = dto.AcceptOverlaps,
-            }, ct));
+            }, ct), me, policy, ct);
         });
 
         // Legal Owners: visible only with VIEW_LEGAL_OWNERS or edit rights (spec §3.4 "Legal Owners if permitted").
@@ -275,25 +284,42 @@ public static class ParcelEndpoints
         }
     }
 
-    private static IResult ToResult(CreateParcelResult result) => result.Outcome switch
+    /// <summary>
+    /// The save outcome, mentioning only Parcels the caller may see: an editor with a grant on one Parcel must not learn the
+    /// ids/KAEKs of hidden Parcels from overlap or duplicate answers. Hidden overlaps are only counted.
+    /// </summary>
+    private static async Task<IResult> ToResultAsync(CreateParcelResult result, UserAccess me, AccessPolicy policy, CancellationToken ct)
     {
-        CreateParcelOutcome.Created or CreateParcelOutcome.Updated => Results.Ok(new
+        var overlaps = new List<ParcelOverlapHit>();
+        var hidden = 0;
+        foreach (var o in result.Overlaps)
         {
-            result.ParcelId, result.RegistryId, result.RegistryIdIsProvisional, result.Overlaps, result.Warning,
-        }),
-        CreateParcelOutcome.DuplicateRegistryId => Results.Conflict(new
+            if (me.Scope.AllParcels || (await policy.ParcelAsync(me, o.ParcelId, ct)).CanView) { overlaps.Add(o); } else { hidden++; }
+        }
+
+        var existingId = result.ExistingParcelId is long id && (me.Scope.AllParcels || (await policy.ParcelAsync(me, id, ct)).CanView) ? id : (long?)null;
+        var note = hidden > 0 ? $" ({hidden} of them you can't see)" : "";
+        return result.Outcome switch
         {
-            error = "PARCEL_KAEK_EXISTS",
-            message = $"A Parcel with KAEK {result.RegistryId} already exists.",
-            existingParcelId = result.ExistingParcelId,
-        }),
-        _ => Results.Conflict(new
-        {
-            error = "PARCEL_OVERLAPS",
-            message = "The polygon overlaps existing Parcels. Check it, or save anyway.",
-            overlaps = result.Overlaps,
-        }),
-    };
+            CreateParcelOutcome.Created or CreateParcelOutcome.Updated => Results.Ok(new
+            {
+                result.ParcelId, result.RegistryId, result.RegistryIdIsProvisional, Overlaps = overlaps, hiddenOverlaps = hidden, result.Warning,
+            }),
+            CreateParcelOutcome.DuplicateRegistryId => Results.Conflict(new
+            {
+                error = "PARCEL_KAEK_EXISTS",
+                message = $"A Parcel with KAEK {result.RegistryId} already exists.",
+                existingParcelId = existingId,
+            }),
+            _ => Results.Conflict(new
+            {
+                error = "PARCEL_OVERLAPS",
+                message = $"The polygon overlaps existing Parcels{note}. Check it, or save anyway.",
+                overlaps,
+                hiddenOverlaps = hidden,
+            }),
+        };
+    }
 
     internal static object Summary(Parcel p, IReadOnlyDictionary<int, string> areaNames) => new
     {

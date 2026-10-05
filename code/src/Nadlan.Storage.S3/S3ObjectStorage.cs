@@ -35,16 +35,29 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             return (await Client.InitiateMultipartUploadAsync(request, ct)).UploadId;
         });
 
-    /// <summary>Short-lived GET URL (dev delivery mode). Same error handling as every other S3 call.</summary>
-    public string GetDownloadUrl(string key, TimeSpan lifetime)
-        => Guard(() => Client.GetPreSignedURL(new GetPreSignedUrlRequest
+    /// <summary>
+    /// Short-lived GET URL (dev delivery mode). Same error handling as every other S3 call. S3 answers it with
+    /// "Cache-Control: private, max-age=<paramref name="browserCache"/>", so a browser that sees the same URL again
+    /// (CachingFileUrlProvider hands out one URL per file for a while) shows the file from its cache.
+    /// </summary>
+    public string GetDownloadUrl(string key, TimeSpan lifetime, TimeSpan? browserCache = null)
+        => Guard(() =>
         {
-            BucketName = _options.Bucket,
-            Key = _options.FullKey(key),
-            Verb = HttpVerb.GET,
-            Expires = DateTime.UtcNow.Add(lifetime),
-            Protocol = Protocol.HTTPS,
-        }));
+            var request = new GetPreSignedUrlRequest
+            {
+                BucketName = _options.Bucket,
+                Key = _options.FullKey(key),
+                Verb = HttpVerb.GET,
+                Expires = DateTime.UtcNow.Add(lifetime),
+                Protocol = Protocol.HTTPS,
+            };
+            if (browserCache is { } cache && cache > TimeSpan.Zero)
+            {
+                request.ResponseHeaderOverrides.CacheControl = $"private, max-age={(long)cache.TotalSeconds}";
+            }
+
+            return Client.GetPreSignedURL(request);
+        });
 
     public string GetPartUploadUrl(string key, string uploadId, int partNumber, TimeSpan lifetime)
         => Guard(() => Client.GetPreSignedURL(new GetPreSignedUrlRequest
@@ -128,6 +141,19 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
 
     public Task DeleteObjectAsync(string key, CancellationToken ct = default)
         => Guard(async () => await Client.DeleteObjectAsync(new DeleteObjectRequest { BucketName = _options.Bucket, Key = _options.FullKey(key) }, ct));
+
+    public Task PutObjectAsync(string key, byte[] content, string contentType, CancellationToken ct = default)
+        => Guard(async () =>
+        {
+            using var body = new MemoryStream(content, writable: false);
+            await Client.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = _options.Bucket,
+                Key = _options.FullKey(key),
+                InputStream = body,
+                ContentType = contentType,
+            }, ct);
+        });
 
     public void Dispose()
     {

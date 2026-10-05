@@ -26,15 +26,30 @@ public sealed class MySqlParcelLegalOwnerStore : IParcelLegalOwnerStore
         return rows.ToList();
     }
 
-    public async Task UpsertAsync(long parcelId, long contactId, decimal? ownershipPercent, string? notes, CancellationToken ct = default)
+    public async Task<decimal?> UpsertAsync(long parcelId, long contactId, decimal? ownershipPercent, string? notes, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        // The Parcel row is the lock every owner change on this Parcel waits for.
+        await conn.ExecuteAsync(new CommandDefinition("SELECT parcel_id FROM parcel WHERE parcel_id = @parcelId FOR UPDATE",
+            new { parcelId }, tx, cancellationToken: ct));
+        var others = await conn.ExecuteScalarAsync<decimal>(new CommandDefinition("""
+            SELECT COALESCE(SUM(ownership_percent), 0) FROM parcel_legal_owner WHERE parcel_id = @parcelId AND contact_id <> @contactId
+            """, new { parcelId, contactId }, tx, cancellationToken: ct));
+        var total = others + (ownershipPercent ?? 0);
+        if (total > 100)
+        {
+            return total;
+        }
+
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO parcel_legal_owner (parcel_id, contact_id, ownership_percent, notes)
             VALUES (@parcelId, @contactId, @ownershipPercent, @notes)
             ON DUPLICATE KEY UPDATE ownership_percent = VALUES(ownership_percent), notes = VALUES(notes),
                                     updated_utc = UTC_TIMESTAMP(3)
-            """, new { parcelId, contactId, ownershipPercent, notes }, cancellationToken: ct));
+            """, new { parcelId, contactId, ownershipPercent, notes }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return null;
     }
 
     public async Task<bool> RemoveAsync(long parcelId, long contactId, CancellationToken ct = default)

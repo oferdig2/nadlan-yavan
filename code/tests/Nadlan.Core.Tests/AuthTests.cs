@@ -241,12 +241,15 @@ public class AuthTests
             return Task.FromResult(id);
         }
 
-        public Task UpdateAsync(AppUser user, CancellationToken ct = default)
+        public Task<bool> UpdateAsync(AppUser user, bool requireAnotherActiveAdmin, CancellationToken ct = default)
         {
+            if (requireAnotherActiveAdmin && !OtherActiveAdmin(user.UserId)) { return Task.FromResult(false); }
             var role = FakeRoles.Roles.First(r => r.SecurityRoleId == user.SecurityRoleId);
             _rows[user.UserId] = user with { RoleCode = role.Code, RoleName = role.Name };
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
+
+        private bool OtherActiveAdmin(long userId) => _rows.Values.Any(u => u.IsActive && u.RoleCode == SecurityRoles.Admin && u.UserId != userId);
 
         public Task SetPasswordAsync(long userId, string? passwordHash, bool mustChangePassword, CancellationToken ct = default)
         {
@@ -281,7 +284,8 @@ public class AuthTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> DeleteAsync(long userId, CancellationToken ct = default) => Task.FromResult(_rows.Remove(userId));
+        public Task<bool> DeleteAsync(long userId, bool requireAnotherActiveAdmin, CancellationToken ct = default)
+            => Task.FromResult((!requireAnotherActiveAdmin || OtherActiveAdmin(userId)) && _rows.Remove(userId));
 
         public Task<int> CountActiveAdminsAsync(long? exceptUserId, CancellationToken ct = default)
             => Task.FromResult(_rows.Values.Count(u => u.IsActive && u.RoleCode == SecurityRoles.Admin && u.UserId != exceptUserId));

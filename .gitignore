@@ -23,3 +23,6 @@ import-reports/
 
 # Installer packages built by code/installer/Publish-KaekImporter.ps1
 code/dist/
+
+# Release scripts: remembered answers (code/release/release.local.json) - local to each admin PC
+code/release/release.local.json

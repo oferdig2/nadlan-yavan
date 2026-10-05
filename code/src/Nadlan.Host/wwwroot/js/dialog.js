@@ -31,6 +31,10 @@
       }
     });
 
+    // A <form> in a dialog never submits itself: with a single text field (a type-ahead search) the browser would submit on
+    // Enter and reload the whole page.
+    $el.on("submit", "form", function (e) { e.preventDefault(); });
+
     // Enter in a field = the primary button (Save/Add). Not in textareas (new line) or type-ahead inputs
     // (Enter picks a suggestion there), and never while the buttons are busy.
     var primary = options.buttons.filter(function (b) { return b.primary; })[0];

@@ -1,2 +1,4 @@
 # Scripts run on macOS must keep Unix line endings
 code/installer/mac/nadlan-launcher text eol=lf
+# Server scripts and configs run on Linux
+code/release/server/* text eol=lf

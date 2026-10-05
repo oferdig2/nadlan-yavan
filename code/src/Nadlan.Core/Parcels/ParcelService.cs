@@ -100,6 +100,7 @@ public sealed class ParcelService
         EnsureMeasures(request.OfficialAreaSqm, request.BuildFactor, request.Inclination);
         var area = await ResolveAreaAsync(request.GeographicAreaId, currentAreaId: null, ct);
         var (registryId, provisional) = ResolveRegistryId(request, area);
+        await using var writeLock = await _parcels.LockParcelWritesAsync(ct); // checks below and the insert: one at a time
 
         // Scenario 13: never silently duplicate a KAEK; point the user at the existing Parcel instead.
         var existing = await _parcels.GetByRegistryIdAsync(countryId, registryId, ct);
@@ -157,9 +158,9 @@ public sealed class ParcelService
 
     public async Task<CreateParcelResult> UpdateAsync(UpdateParcelRequest request, CancellationToken ct = default)
     {
-        var existing = await _parcels.GetAsync(request.ParcelId, ct) ?? throw new EntityNotFoundException("Parcel", request.ParcelId);
-
         EnsureMeasures(request.OfficialAreaSqm, request.BuildFactor, request.Inclination);
+        await using var writeLock = await _parcels.LockParcelWritesAsync(ct); // read, checks and the update: one at a time
+        var existing = await _parcels.GetAsync(request.ParcelId, ct) ?? throw new EntityNotFoundException("Parcel", request.ParcelId);
         var area = await ResolveAreaAsync(request.GeographicAreaId, existing.GeographicAreaId, ct);
 
         // KAEK: empty keeps the current id; a new real KAEK replaces it (and ends "provisional").

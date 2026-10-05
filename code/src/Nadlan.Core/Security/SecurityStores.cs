@@ -39,7 +39,9 @@ public interface IUserStore
     Task<long> InsertAsync(AppUser user, long? createdByUserId, CancellationToken ct = default);
 
     /// <summary>Profile fields: email, display name, contact, role, active, must-change-password.</summary>
-    Task UpdateAsync(AppUser user, CancellationToken ct = default);
+    /// <param name="requireAnotherActiveAdmin">The change removes an Admin: only done (true) if another active Admin remains,
+    /// checked under a lock on the Admin rows so two concurrent demotions can't both pass. False = refused.</param>
+    Task<bool> UpdateAsync(AppUser user, bool requireAnotherActiveAdmin, CancellationToken ct = default);
 
     /// <summary>Sets (or with null, removes) the password; clears lockout; signs the user out everywhere.</summary>
     Task SetPasswordAsync(long userId, string? passwordHash, bool mustChangePassword, CancellationToken ct = default);
@@ -54,7 +56,8 @@ public interface IUserStore
     Task RecordLoginAsync(long userId, string method, CancellationToken ct = default);
 
     Task UnlockAsync(long userId, CancellationToken ct = default);
-    Task<bool> DeleteAsync(long userId, CancellationToken ct = default);
+    /// <summary>False if the user didn't exist, or it was the last active Admin and <paramref name="requireAnotherActiveAdmin"/> is set.</summary>
+    Task<bool> DeleteAsync(long userId, bool requireAnotherActiveAdmin, CancellationToken ct = default);
 
     /// <summary>Active users with the ADMIN role, optionally not counting one user.</summary>
     Task<int> CountActiveAdminsAsync(long? exceptUserId, CancellationToken ct = default);

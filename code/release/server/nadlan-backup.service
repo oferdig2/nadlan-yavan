@@ -1,0 +1,9 @@
+[Unit]
+Description=Nadlan daily database backup
+After=mysqld.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nadlan/current/server/backup.sh daily
+Nice=10
+IOSchedulingClass=idle

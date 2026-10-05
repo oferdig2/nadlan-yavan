@@ -88,10 +88,17 @@ public interface IParcelStore
     Task<long> CountAsync(ParcelQuery query, CancellationToken ct = default);
 
     /// <summary>
-    /// Removes the Parcel with its legal owners and object grants. The caller makes sure no Asset uses it and removes its
-    /// files first. False if it did not exist.
+    /// Serialises Parcel saves (across app instances too) from the KAEK/overlap checks to the write, so two saves of
+    /// the same polygon at once can't both pass "no overlap". Released on dispose.
     /// </summary>
-    Task<bool> DeleteAsync(long parcelId, CancellationToken ct = default);
+    Task<IAsyncDisposable> LockParcelWritesAsync(CancellationToken ct = default) => Task.FromResult<IAsyncDisposable>(NoLock.Instance);
+
+    /// <summary>
+    /// Removes the Parcel with its legal owners, object grants and file rows, in one transaction that first locks the
+    /// Parcel and re-checks that no Asset stands on it (an Asset added meanwhile wins: <see cref="ParcelDeleteOutcome.HasAssets"/>,
+    /// nothing removed). The caller deletes the files' bytes from storage only after this succeeded.
+    /// </summary>
+    Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default);
 }
 
 public readonly record struct ParcelFingerprint(long Count, long MaxId, DateTime? LastUpdatedUtc);
@@ -115,4 +122,18 @@ public static class ParcelExtent
         var cut = points.Count >= 50 ? (int)(points.Count * 0.02) : 0;
         return new GeoBounds(lons[cut], lats[cut], lons[^(cut + 1)], lats[^(cut + 1)]);
     }
+}
+
+internal sealed class NoLock : IAsyncDisposable
+{
+    public static readonly NoLock Instance = new();
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+public enum ParcelDeleteOutcome
+{
+    Deleted,
+    NotFound,
+    HasAssets,
 }

@@ -2,7 +2,9 @@
 # EXISTING shared bucket (files live under -RootFolder; nothing else in the bucket is touched):
 #   1. bucket: created (all public access blocked) only if it doesn't exist; an existing bucket's settings are left alone
 #   2. CORS: adds/updates only this root folder's rule "nadlan-<root>" (uploads + ETag header); origins accumulate
-#   3. lifecycle: adds/updates only "nadlan-abort-uploads-<root>", scoped to RootFolder; other rules are kept
+#   1b. versioning: on for a new bucket; an existing one only with -EnableVersioning (it is bucket-wide)
+#   3. lifecycle: adds/updates only its "nadlan-*-<root>" rules, scoped to RootFolder (abort unfinished uploads, keep
+#      the server's database dumps in _backups/ 35 days, old versions 30 days); other rules are kept
 #   4. IAM user "nadlan-<root>" (nadlan/dev → nadlan-dev), allowed ONLY on objects under s3://Bucket/RootFolder/
 #   5. its access key, in the local AWS profile of the same name (~/.aws/credentials) - never in the DB or the repo;
 #      an existing key is reused only if AWS confirms it belongs to that user in this account
@@ -18,9 +20,12 @@ param(
     [Parameter(Mandatory = $true)][string]$AdminProfile,
     [string]$UserName = "",                                                   # default: nadlan-<root>
     [string]$AppProfile = "",                                                 # default: same as the IAM user name
-    [string[]]$AllowedOrigins = @("http://localhost:5515")                   # ADDED to the origins already allowed
+    [string[]]$AllowedOrigins = @("http://localhost:5515"),                  # ADDED to the origins already allowed
+    [switch]$SkipAppUser,                                                     # production on EC2: the instance role replaces steps 4-5
+    [switch]$EnableVersioning                                                 # turn versioning on for an EXISTING bucket (bucket-wide)
 )
 $ErrorActionPreference = "Stop"
+$createdBucket = $false
 $here = Split-Path -Parent $PSCommandPath
 $root = $RootFolder.Trim().Trim('/')
 $rootPrefix = if ($root) { "$root/" } else { "" }
@@ -37,6 +42,8 @@ if (-not $UserName) { $UserName = "nadlan-$slug" }
 if (-not $AppProfile) { $AppProfile = $UserName }
 $corsRuleId = "nadlan-$slug"
 $lifecycleRuleId = "nadlan-abort-uploads-$slug"
+$backupRuleId = "nadlan-db-backups-$slug"
+$versionsRuleId = "nadlan-old-versions-$slug"
 $policyName = "NadlanFileStorage-$slug"
 
 # Windows PowerShell 5.1 turns a native command's stderr into a terminating error under "Stop", and AWS reports
@@ -104,6 +111,20 @@ if (Test-Aws s3api head-bucket --bucket $Bucket) {
     Invoke-Aws s3api put-public-access-block --bucket $Bucket `
         --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" | Out-Null
     Write-Host "   created, public access blocked"
+    $createdBucket = $true
+}
+
+# --- 1b. Versioning: an overwritten or deleted file (or a database dump in _backups/) can be brought back for 30 days
+# (lifecycle below), also after a mistake or a compromised server key. Bucket-wide, so on an existing (shared) bucket
+# only with -EnableVersioning.
+$versioning = (Invoke-Aws s3api get-bucket-versioning --bucket $Bucket | ConvertFrom-Json)
+if ($versioning -and $versioning.Status -eq "Enabled") {
+    Write-Host "   versioning: on"
+} elseif ($createdBucket -or $EnableVersioning) {
+    Invoke-Aws s3api put-bucket-versioning --bucket $Bucket --versioning-configuration "Status=Enabled" | Out-Null
+    Write-Host "   versioning: turned on"
+} else {
+    Write-Host "   WARNING: versioning is off on this bucket, so a deleted file or backup is gone for good. Re-run with -EnableVersioning (bucket-wide)." -ForegroundColor Yellow
 }
 
 # --- 2. CORS: our rule merged into the bucket's rules. Origins accumulate (re-running with a new origin adds it).
@@ -124,18 +145,30 @@ Write-Host "   CORS rule '$corsRuleId' allows $($ourCors.AllowedOrigins -join ',
 # --- 3. Lifecycle: our rule (scoped to this root folder) merged into the bucket's rules
 $ourRule = ((Get-Content (Join-Path $here "s3-lifecycle.json") -Raw).Replace("__ROOT_PREFIX__", $rootPrefix) | ConvertFrom-Json).Rules[0]
 $ourRule.ID = $lifecycleRuleId
+# The server's nightly database dumps (release/server/backup.sh) are kept 35 days; with versioning, a replaced or
+# deleted object of this root folder (a file, a dump) stays recoverable for 30 days.
+$backupRule = [pscustomobject]@{ ID = $backupRuleId; Status = "Enabled"; Filter = @{ Prefix = "${rootPrefix}_backups/" }; Expiration = @{ Days = 35 } }
+$versionsRule = [pscustomobject]@{ ID = $versionsRuleId; Status = "Enabled"; Filter = @{ Prefix = $rootPrefix }
+    NoncurrentVersionExpiration = @{ NoncurrentDays = 30 }; Expiration = @{ ExpiredObjectDeleteMarker = $true } }
+$ourIds = @($lifecycleRuleId, $backupRuleId, $versionsRuleId)
 $existing = Get-OptionalConfig "NoSuchLifecycleConfiguration" @("s3api", "get-bucket-lifecycle-configuration", "--bucket", $Bucket)
 # @(...) around the whole if: PowerShell unrolls a one-item array returned from an if block into a bare object.
-$otherRules = @(if ($existing) { $existing.Rules | Where-Object { $_.ID -ne $lifecycleRuleId } })
+$otherRules = @(if ($existing) { $existing.Rules | Where-Object { $ourIds -notcontains $_.ID } })
 # A bucket-level lifecycle setting lives outside .Rules; pass it back unchanged or the PUT would reset it.
 $transitionSize = if ($existing -and $existing.TransitionDefaultMinimumObjectSize) { $existing.TransitionDefaultMinimumObjectSize } else { $null }
-Invoke-WithJsonFile @{ Rules = @($otherRules + $ourRule) } {
+Invoke-WithJsonFile @{ Rules = @($otherRules + @($ourRule, $backupRule, $versionsRule)) } {
     param($file)
     $putArgs = @("s3api", "put-bucket-lifecycle-configuration", "--bucket", $Bucket, "--lifecycle-configuration", $file)
     if ($transitionSize) { $putArgs += @("--transition-default-minimum-object-size", $transitionSize) }
     Invoke-Aws @putArgs | Out-Null
 }
-Write-Host "   lifecycle rule '$lifecycleRuleId': abort unfinished uploads under '$rootPrefix' after 1 day ($($otherRules.Count) other rule(s) kept)"
+Write-Host "   lifecycle rules: abort unfinished uploads after 1 day, database dumps (${rootPrefix}_backups/) kept 35 days, old versions 30 days ($($otherRules.Count) other rule(s) kept)"
+
+if ($SkipAppUser) {
+    Write-Host ""
+    Write-Host "Done (no IAM user: the server reaches the bucket through its EC2 instance role)." -ForegroundColor Green
+    return
+}
 
 # --- 4. IAM user limited to the root folder
 Write-Host "== IAM user $UserName" -ForegroundColor Cyan

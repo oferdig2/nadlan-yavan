@@ -1,3 +1,4 @@
+using Nadlan.Core.Editing;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Portfolios;
 using Nadlan.Core.Reference;
@@ -16,7 +17,7 @@ public static class PortfolioEndpoints
 {
     public sealed record CreatePortfolioDto(string? Name, int PortfolioTypeId, string? Description, long[]? AssetIds);
 
-    public sealed record UpdatePortfolioDto(string? Name, int PortfolioTypeId, string? Description);
+    public sealed record UpdatePortfolioDto(string? Name, int PortfolioTypeId, string? Description, string? Version = null);
 
     public sealed record AddAssetsDto(long[]? AssetIds);
 
@@ -31,7 +32,7 @@ public static class PortfolioEndpoints
 
         // One Portfolio with its Assets in manual order (for the Portfolio panel and "show on map").
         group.MapGet("/{portfolioId:long}", async (long portfolioId, UserAccess me, AccessPolicy policy, IPortfolioStore portfolios,
-            IAssetStore assets, IReferenceDataStore reference, CancellationToken ct) =>
+            IAssetStore assets, IReferenceDataStore reference, IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.PortfolioAsync(me, portfolioId, ct);
             var portfolio = rights.CanView ? await portfolios.GetAsync(portfolioId, ct) : null;
@@ -52,6 +53,7 @@ public static class PortfolioEndpoints
                 portfolio.PortfolioTypeId,
                 typeName,
                 portfolio.Description,
+                version = await versions.GetAsync(EditTargets.Portfolio, portfolioId, ct), // sent back on save (edit check)
                 // One row per Asset (a multi-Parcel Asset would appear once per Parcel; Phase 1 has one Parcel each).
                 assets = items.OrderBy(a => rank.GetValueOrDefault(a.AssetId, int.MaxValue))
                     .Select(a => new { summary = AssetEndpoints.Summary(a), geometry = GeoJson.Polygon(a.Geometry) }),
@@ -74,11 +76,12 @@ public static class PortfolioEndpoints
         });
 
         group.MapPut("/{portfolioId:long}", async (long portfolioId, UpdatePortfolioDto dto, UserAccess me, AccessPolicy policy,
-            PortfolioService service, CancellationToken ct) =>
+            PortfolioService service, IEditVersionStore versions, CancellationToken ct) =>
         {
             await policy.RequirePortfolioEditAsync(me, portfolioId, ct);
+            await using var edit = await versions.BeginEditAsync(EditTargets.Portfolio, portfolioId, dto.Version, ct);
             var saved = await service.UpdateAsync(new Portfolio(portfolioId, dto.Name ?? "", dto.PortfolioTypeId, dto.Description), ct);
-            return Results.Ok(new { saved.PortfolioId, saved.Name });
+            return Results.Ok(new { saved.PortfolioId, saved.Name, version = await versions.GetAsync(EditTargets.Portfolio, portfolioId, ct) });
         });
 
         group.MapPost("/{portfolioId:long}/assets", async (long portfolioId, AddAssetsDto dto, UserAccess me, AccessPolicy policy,

@@ -42,7 +42,7 @@ public class ReferenceAdminTests
         var store = new Store();
         store.Rows.Add(new ReferenceRow(1, "FOR_SALE", "For sale", true, 10, "#16a34a", null));
 
-        await new ReferenceAdminService(store).UpdateAsync(ReferenceTable.AssetStatus, new ReferenceRow(1, "RENAMED", "On the market", true, 10, "#16a34a", null));
+        await new ReferenceAdminService(store).UpdateAsync(ReferenceTable.AssetStatus, new ReferenceRow(1, "RENAMED", "On the market", true, 10, "#16a34a", null), mayRecategoriseFiles: false);
 
         Assert.Equal("FOR_SALE", store.Rows.Single().Code);
         Assert.Equal("On the market", store.Rows.Single().Name);
@@ -57,6 +57,23 @@ public class ReferenceAdminTests
             service.CreateAsync(ReferenceTable.FileType, Row("SURVEY") with { Category = "Misc" }))).Code);
         Assert.Equal("REFERENCE_COLOR_INVALID", (await Assert.ThrowsAsync<DomainValidationException>(() =>
             service.CreateAsync(ReferenceTable.AssetStatus, Row("RESERVED") with { Color = "red" }))).Code);
+    }
+
+    [Fact]
+    public async Task Only_an_admin_moves_a_file_type_to_another_category()
+    {
+        var store = new Store();
+        store.Rows.Add(new ReferenceRow(1, "TITLE", "Title deed", true, 10, null, "Legal"));
+        var service = new ReferenceAdminService(store);
+
+        // A list manager may rename it, but moving Legal files to Marketing would show them to every Marketing viewer.
+        await service.UpdateAsync(ReferenceTable.FileType, new ReferenceRow(1, "TITLE", "Title deeds", true, 10, null, "Legal"), mayRecategoriseFiles: false);
+        Assert.Equal("FILE_TYPE_CATEGORY_ADMIN_ONLY", (await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.UpdateAsync(ReferenceTable.FileType, new ReferenceRow(1, "TITLE", "Title deeds", true, 10, null, "Marketing"), mayRecategoriseFiles: false))).Code);
+        Assert.Equal("Legal", store.Rows.Single().Category);
+
+        await service.UpdateAsync(ReferenceTable.FileType, new ReferenceRow(1, "TITLE", "Title deeds", true, 10, null, "Marketing"), mayRecategoriseFiles: true);
+        Assert.Equal("Marketing", store.Rows.Single().Category);
     }
 
     private static ReferenceRow Row(string code) => new(0, code, "Name", true, 10, null, null);

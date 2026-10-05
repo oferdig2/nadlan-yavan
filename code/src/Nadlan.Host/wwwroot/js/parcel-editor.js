@@ -105,7 +105,7 @@
       d.setGeometryState = setGeometryState;
 
       if (editing) {
-        draw.setCoordinates(detail.geometry.coordinates[0]); // current polygon, corners draggable
+        draw.setCoordinates(detail.geometry.coordinates); // current polygon with its holes, corners draggable
         shapeChanged = false;                                // showing it is not a change
         $form.find(".geometry-state").removeClass("muted").text("Current polygon - drag its corners to correct it, or Redraw.");
       } else {
@@ -119,6 +119,7 @@
         var body = Nadlan.dialog.readForm($form);
         body.coordinates = shapeChanged ? coordinates : null;
         body.acceptOverlaps = acceptOverlaps;
+        if (editing) { body.version = detail.version; } // edit check: refused if someone else saved meanwhile
         var notNumber = ["officialAreaSqm", "buildFactor", "inclination"].some(function (k) {
           return body[k] !== null && isNaN(body[k]);
         });

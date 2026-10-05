@@ -4,6 +4,16 @@
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
 
+  // One bar on top of everything (dialogs included) while the session is gone; the page and its open dialogs stay.
+  function showSignedOut() {
+    if ($(".session-ended").length) { return; }
+    $("<div class=\"session-ended\" role=\"alert\">Your session has ended. Nothing you typed is lost: " +
+      "<a href=\"/login.html?returnUrl=%2F\" target=\"_blank\" rel=\"noopener\">sign in again in a new tab</a>, " +
+      "come back here and save again. <button type=\"button\" class=\"btn\">OK</button></div>")
+      .appendTo(document.body)
+      .on("click", "button", function () { $(this).closest(".session-ended").remove(); });
+  }
+
   function request(method, url, body) {
     return new Promise(function (resolve, reject) {
       $.ajax({
@@ -20,7 +30,10 @@
         // Session ended (signed out elsewhere, revoked, expired): to the login page, which brings the user back here.
         var here = window.location.pathname + window.location.search;
         if (xhr.status === 401 && payload.error === "NOT_SIGNED_IN" && !/\/(login|password)\.html$/.test(window.location.pathname)) {
-          window.location.href = "/login.html?returnUrl=" + encodeURIComponent(here);
+          // Mid-edit (a write, or any dialog open) leaving the page would throw the typed-in work away: sign in in
+          // another tab instead, then save again here.
+          if (method !== "GET" || $(".ui-dialog:visible").length) { showSignedOut(); }
+          else { window.location.href = "/login.html?returnUrl=" + encodeURIComponent(here); }
         } else if (xhr.status === 403 && payload.error === "PASSWORD_CHANGE_REQUIRED" && !/\/password\.html$/.test(window.location.pathname)) {
           window.location.href = "/password.html?returnUrl=" + encodeURIComponent(here);
         }
@@ -32,6 +45,19 @@
       });
     });
   }
+
+  /**
+   * A return URL from the address bar, or "/" if it could lead off this site. Same rule as the server: browsers drop tabs
+   * and newlines ("/\t/evil" -> "//evil"), so control characters, spaces and backslashes are refused, and the result
+   * must resolve to this origin.
+   */
+  Nadlan.safeReturnUrl = function (url) {
+    if (!url || url.charAt(0) !== "/" || url.charAt(1) === "/" || /[\x00-\x20\x7f\\]/.test(url)) { return "/"; }
+    try {
+      var u = new URL(url, window.location.origin);
+      return u.origin === window.location.origin ? u.pathname + u.search + u.hash : "/";
+    } catch (e) { return "/"; }
+  };
 
   Nadlan.api = {
     // traditional=true sends arrays as ids=1&ids=2, which ASP.NET binds to long[].

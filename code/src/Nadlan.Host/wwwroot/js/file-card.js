@@ -47,20 +47,27 @@
     document.addEventListener("keydown", onKey, true);
   }
 
-  // One handler for every card (files dialog, map card strip, metadata editor); the card's own click is not triggered.
-  $(document).on("click", "[data-view-file]", function (e) {
+  // One handler for every card (files dialog, map card strip, metadata editor). Capture phase on the document, so it runs
+  // before the cards' own (bubbling) click handlers and stops the click there: opening the viewer doesn't also open the
+  // metadata editor or the files dialog underneath.
+  document.addEventListener("click", function (e) {
+    var b = e.target && e.target.closest ? e.target.closest("[data-view-file]") : null;
+    if (!b) { return; }
     e.preventDefault();
     e.stopPropagation();
-    var $b = $(this);
-    openViewer($b.attr("data-view-file"), $b.attr("data-url"), $b.attr("data-name"));
-  });
+    openViewer(b.getAttribute("data-view-file"), b.getAttribute("data-url"), b.getAttribute("data-name"));
+  }, true);
 
   function thumbHtml(file) {
     var esc = Nadlan.format.escapeHtml;
     switch (kind(file)) {
       case "image":
-        return "<img class=\"file-thumb\" loading=\"lazy\" src=\"" + esc(file.url) + "\" alt=\"" + esc(file.caption || file.originalFileName) + "\">" + viewButton(file, "image");
+        // The small preview made at upload (thumbUrl); older files only have the original.
+        return "<img class=\"file-thumb\" loading=\"lazy\" src=\"" + esc(file.thumbUrl || file.url) + "\" alt=\"" + esc(file.caption || file.originalFileName) + "\">" + viewButton(file, "image");
       case "video":
+        if (file.thumbUrl) {
+          return "<img class=\"file-thumb\" loading=\"lazy\" src=\"" + esc(file.thumbUrl) + "\" alt=\"" + esc(file.caption || file.originalFileName) + "\">" + viewButton(file, "video");
+        }
         // #t=0.5 makes browsers render a frame as the poster without downloading the whole video.
         return "<video class=\"file-thumb\" preload=\"metadata\" muted playsinline src=\"" + esc(file.url) + "#t=0.5\"></video>" + viewButton(file, "video");
       case "pdf":

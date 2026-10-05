@@ -1,0 +1,34 @@
+[Unit]
+Description=Nadlan web app
+After=network-online.target mysqld.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=nadlan
+Group=nadlan
+WorkingDirectory=/opt/nadlan/current/app
+ExecStart=/opt/nadlan/current/app/Nadlan.Host
+# The app's only input: NADLAN_MYSQL_CS. Every other setting lives in the app_config table (sudo nadlan-db config ...).
+EnvironmentFile=/etc/nadlan/nadlan.env
+# Fixed runtime settings for a small (t3.micro, 1 GB) instance: workstation GC, managed heap capped at 200 MB.
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_gcServer=0
+Environment=DOTNET_GCHeapHardLimit=0xC800000
+Environment=DOTNET_GCConserveMemory=5
+Environment=DOTNET_NOLOGO=1
+Environment=HOME=/var/lib/nadlan
+StateDirectory=nadlan
+MemoryHigh=350M
+MemoryMax=450M
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+SyslogIdentifier=nadlan
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -8,9 +8,7 @@
   var Nadlan = window.Nadlan;
   var params = new URLSearchParams(window.location.search);
   var token = params.get("token");
-  var returnUrl = (function (url) {
-    return url && url.charAt(0) === "/" && url.slice(0, 2) !== "//" && url.slice(0, 2) !== "/\\" ? url : "/";
-  })(params.get("returnUrl"));
+  var returnUrl = Nadlan.safeReturnUrl(params.get("returnUrl"));
   var $form = $("[data-role=form]");
   var $error = $("[data-role=error]");
   var needsCurrent = false;

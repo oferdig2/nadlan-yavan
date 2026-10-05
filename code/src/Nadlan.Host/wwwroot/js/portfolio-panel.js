@@ -136,10 +136,11 @@
         var data = Nadlan.dialog.readForm($form);
         d.busy(true);
         Nadlan.api.put("/api/portfolios/" + portfolioId, {
-          name: data.name, portfolioTypeId: data.portfolioTypeId || 0, description: data.description
+          name: data.name, portfolioTypeId: data.portfolioTypeId || 0, description: data.description, version: p.version
         }).then(function (saved) {
           d.busy(false);
           p.name = saved.name;
+          p.version = saved.version; // the panel stays open: the next save checks against this one
           d.showError("");
           if (options.onChanged) { options.onChanged(); }
         }, function (err) { d.busy(false); d.showError(err.message); });

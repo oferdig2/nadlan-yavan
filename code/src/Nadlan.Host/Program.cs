@@ -8,6 +8,7 @@ using Nadlan.Host.Configuration;
 using Nadlan.Host.Contacts;
 using Nadlan.Host.Errors;
 using Nadlan.Host.Files;
+using Nadlan.Host.Health;
 using Nadlan.Host.Parcels;
 using Nadlan.Host.Portfolios;
 using Nadlan.Host.Reference;
@@ -28,12 +29,16 @@ builder.Services.AddNadlanPersistence(db);
 builder.Services.AddNadlanServices();
 builder.Services.AddNadlanFileStorage(builder.Configuration);
 builder.Services.AddNadlanAuth(builder.Configuration, db);
+// A request the endpoint can't bind (malformed JSON, "abc" for a number) throws, so ApiErrorMiddleware answers with the
+// usual { error, message } instead of an empty 400.
+builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteHandlerOptions>(o => o.ThrowOnBadRequest = true);
 
 var app = builder.Build();
 
 app.UseMiddleware<ApiErrorMiddleware>();
 app.UseNadlanAuth(); // default files, page guard, static files, authentication, authorization, CSRF, forced password change
 
+app.MapHealthEndpoints();
 app.MapAuthEndpoints();
 app.MapUserAdminEndpoints();
 app.MapImporterEndpoints();

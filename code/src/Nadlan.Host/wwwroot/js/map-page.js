@@ -216,7 +216,15 @@
     function showTooMany(seq, res) {
       state.items = [];
       parcelOverlay.setItems([]);
-      results.setMessage(res.count.toLocaleString("en-US") + " parcels here - too many to draw one by one, so they show as one surface. Zoom in a little to see them separately.");
+      if (!res.surface) { // a filter or a partial view: no surface stands for this set, so ask to narrow it
+        showSurface(null);
+        results.setMessage(res.count.toLocaleString("en-US") + " parcels match - too many to draw. " +
+          (state.scope === "everywhere" ? "Search the visible map or a drawn rectangle, or narrow the filter." : "Zoom in, or narrow the filter."));
+        setStatus("");
+        return;
+      }
+      results.setMessage(res.count.toLocaleString("en-US") + " parcels - too many to draw one by one, so they show as one surface. " +
+        (state.scope === "view" ? "Zoom in a little to see them separately." : "Search the visible map, or draw a smaller rectangle, to see them separately."));
       setStatus("");
       var cached = surfaces.fine;
       if (cached && cached.version === res.coverageVersion) { showSurface("fine"); return; }
@@ -237,7 +245,7 @@
         if (seq !== requestSeq || state.mode !== "parcels") { return; }
         state.items = [];
         parcelOverlay.setItems([]);
-        results.setMessage(res.count.toLocaleString("en-US") + " parcel(s) here. Zoom in to see them one by one and to list them - or click the surface.");
+        results.setMessage(res.count.toLocaleString("en-US") + " parcel(s). Zoom in to see them one by one and to list them - or click the surface.");
         setStatus("");
         var cached = surfaces[level];
         if (cached && cached.version === res.coverageVersion) { showSurface(level); return; }
@@ -291,8 +299,19 @@
       }, function (err) { setStatus(err.message, true); });
     }
 
-    // Only the "visible map" scope follows panning/zooming; the others are fixed searches.
-    map.addListener("idle", function () { if (state.scope === "view") { reload(); } });
+    // The "visible map" scope follows panning/zooming. The others are fixed searches, but what is drawn still depends on
+    // the zoom (a surface below the detail zoom, polygons above it): reload those when that changes.
+    function drawKind() {
+      if (state.mode !== "parcels" || map.getZoom() >= detailZoom) { return "detail"; }
+      return map.getZoom() < 12 ? "overview" : "mid";
+    }
+    var lastDrawKind = null;
+    map.addListener("idle", function () {
+      var kind = drawKind();
+      var changed = kind !== lastDrawKind;
+      lastDrawKind = kind;
+      if (state.scope === "view" || changed) { reload(); }
+    });
 
     $("[data-view]").on("click", function () { setMode($(this).data("view")); });
     // "Show on map" from a Portfolio: Assets view, only that Portfolio, searched everywhere, then zoom to it.

@@ -200,6 +200,26 @@ public sealed class AccessPolicy
         return rights.CanView ? rights : throw new EntityNotFoundException(FileTargetTypes.Normalize(attachedToType) ?? "Entity", attachedToId);
     }
 
+    /// <summary>
+    /// Changing or deleting an existing file. Upload rights alone (a view-only Attorney/Engineer grant with "upload
+    /// files on assigned Assets") cover only the files that user uploaded; other people's files need edit rights on the
+    /// object itself.
+    /// </summary>
+    public async Task RequireFileChangeAsync(UserAccess u, string attachedToType, long attachedToId, long? uploadedByUserId, string? category,
+        CancellationToken ct = default)
+    {
+        await RequireFileUploadAsync(u, attachedToType, attachedToId, category, ct);
+        if (u.IsAdmin || uploadedByUserId == u.UserId || FileTargetTypes.Normalize(attachedToType) != FileTargetTypes.Asset)
+        {
+            return; // for Parcels, Portfolios, Contacts and Users, upload rights already are edit rights
+        }
+
+        if (!(await AssetAsync(u, attachedToId, ct)).CanEdit)
+        {
+            throw new ForbiddenException("FILE_NOT_YOURS", "You may change or delete only the files you uploaded here.");
+        }
+    }
+
     public async Task RequireFileUploadAsync(UserAccess u, string attachedToType, long attachedToId, string? category, CancellationToken ct = default)
     {
         var rights = await RequireFileTargetViewAsync(u, attachedToType, attachedToId, ct);

@@ -40,6 +40,46 @@ public sealed class UserAdminService
         }
     }
 
+    /// <summary>
+    /// "Manage users" is not Admin: only a real Admin may touch an Admin account (password, links, tokens, role, delete) -
+    /// otherwise a user manager could take over the Admin - and a user manager can't change their own access either.
+    /// </summary>
+    private static void RequireMayManage(UserAccess admin, AppUser target)
+    {
+        if (admin.IsAdmin)
+        {
+            return;
+        }
+
+        if (target.RoleCode == SecurityRoles.Admin)
+        {
+            throw new ForbiddenException("USERS_ADMIN_ONLY", "Only an Admin can change an Admin account.");
+        }
+
+        if (target.UserId == admin.UserId)
+        {
+            throw new ForbiddenException("USERS_SELF", "You can't change your own access. Ask an Admin.");
+        }
+    }
+
+    private static void RequireMayAssign(UserAccess admin, SecurityRole role)
+    {
+        if (!admin.IsAdmin && (role.IsSystem || role.Code == SecurityRoles.Admin))
+        {
+            throw new ForbiddenException("USERS_ADMIN_ONLY", "Only an Admin can give the Admin role.");
+        }
+    }
+
+    /// <summary>Roles decide what everyone may do; changing them is for Admins only.</summary>
+    private static void RequireRealAdmin(UserAccess admin)
+    {
+        RequireAdmin(admin);
+        if (!admin.IsAdmin)
+        {
+            throw new ForbiddenException("ROLES_ADMIN_ONLY", "Only an Admin can change roles.");
+        }
+    }
+
     private Task AuditAsync(long userId, string action, string summary, object? metadata = null, CancellationToken ct = default)
         => _activity.RecordAsync(new ActivityEntry("User", userId, action, summary, metadata), ct);
 
@@ -50,6 +90,7 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var (email, name, role) = await ValidateAsync(input, existing: null, ct);
+        RequireMayAssign(admin, role);
         if (await _users.GetByEmailAsync(email, ct) is not null)
         {
             throw new DomainValidationException("USER_EMAIL_EXISTS", $"A user with {email} already exists.");
@@ -90,7 +131,9 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var existing = await GetUserAsync(userId, ct);
+        RequireMayManage(admin, existing);
         var (email, name, role) = await ValidateAsync(input, existing, ct);
+        RequireMayAssign(admin, role);
         if (email != existing.Email && await _users.GetByEmailAsync(email, ct) is not null)
         {
             throw new DomainValidationException("USER_EMAIL_EXISTS", $"A user with {email} already exists.");
@@ -119,7 +162,12 @@ public sealed class UserAdminService
 
         try
         {
-            await _users.UpdateAsync(updated, ct);
+            // The store re-checks "another active Admin remains" under a row lock, so two Admins demoting each other at the
+            // same moment can't leave none.
+            if (!await _users.UpdateAsync(updated, requireAnotherActiveAdmin: losesAdmin, ct))
+            {
+                throw new DomainValidationException("USER_LAST_ADMIN", "This is the last active Admin. Make someone else Admin first.");
+            }
         }
         catch (DuplicateKeyException)
         {
@@ -164,6 +212,7 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var user = await GetUserAsync(userId, ct);
+        RequireMayManage(admin, user);
         PasswordPolicy.Validate(password, user.Email);
         await _users.SetPasswordAsync(userId, PasswordHasher.Hash(password!), mustChangePassword, ct);
         await AuditAsync(userId, ActivityActions.PasswordSetByAdmin,
@@ -175,6 +224,7 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var user = await GetUserAsync(userId, ct);
+        RequireMayManage(admin, user);
         if (!user.HasPassword)
         {
             return;
@@ -189,6 +239,7 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var user = await GetUserAsync(userId, ct);
+        RequireMayManage(admin, user);
         if (!user.IsActive)
         {
             throw new DomainValidationException("USER_INACTIVE", "Activate the user first.");
@@ -202,7 +253,7 @@ public sealed class UserAdminService
     public async Task SignOutEverywhereAsync(UserAccess admin, long userId, CancellationToken ct = default)
     {
         RequireAdmin(admin);
-        await GetUserAsync(userId, ct);
+        RequireMayManage(admin, await GetUserAsync(userId, ct));
         await _users.BumpSessionVersionAsync(userId, ct);
         await AuditAsync(userId, ActivityActions.UserSignedOut, $"Signed out of all sessions by {admin.DisplayName}.", ct: ct);
     }
@@ -210,7 +261,7 @@ public sealed class UserAdminService
     public async Task UnlockAsync(UserAccess admin, long userId, CancellationToken ct = default)
     {
         RequireAdmin(admin);
-        await GetUserAsync(userId, ct);
+        RequireMayManage(admin, await GetUserAsync(userId, ct));
         await _users.UnlockAsync(userId, ct);
         await AuditAsync(userId, ActivityActions.UserUnlocked, $"Unlocked by {admin.DisplayName}.", ct: ct);
     }
@@ -220,17 +271,17 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var user = await GetUserAsync(userId, ct);
+        RequireMayManage(admin, user);
         if (userId == admin.UserId)
         {
             throw new DomainValidationException("USER_SELF_DELETE", "You can't delete your own account.");
         }
 
-        if (user is { IsActive: true, RoleCode: SecurityRoles.Admin } && await _users.CountActiveAdminsAsync(userId, ct) == 0)
+        // "Another active Admin remains" is re-checked by the store under a row lock (see UpdateAsync).
+        if (!await _users.DeleteAsync(userId, requireAnotherActiveAdmin: user is { IsActive: true, RoleCode: SecurityRoles.Admin }, ct))
         {
             throw new DomainValidationException("USER_LAST_ADMIN", "This is the last active Admin.");
         }
-
-        await _users.DeleteAsync(userId, ct);
         await AuditAsync(userId, ActivityActions.UserDeleted, $"User {user.Email} deleted by {admin.DisplayName}.", ct: ct);
     }
 
@@ -241,6 +292,7 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var user = await GetUserAsync(userId, ct);
+        RequireMayManage(admin, user);
         var type = ResourceTypes.Normalize(resourceType)
             ?? throw new DomainValidationException("GRANT_TYPE_INVALID", "Choose Asset, Parcel, Portfolio or Contact.");
         var permission = (await _roles.ListPermissionsAsync(ct))
@@ -270,6 +322,7 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var user = await GetUserAsync(userId, ct);
+        RequireMayManage(admin, user);
         var grant = await _grants.GetAsync(resourceAccessId, ct);
         if (grant is null || grant.UserId != userId || !await _grants.RevokeAsync(resourceAccessId, ct))
         {
@@ -290,6 +343,7 @@ public sealed class UserAdminService
     public async Task<IReadOnlyList<ApiToken>> ListApiTokensAsync(UserAccess admin, long userId, CancellationToken ct = default)
     {
         RequireAdmin(admin);
+        RequireMayManage(admin, await GetUserAsync(userId, ct));
         return await Tokens.ListForUserAsync(userId, ct);
     }
 
@@ -298,6 +352,7 @@ public sealed class UserAdminService
     {
         RequireAdmin(admin);
         var user = await GetUserAsync(userId, ct);
+        RequireMayManage(admin, user);
         var n = TextNormalize.NullIfBlank(name) ?? throw new DomainValidationException("TOKEN_NAME_REQUIRED", "Name the token, e.g. \"KAEK importer on Ofer's laptop\".");
         if (expiresUtc is DateTime e && e <= _clock.GetUtcNow().UtcDateTime)
         {
@@ -335,6 +390,7 @@ public sealed class UserAdminService
     public async Task RevokeApiTokenAsync(UserAccess admin, long userId, long apiTokenId, CancellationToken ct = default)
     {
         RequireAdmin(admin);
+        RequireMayManage(admin, await GetUserAsync(userId, ct));
         if (!await Tokens.RevokeAsync(userId, apiTokenId, ct))
         {
             throw new EntityNotFoundException("ApiToken", apiTokenId);
@@ -347,7 +403,7 @@ public sealed class UserAdminService
 
     public async Task<int> CreateRoleAsync(UserAccess admin, string? code, string? name, string? description, CancellationToken ct = default)
     {
-        RequireAdmin(admin);
+        RequireRealAdmin(admin);
         var c = (code ?? "").Trim().ToUpperInvariant();
         if (c.Length is 0 or > 40 || !c.All(ch => ch is >= 'A' and <= 'Z' or >= '0' and <= '9' or '_'))
         {
@@ -371,7 +427,7 @@ public sealed class UserAdminService
     public async Task UpdateRoleAsync(UserAccess admin, int roleId, string? name, string? description, bool isActive,
         IReadOnlyList<string> permissionCodes, CancellationToken ct = default)
     {
-        RequireAdmin(admin);
+        RequireRealAdmin(admin);
         var role = await _roles.GetRoleAsync(roleId, ct) ?? throw new EntityNotFoundException("Role", roleId);
         if (role.IsSystem)
         {

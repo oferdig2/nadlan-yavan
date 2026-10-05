@@ -154,7 +154,7 @@ public class ParcelEditTests
         public Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<bool> DeleteAsync(long parcelId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private sealed class Activity : IActivityLog
@@ -168,7 +168,14 @@ public class ParcelEditTests
     {
         public List<LegalOwner> Items { get; } = new();
         public Task<IReadOnlyList<LegalOwner>> ListAsync(long parcelId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<LegalOwner>>(Items.ToList());
-        public Task UpsertAsync(long p, long c, decimal? pct, string? n, CancellationToken ct = default) { Items.Add(new LegalOwner(p, c, "x", pct, n)); return Task.CompletedTask; }
+        public Task<decimal?> UpsertAsync(long p, long c, decimal? pct, string? n, CancellationToken ct = default)
+        {
+            var total = Items.Where(o => o.ContactId != c).Sum(o => o.OwnershipPercent ?? 0) + (pct ?? 0);
+            if (total > 100) { return Task.FromResult<decimal?>(total); }
+            Items.RemoveAll(o => o.ContactId == c);
+            Items.Add(new LegalOwner(p, c, "x", pct, n));
+            return Task.FromResult<decimal?>(null);
+        }
         public Task<bool> RemoveAsync(long p, long c, CancellationToken ct = default) => Task.FromResult(Items.RemoveAll(o => o.ContactId == c) > 0);
     }
 

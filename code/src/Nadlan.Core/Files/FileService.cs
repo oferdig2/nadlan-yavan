@@ -227,12 +227,61 @@ public sealed class FileService
         else
         {
             await _storage.DeleteObjectAsync(file.StorageKey, ct);
+            await DeleteThumbnailAsync(file, ct);
         }
 
         await _files.DeleteAsync(fileAttachmentId, ct);
         if (file.UploadStatus == FileUploadStatus.Ready)
         {
             await RecordAsync(file, ActivityActions.FileDeleted, "Deleted", ct);
+        }
+    }
+
+    /// <summary>
+    /// The bytes of a file whose row is already gone (removed with its Parcel in one transaction), plus the "Deleted"
+    /// history. Best effort: the database change is what counts, an object left behind costs storage only.
+    /// </summary>
+    public async Task DeleteStoredObjectAsync(FileAttachment file, CancellationToken ct = default)
+    {
+        if (_storage.IsConfigured)
+        {
+            await _storage.DeleteObjectAsync(file.StorageKey, ct);
+            await DeleteThumbnailAsync(file, ct);
+        }
+
+        await RecordAsync(file, ActivityActions.FileDeleted, "Deleted", ct);
+    }
+
+    /// <summary>The largest preview image accepted (a 480 px JPEG is 20-80 KB).</summary>
+    public const int MaxThumbnailBytes = 300 * 1024;
+
+    /// <summary>
+    /// Stores the preview image the browser made for a photo or video (cards then load it instead of the original).
+    /// Only a JPEG of at most <see cref="MaxThumbnailBytes"/>, for a Ready image/video file.
+    /// </summary>
+    public async Task SaveThumbnailAsync(FileAttachment file, byte[] jpeg, CancellationToken ct = default)
+    {
+        EnsureConfigured();
+        if (file.UploadStatus != FileUploadStatus.Ready || !(file.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+                || file.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new DomainValidationException("THUMBNAIL_NOT_ALLOWED", "Only an uploaded photo or video has a preview image.");
+        }
+
+        if (jpeg.Length is 0 or > MaxThumbnailBytes || jpeg.Length < 3 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 || jpeg[2] != 0xFF)
+        {
+            throw new DomainValidationException("THUMBNAIL_INVALID", $"The preview must be a JPEG of at most {MaxThumbnailBytes / 1024} KB.");
+        }
+
+        await _storage.PutObjectAsync(FileAttachment.ThumbnailKey(file.StorageKey), jpeg, "image/jpeg", ct);
+        await _files.SetHasThumbnailAsync(file.FileAttachmentId, ct);
+    }
+
+    private async Task DeleteThumbnailAsync(FileAttachment file, CancellationToken ct)
+    {
+        if (file.HasThumbnail)
+        {
+            await _storage.DeleteObjectAsync(FileAttachment.ThumbnailKey(file.StorageKey), ct);
         }
     }
 

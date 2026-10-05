@@ -59,10 +59,18 @@ public sealed partial class ReferenceAdminService
     /// <summary>
     /// Name, order, active, colour/category can change; the Code can't, because the app and imports refer to
     /// codes (e.g. FOR_SALE, LEGAL_OWNER, the file types behind the drop zones). Rows are never deleted.
+    /// A file type's category decides who sees every file of that type (a Legal document moved to Marketing would show
+    /// to everyone who sees Marketing files), so only an Admin may change it (<paramref name="mayRecategoriseFiles"/>).
     /// </summary>
-    public async Task UpdateAsync(ReferenceTable table, ReferenceRow input, CancellationToken ct = default)
+    public async Task UpdateAsync(ReferenceTable table, ReferenceRow input, bool mayRecategoriseFiles, CancellationToken ct = default)
     {
         var existing = await _store.GetAsync(table, input.Id, ct) ?? throw new EntityNotFoundException("ReferenceRow", input.Id);
+        if (table == ReferenceTable.FileType && !mayRecategoriseFiles && !string.Equals(input.Category, existing.Category, StringComparison.Ordinal))
+        {
+            throw new ForbiddenException("FILE_TYPE_CATEGORY_ADMIN_ONLY",
+                "Only an Admin can move a file type to another category: it changes who can see every file of that type.");
+        }
+
         await _store.UpdateAsync(table, Validate(table, input with { Code = existing.Code }), ct);
     }
 

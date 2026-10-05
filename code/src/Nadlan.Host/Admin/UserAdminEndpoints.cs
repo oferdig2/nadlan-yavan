@@ -69,8 +69,9 @@ public static class UserAdminEndpoints
         group.MapPost("/users/{userId:long}/password-link", async (long userId, PasswordLinkDto dto, UserAccess me, UserAdminService service,
             IEmailSender email, IOptions<NadlanOptions> options, HttpContext http, CancellationToken ct) =>
         {
+            var baseUrl = AuthEndpoints.BaseUrl(http, options.Value); // before the token, so a missing public address changes nothing
             var (token, user) = await service.CreatePasswordLinkAsync(me, userId, ct);
-            var link = $"{AuthEndpoints.BaseUrl(http, options.Value)}/password.html?token={Uri.EscapeDataString(token)}";
+            var link = $"{baseUrl}/password.html?token={Uri.EscapeDataString(token)}";
             var emailed = false;
             if (dto.SendEmail == true && email.IsConfigured)
             {

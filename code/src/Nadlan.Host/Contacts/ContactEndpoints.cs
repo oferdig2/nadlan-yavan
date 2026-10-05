@@ -1,3 +1,4 @@
+using Nadlan.Core.Editing;
 using Nadlan.Core.Contacts;
 using Nadlan.Core.Security;
 using Nadlan.Core.Validation;
@@ -9,7 +10,7 @@ public static class ContactEndpoints
 {
     public sealed record ContactDto(
         string? ContactType, string? DisplayName, string? FirstName, string? LastName, string? CompanyName,
-        string? Email, string? Phone, string? CellPhone, string? Notes, bool? IsActive, int[]? RoleIds);
+        string? Email, string? Phone, string? CellPhone, string? Notes, bool? IsActive, int[]? RoleIds, string? Version = null);
 
     public static void MapContactEndpoints(this IEndpointRouteBuilder app)
     {
@@ -20,7 +21,8 @@ public static class ContactEndpoints
         group.MapGet("/", async (string? q, int? roleId, int? limit, bool? includeInactive, UserAccess me, IContactStore contacts, CancellationToken ct) =>
             Results.Ok(await contacts.SearchAsync(q, roleId, Math.Clamp(limit ?? 20, 1, 200), me.Scope, ct, includeInactive ?? false)));
 
-        group.MapGet("/{contactId:long}", async (long contactId, UserAccess me, AccessPolicy policy, IContactStore contacts, CancellationToken ct) =>
+        group.MapGet("/{contactId:long}", async (long contactId, UserAccess me, AccessPolicy policy, IContactStore contacts,
+            IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.RequireContactViewAsync(me, contactId, ct);
             var contact = await contacts.GetAsync(contactId, ct) ?? throw new EntityNotFoundException("Contact", contactId);
@@ -28,6 +30,7 @@ public static class ContactEndpoints
             {
                 contact.ContactId, contact.ContactType, contact.DisplayName, contact.FirstName, contact.LastName, contact.CompanyName,
                 contact.Email, contact.Phone, contact.CellPhone, contact.Notes, contact.IsActive, contact.RoleIds,
+                version = await versions.GetAsync(EditTargets.Contact, contactId, ct), // sent back on save (edit check)
                 rights = new { rights.CanEdit },
             });
         });
@@ -43,12 +46,14 @@ public static class ContactEndpoints
         });
 
         group.MapPut("/{contactId:long}", async (long contactId, ContactDto dto, UserAccess me, AccessPolicy policy,
-            ContactService service, IContactStore contacts, CancellationToken ct) =>
+            ContactService service, IContactStore contacts, IEditVersionStore versions, CancellationToken ct) =>
         {
             if (!(await policy.RequireContactViewAsync(me, contactId, ct)).CanEdit)
             {
                 throw new ForbiddenException("CONTACT_EDIT_FORBIDDEN", "You may view this Contact but not change it.");
             }
+
+            await using var edit = await versions.BeginEditAsync(EditTargets.Contact, contactId, dto.Version, ct);
 
             // A client that doesn't send contactType must not turn an Organization into a Person.
             var type = dto.ContactType ?? (await contacts.GetAsync(contactId, ct))?.ContactType;

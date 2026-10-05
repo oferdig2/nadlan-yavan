@@ -74,9 +74,15 @@ public sealed class MySqlUserStore : IUserStore
         }
     }
 
-    public async Task UpdateAsync(AppUser user, CancellationToken ct = default)
+    public async Task<bool> UpdateAsync(AppUser user, bool requireAnotherActiveAdmin, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        if (requireAnotherActiveAdmin && !await AnotherActiveAdminLockedAsync(conn, tx, user.UserId, ct))
+        {
+            return false;
+        }
+
         try
         {
             await conn.ExecuteAsync(new CommandDefinition("""
@@ -84,12 +90,30 @@ public sealed class MySqlUserStore : IUserStore
                 SET email = @Email, display_name = @DisplayName, contact_id = @ContactId, security_role_id = @SecurityRoleId,
                     is_active = @IsActive, must_change_password = @MustChangePassword, updated_utc = UTC_TIMESTAMP(3)
                 WHERE user_id = @UserId
-                """, user, cancellationToken: ct));
+                """, user, tx, cancellationToken: ct));
         }
         catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
         {
             throw new DuplicateKeyException($"User {user.Email} or its Contact already exists.", ex);
         }
+
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Locks every active Admin row (always in id order, so concurrent callers queue instead of deadlocking) and says
+    /// whether one other than <paramref name="userId"/> exists. The lock holds until the transaction ends.
+    /// </summary>
+    private static async Task<bool> AnotherActiveAdminLockedAsync(MySqlConnection conn, MySqlTransaction tx, long userId, CancellationToken ct)
+    {
+        var admins = await conn.QueryAsync<long>(new CommandDefinition("""
+            SELECT u.user_id FROM app_user u JOIN security_role r ON r.security_role_id = u.security_role_id
+            WHERE r.code = 'ADMIN' AND u.is_active = 1
+            ORDER BY u.user_id
+            FOR UPDATE
+            """, transaction: tx, cancellationToken: ct));
+        return admins.Any(id => id != userId);
     }
 
     public async Task SetPasswordAsync(long userId, string? passwordHash, bool mustChangePassword, CancellationToken ct = default)
@@ -144,10 +168,18 @@ public sealed class MySqlUserStore : IUserStore
             "UPDATE app_user SET failed_login_count = 0, locked_until_utc = NULL WHERE user_id = @userId", new { userId }, cancellationToken: ct));
     }
 
-    public async Task<bool> DeleteAsync(long userId, CancellationToken ct = default)
+    public async Task<bool> DeleteAsync(long userId, bool requireAnotherActiveAdmin, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition("DELETE FROM app_user WHERE user_id = @userId", new { userId }, cancellationToken: ct)) > 0;
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        if (requireAnotherActiveAdmin && !await AnotherActiveAdminLockedAsync(conn, tx, userId, ct))
+        {
+            return false;
+        }
+
+        var deleted = await conn.ExecuteAsync(new CommandDefinition("DELETE FROM app_user WHERE user_id = @userId", new { userId }, tx, cancellationToken: ct)) > 0;
+        await tx.CommitAsync(ct);
+        return deleted;
     }
 
     public async Task<int> CountActiveAdminsAsync(long? exceptUserId, CancellationToken ct = default)

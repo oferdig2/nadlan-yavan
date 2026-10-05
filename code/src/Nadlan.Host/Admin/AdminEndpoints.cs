@@ -37,9 +37,9 @@ public static class AdminEndpoints
         group.MapPost("/{table}", async (string table, ReferenceRowDto dto, ReferenceAdminService service, CancellationToken ct) =>
             Results.Ok(new { id = await service.CreateAsync(Resolve(table), ToRow(0, dto), ct) }));
 
-        group.MapPut("/{table}/{id:int}", async (string table, int id, ReferenceRowDto dto, ReferenceAdminService service, CancellationToken ct) =>
+        group.MapPut("/{table}/{id:int}", async (string table, int id, ReferenceRowDto dto, UserAccess me, ReferenceAdminService service, CancellationToken ct) =>
         {
-            await service.UpdateAsync(Resolve(table), ToRow(id, dto), ct);
+            await service.UpdateAsync(Resolve(table), ToRow(id, dto), mayRecategoriseFiles: me.IsAdmin, ct);
             return Results.NoContent();
         });
     }

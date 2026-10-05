@@ -98,7 +98,8 @@
             houseSqm: data.houseSqm,
             specialConditions: data.specialConditions,
             remarks: data.remarks,
-            isExclusive: data.exclusive === "yes" ? true : data.exclusive === "no" ? false : null
+            isExclusive: data.exclusive === "yes" ? true : data.exclusive === "no" ? false : null,
+            version: detail ? detail.version : null // edit check: refused if someone else saved meanwhile
           };
           if (body.askPrice !== null && isNaN(body.askPrice)) { d.showError("Ask price must be a number."); return; }
           if (body.houseSqm !== null && isNaN(body.houseSqm)) { d.showError("House m² must be a number."); return; }

@@ -136,7 +136,20 @@ public static class AuthRegistration
             await next();
         });
 
-        app.UseStaticFiles();
+        // Pages, scripts and styles are revalidated on every load (a 304 when unchanged): after a deploy no browser keeps
+        // running yesterday's scripts against today's API.
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            OnPrepareResponse = ctx =>
+            {
+                var ext = Path.GetExtension(ctx.File.Name);
+                if (ext.Equals(".html", StringComparison.OrdinalIgnoreCase) || ext.Equals(".js", StringComparison.OrdinalIgnoreCase)
+                    || ext.Equals(".css", StringComparison.OrdinalIgnoreCase))
+                {
+                    ctx.Context.Response.Headers.CacheControl = "no-cache";
+                }
+            }
+        });
         app.UseAuthentication();
         app.UseAuthorization();
 
@@ -144,9 +157,21 @@ public static class AuthRegistration
         {
             if (IsApi(context.Request))
             {
+                // Decided by how THIS request authenticated (the handler), never by a claim a cookie could carry.
+                var viaToken = context.User.Identity?.AuthenticationType == AuthSchemes.ApiToken;
+
+                // A token is for tools calling the data API. It must not sign in, change a password, reach user admin or mint
+                // tokens: a leaked tool token must not turn into a browser session or take over the account.
+                if (viaToken && (context.Request.Path.StartsWithSegments("/api/admin") || context.Request.Path.StartsWithSegments("/api/importer")
+                    || (context.Request.Path.StartsWithSegments("/api/auth") && !context.Request.Path.StartsWithSegments("/api/auth/me"))))
+                {
+                    await WriteErrorAsync(context.Response, StatusCodes.Status403Forbidden, "TOKEN_NOT_ALLOWED", "API tokens can't be used for this. Sign in in the browser.");
+                    return;
+                }
+
                 // CSRF: the session cookie is SameSite=Lax; on top, every write must carry our header.
                 if (!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method)
-                    && context.User.LoginMethod() != LoginMethods.ApiToken // bearer tokens carry no cookie: nothing to forge
+                    && !viaToken // bearer tokens carry no cookie: nothing to forge
                     && !context.Request.Headers.ContainsKey(CsrfHeader))
                 {
                     await WriteErrorAsync(context.Response, StatusCodes.Status403Forbidden, "CSRF_HEADER_MISSING", "Request rejected (missing request header).");

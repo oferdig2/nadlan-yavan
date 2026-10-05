@@ -80,6 +80,8 @@
             $item.find("[data-act=retry]").prop("hidden", state !== "failed");
             // No cancel while finishing: S3 may already hold the complete file at that point.
             $item.find("[data-act=cancel]").prop("hidden", state === "done" || state === "cancelled" || state === "completing");
+            if (state === "queued") { status("Waiting…"); }
+            if (state === "waiting") { status(message); }
             if (state === "completing") { status("Finishing…"); }
             if (state === "failed") { status(message, true); }
             if (state === "cancelled") { $item.remove(); }
@@ -111,6 +113,18 @@
       addFiles(e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.files);
     });
   }
+
+  // Files dropped next to a zone (on the dialog, the map) would make the browser open them in place of the page and
+  // kill every upload in progress: outside a drop area, a file drop does nothing.
+  function isFileDrag(e) {
+    var types = e.originalEvent && e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.types;
+    return !!types && Array.prototype.indexOf.call(types, "Files") >= 0;
+  }
+  $(document).on("dragover drop", function (e) {
+    if (!isFileDrag(e) || $(e.target).closest(".drop-area").length) { return; }
+    e.preventDefault();
+    if (e.type === "dragover") { e.originalEvent.dataTransfer.dropEffect = "none"; }
+  });
 
   Nadlan.initializeFileUploadZone = initializeFileUploadZone;
   Nadlan.formatFileSize = formatSize;

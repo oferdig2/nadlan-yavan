@@ -21,8 +21,8 @@
     } else if (lastComma >= 0) {
       if (/^-?[1-9]\d{0,2}(,\d{3})+$/.test(t)) { t = t.replace(/,/g, ""); }          // 120,000
       else if ((t.match(/,/g) || []).length === 1) { t = t.replace(",", "."); }      // 0,8 · 0,800 · 12,5
-    } else if ((t.match(/\./g) || []).length > 1 && /^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) {
-      t = t.replace(/\./g, "");                                                       // 1.250.000
+    } else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) {
+      t = t.replace(/\./g, "");                                                       // 1.250.000 · 250.000 (Greek thousands)
     }
     return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
   }

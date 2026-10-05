@@ -5,14 +5,9 @@
 
   var Nadlan = window.Nadlan;
   var params = new URLSearchParams(window.location.search);
-  var returnUrl = safeReturnUrl(params.get("returnUrl"));
+  var returnUrl = Nadlan.safeReturnUrl(params.get("returnUrl"));
   var $error = $("[data-role=error]");
   var $ok = $("[data-role=ok]");
-
-  // Same rule as the server: only paths on this site.
-  function safeReturnUrl(url) {
-    return url && url.charAt(0) === "/" && url.slice(0, 2) !== "//" && url.slice(0, 2) !== "/\\" ? url : "/";
-  }
 
   function showError(message) { $ok.prop("hidden", true); $error.text(message || "").prop("hidden", !message); }
   function showOk(message) { $error.prop("hidden", true); $ok.text(message || "").prop("hidden", !message); }

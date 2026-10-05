@@ -31,13 +31,15 @@
       options.onDrawingChange(false);
     }
 
-    function showPolygon(path) {
+    // paths: one ring, or the outer ring followed by its holes (a Parcel with a hole keeps it when its corners are edited).
+    function showPolygon(paths) {
       if (polygon) { polygon.setMap(null); }
-      polygon = new google.maps.Polygon(Object.assign({ map: map, paths: path, editable: true }, SHAPE));
+      polygon = new google.maps.Polygon(Object.assign({ map: map, paths: paths, editable: true }, SHAPE));
       // Dragging/adding/removing a corner is a new shape: any earlier overlap answer no longer applies.
-      var ring = polygon.getPath();
-      ["set_at", "insert_at", "remove_at"].forEach(function (evt) {
-        ring.addListener(evt, function () { options.onShapeChange(true); });
+      polygon.getPaths().forEach(function (ring) {
+        ["set_at", "insert_at", "remove_at"].forEach(function (evt) {
+          ring.addListener(evt, function () { options.onShapeChange(true); });
+        });
       });
       options.onShapeChange(true);
     }
@@ -84,25 +86,30 @@
         if (polygon) { polygon.setMap(null); polygon = null; options.onShapeChange(false); }
       },
 
-      /** @param {Array<Array<number>>} ring  [[lon, lat], ...] */
-      setCoordinates: function (ring) {
+      /** @param {Array<Array<Array<number>>>} rings  GeoJSON Polygon coordinates: the outer ring, then any holes */
+      setCoordinates: function (rings) {
         api.cancel();
-        var path = ring.map(function (p) { return { lng: p[0], lat: p[1] }; });
-        if (path.length > 1 && path[0].lat === path[path.length - 1].lat && path[0].lng === path[path.length - 1].lng) {
-          path.pop(); // Google polygons are implicitly closed
-        }
-        showPolygon(path);
+        var paths = rings.map(function (ring) {
+          var path = ring.map(function (p) { return { lng: p[0], lat: p[1] }; });
+          if (path.length > 1 && path[0].lat === path[path.length - 1].lat && path[0].lng === path[path.length - 1].lng) {
+            path.pop(); // Google polygons are implicitly closed
+          }
+          return path;
+        });
+        showPolygon(paths);
         var bounds = new google.maps.LatLngBounds();
-        path.forEach(function (p) { bounds.extend(p); });
+        paths[0].forEach(function (p) { bounds.extend(p); });
         map.fitBounds(bounds, 80);
       },
 
-      /** GeoJSON Polygon coordinates ([[[lon, lat], ...]]), closed, or null when nothing is drawn. */
+      /** GeoJSON Polygon coordinates ([[[lon, lat], ...], ...holes]), closed, or null when nothing is drawn. */
       getCoordinates: function () {
         if (!polygon) { return null; }
-        var ring = polygon.getPath().getArray().map(function (ll) { return [ll.lng(), ll.lat()]; });
-        ring.push(ring[0]);
-        return [ring];
+        return polygon.getPaths().getArray().map(function (path) {
+          var ring = path.getArray().map(function (ll) { return [ll.lng(), ll.lat()]; });
+          ring.push(ring[0]);
+          return ring;
+        });
       },
 
       isDrawing: function () { return listeners.length > 0; }
@@ -111,9 +118,9 @@
   }
 
   /**
-   * Parses pasted coordinates into a ring of [lon, lat]:
-   * - KML style: "lon,lat[,alt] lon,lat[,alt] ..." (what the cadastre/KML workflow produces)
-   * - GeoJSON: a Polygon, or a Feature holding one
+   * Parses pasted coordinates into GeoJSON Polygon rings ([[[lon, lat], ...], ...holes]):
+   * - KML style: "lon,lat[,alt] lon,lat[,alt] ..." (what the cadastre/KML workflow produces): one ring
+   * - GeoJSON: a Polygon, or a Feature holding one (holes kept)
    * Throws Error with a readable message when the text can't be used.
    */
   function parseCoordinates(text) {
@@ -126,7 +133,7 @@
       var geom = json.type === "Feature" ? json.geometry : json;
       var coords = geom && geom.type === "Polygon" ? geom.coordinates : Array.isArray(json) ? json : null;
       if (!coords || !Array.isArray(coords[0])) { throw new Error("Expected a GeoJSON Polygon."); }
-      return Array.isArray(coords[0][0]) ? coords[0] : coords;
+      return Array.isArray(coords[0][0]) ? coords : [coords];
     }
 
     var ring = t.split(/\s+/).map(function (token) {
@@ -141,7 +148,7 @@
     if (ring[0][0] > 30 && ring[0][1] < 30) {
       throw new Error("These look like lat,lon. Use lon,lat (e.g. 23.36,38.50) - KML order.");
     }
-    return ring;
+    return [ring];
   }
 
   Nadlan.createParcelDrawTool = createParcelDrawTool;

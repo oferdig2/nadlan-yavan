@@ -16,11 +16,16 @@ public sealed class ParcelCoverageService : BackgroundService
 {
     private static readonly TimeSpan CheckEvery = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan Debounce = TimeSpan.FromSeconds(3); // an import creates parcels every few seconds
+    // Between two computations at least this long, and at least 4x what the last one took: during an import (a parcel every
+    // few seconds) the worker would otherwise spend its whole time re-uniting tens of thousands of polygons.
+    private static readonly TimeSpan MinGap = TimeSpan.FromSeconds(30);
 
     private readonly IParcelStore _parcels;
     private readonly ILogger<ParcelCoverageService> _log;
     private readonly SemaphoreSlim _wake = new(0, 1);
     private volatile Snapshot? _current;
+    private DateTime _lastComputedUtc = DateTime.MinValue;
+    private TimeSpan _lastDuration = TimeSpan.Zero;
 
     public ParcelCoverageService(IParcelStore parcels, ILogger<ParcelCoverageService> log)
     {
@@ -63,6 +68,13 @@ public sealed class ParcelCoverageService : BackgroundService
                 {
                     await Task.Delay(Debounce, stoppingToken);
                 }
+
+                var gap = MinGap > _lastDuration * 4 ? MinGap : _lastDuration * 4;
+                var wait = _lastComputedUtc + gap - DateTime.UtcNow;
+                if (wait > TimeSpan.Zero)
+                {
+                    await Task.Delay(wait, stoppingToken);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -91,6 +103,8 @@ public sealed class ParcelCoverageService : BackgroundService
         }), ct);
 
         _current = new Snapshot(version, DateTime.UtcNow, fingerprint.Count, json);
+        _lastComputedUtc = DateTime.UtcNow;
+        _lastDuration = watch.Elapsed;
         _log.LogInformation("Parcel coverage for {Count} parcels computed in {Ms} ms.", fingerprint.Count, watch.ElapsedMilliseconds);
     }
 

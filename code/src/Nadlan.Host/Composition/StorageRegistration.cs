@@ -18,7 +18,7 @@ public static class StorageRegistration
         services.AddSingleton(options);
         services.AddSingleton<IObjectStorage>(storage);
         services.AddSingleton<IFileUrlProvider>(storage.IsConfigured
-            ? FileUrlProviderFactory.Create(options, storage)
+            ? new CachingFileUrlProvider(FileUrlProviderFactory.Create(options, storage), options.Delivery.UrlMinutes)
             : new NoStorageUrlProvider());
         services.AddSingleton(new FileStorageSettings
         {

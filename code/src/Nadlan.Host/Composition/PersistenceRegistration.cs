@@ -26,6 +26,7 @@ public static class PersistenceRegistration
     {
         services.AddSingleton(db);
         services.AddSingleton<IParcelStore, MySqlParcelStore>();
+        services.AddSingleton<Nadlan.Core.Editing.IEditVersionStore, Nadlan.Persistence.MySql.Editing.MySqlEditVersionStore>();
         services.AddSingleton<IGeographicAreaStore, MySqlGeographicAreaStore>();
         services.AddSingleton<ICountryStore, MySqlCountryStore>();
         services.AddSingleton<IAssetStore, MySqlAssetStore>();

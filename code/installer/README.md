@@ -7,6 +7,8 @@ cd code\installer
 .\Publish-KaekImporter.ps1 -ApiUrl https://nadlan.example.com -Version 1.0.1
 ```
 
+For a release, use `code\release\1-build-importer.ps1` instead. It calls this script, then adds checksums and an admin README, and `2-upload-importer-s3.ps1` publishes the result (see `code\release\README.md`).
+
 The packages are written to `code\dist` (git-ignored). Each one carries `importer.json` with `-ApiUrl`, so its users reach the right Nadlan server with no setup. The packages are self-contained: customers don't need .NET installed.
 
 | Package | For | Customer steps |

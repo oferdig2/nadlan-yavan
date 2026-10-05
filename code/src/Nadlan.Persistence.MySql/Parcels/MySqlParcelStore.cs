@@ -159,10 +159,76 @@ public sealed class MySqlParcelStore : IParcelStore
         return rows.Select(r => (r.Provisional, GeoPolygon.FromWkt(r.Wkt))).ToList();
     }
 
-    public async Task<bool> DeleteAsync(long parcelId, CancellationToken ct = default)
+    /// <summary>
+    /// A MySQL named lock on its own connection: held until disposed, shared by every app instance on this database.
+    /// Waits up to 20 s for a save in progress (an overlap check takes well under a second).
+    /// </summary>
+    public async Task<IAsyncDisposable> LockParcelWritesAsync(CancellationToken ct = default)
+    {
+        var conn = await _db.OpenAsync(ct);
+        try
+        {
+            var got = await conn.ExecuteScalarAsync<long?>(new CommandDefinition(
+                "SELECT GET_LOCK(@name, 20)", new { name = ParcelWriteLock.Name }, cancellationToken: ct));
+            if (got != 1)
+            {
+                throw new DomainValidationException("PARCEL_BUSY", "Another Parcel is being saved right now. Try again in a moment.");
+            }
+
+            return new ParcelWriteLock(conn);
+        }
+        catch
+        {
+            await conn.DisposeAsync();
+            throw;
+        }
+    }
+
+    private sealed class ParcelWriteLock : IAsyncDisposable
+    {
+        public const string Name = "nadlan.parcel.write";
+        private readonly MySqlConnection _conn;
+
+        public ParcelWriteLock(MySqlConnection conn) => _conn = conn;
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await _conn.ExecuteAsync("DO RELEASE_LOCK(@name)", new { name = Name });
+            }
+            catch (MySqlException)
+            {
+                // Closing the connection below releases it too.
+            }
+            finally
+            {
+                await _conn.DisposeAsync();
+            }
+        }
+    }
+
+    public async Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
+        // The lock waits for an Asset being linked right now (its insert holds a shared lock on this row through the
+        // foreign key), so the check below sees it; one linked after us fails on the foreign key instead.
+        var exists = await conn.ExecuteScalarAsync<long?>(new CommandDefinition(
+            "SELECT parcel_id FROM parcel WHERE parcel_id = @parcelId FOR UPDATE", new { parcelId }, tx, cancellationToken: ct));
+        if (exists is null)
+        {
+            return ParcelDeleteOutcome.NotFound;
+        }
+
+        if (await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+                "SELECT COUNT(*) FROM asset_parcel WHERE parcel_id = @parcelId", new { parcelId }, tx, cancellationToken: ct)) > 0)
+        {
+            return ParcelDeleteOutcome.HasAssets;
+        }
+
+        await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM file_attachment WHERE attached_to_type = 'Parcel' AND attached_to_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition("DELETE FROM parcel_legal_owner WHERE parcel_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM resource_access WHERE resource_type = 'Parcel' AND resource_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
@@ -170,9 +236,9 @@ public sealed class MySqlParcelStore : IParcelStore
         await conn.ExecuteAsync(new CommandDefinition(
             "UPDATE import_record SET target_entity_id = NULL WHERE target_entity_type = 'Parcel' AND target_entity_id = @parcelId",
             new { parcelId }, tx, cancellationToken: ct));
-        var deleted = await conn.ExecuteAsync(new CommandDefinition("DELETE FROM parcel WHERE parcel_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM parcel WHERE parcel_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
-        return deleted > 0;
+        return ParcelDeleteOutcome.Deleted;
     }
 
     public async Task<IReadOnlyList<ParcelOverlapHit>> FindOverlappingAsync(GeoPolygon candidate, double minOverlapSqm, CancellationToken ct = default, long? excludeParcelId = null)

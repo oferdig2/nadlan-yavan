@@ -54,3 +54,14 @@ public sealed class ForbiddenException : Exception
         Code = code;
     }
 }
+
+/// <summary>Someone else saved the object after this edit was opened (HTTP 409): the stale edit is refused, not merged.</summary>
+public sealed class EditConflictException : Exception
+{
+    public string Code => "EDITED_ELSEWHERE";
+
+    public EditConflictException(string what)
+        : base($"{what} was changed by someone else after you opened it. Close this, open it again to see the changes, and redo your edit.")
+    {
+    }
+}

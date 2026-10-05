@@ -39,6 +39,10 @@ public sealed record FileAttachment
     public string? S3UploadId { get; init; }
     public long? UploadedByUserId { get; init; }
     public DateTime UploadedUtc { get; init; }
+    public bool HasThumbnail { get; init; }
+
+    /// <summary>Where a file's preview image lives: next to the original.</summary>
+    public static string ThumbnailKey(string storageKey) => storageKey + ".thumb.jpg";
 }
 
 /// <summary>A Ready file plus its type, for lists and cards.</summary>
@@ -59,6 +63,7 @@ public sealed record FileListItem
     public string? Notes { get; init; }
     public int? SortOrder { get; init; }
     public DateTime UploadedUtc { get; init; }
+    public bool HasThumbnail { get; init; }
 }
 
 public sealed record FileType(int Id, string Code, string Name, string Category, bool IsActive, int SortOrder);
@@ -70,6 +75,9 @@ public interface IFileAttachmentStore
     Task<IReadOnlyList<FileListItem>> ListReadyAsync(string attachedToType, long attachedToId, CancellationToken ct = default);
     /// <summary>Pending → Ready. False if the row is gone or no longer Pending (e.g. cancelled while completing).</summary>
     Task<bool> MarkReadyAsync(long fileAttachmentId, CancellationToken ct = default);
+
+    /// <summary>Records that the file's preview image (<see cref="FileAttachment.ThumbnailKey"/>) is stored.</summary>
+    Task SetHasThumbnailAsync(long fileAttachmentId, CancellationToken ct = default) => throw new NotSupportedException();
     Task UpdateMetadataAsync(long fileAttachmentId, int fileTypeId, string? caption, string? notes, int? sortOrder, CancellationToken ct = default);
     Task DeleteAsync(long fileAttachmentId, CancellationToken ct = default);
 

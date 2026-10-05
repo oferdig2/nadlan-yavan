@@ -62,6 +62,7 @@
         function save() {
           var data = Nadlan.dialog.readForm($form);
           data.roleIds = $form.find("[data-role-id]:checked").map(function () { return $(this).data("roleId"); }).get();
+          if (contactId) { data.version = contact.version; } // edit check: refused if someone else saved meanwhile
           d.busy(true);
           var call = contactId ? Nadlan.api.put("/api/contacts/" + contactId, data) : Nadlan.api.post("/api/contacts", data);
           call.then(function (saved) {

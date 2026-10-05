@@ -65,7 +65,7 @@ public static class FileEndpoints
             IFileAttachmentStore files, FileService service, CancellationToken ct) =>
         {
             var file = await GetVisibleFileAsync(fileAttachmentId, me, policy, files, service, ct);
-            await policy.RequireFileUploadAsync(me, file.AttachedToType, file.AttachedToId, await service.CategoryOfAsync(file.FileTypeId, ct), ct);
+            await policy.RequireFileChangeAsync(me, file.AttachedToType, file.AttachedToId, file.UploadedByUserId, await service.CategoryOfAsync(file.FileTypeId, ct), ct);
             if (dto.FileTypeId != file.FileTypeId && !me.CanSeeFileCategory(await service.CategoryOfAsync(dto.FileTypeId, ct)))
             {
                 throw new ForbiddenException("FILE_CATEGORY_FORBIDDEN", "You may not move a file into that category.");
@@ -79,8 +79,36 @@ public static class FileEndpoints
             IFileAttachmentStore files, FileService service, CancellationToken ct) =>
         {
             var file = await GetVisibleFileAsync(fileAttachmentId, me, policy, files, service, ct);
-            await policy.RequireFileUploadAsync(me, file.AttachedToType, file.AttachedToId, await service.CategoryOfAsync(file.FileTypeId, ct), ct);
+            await policy.RequireFileChangeAsync(me, file.AttachedToType, file.AttachedToId, file.UploadedByUserId, await service.CategoryOfAsync(file.FileTypeId, ct), ct);
             await service.DeleteAsync(fileAttachmentId, ct);
+            return Results.NoContent();
+        });
+
+        // The preview image the browser made right after uploading a photo/video (raw image/jpeg body, small).
+        group.MapPost("/{fileAttachmentId:long}/thumbnail", async (long fileAttachmentId, HttpRequest request, UserAccess me, AccessPolicy policy,
+            IFileAttachmentStore files, FileService service, CancellationToken ct) =>
+        {
+            var file = await GetVisibleFileAsync(fileAttachmentId, me, policy, files, service, ct);
+            await policy.RequireFileChangeAsync(me, file.AttachedToType, file.AttachedToId, file.UploadedByUserId, await service.CategoryOfAsync(file.FileTypeId, ct), ct);
+            if (request.ContentLength is > FileService.MaxThumbnailBytes)
+            {
+                throw new DomainValidationException("THUMBNAIL_INVALID", $"The preview must be at most {FileService.MaxThumbnailBytes / 1024} KB.");
+            }
+
+            using var body = new MemoryStream();
+            var buffer = new byte[16 * 1024];
+            int read;
+            while ((read = await request.Body.ReadAsync(buffer, ct)) > 0)
+            {
+                if (body.Length + read > FileService.MaxThumbnailBytes)
+                {
+                    throw new DomainValidationException("THUMBNAIL_INVALID", $"The preview must be at most {FileService.MaxThumbnailBytes / 1024} KB.");
+                }
+
+                body.Write(buffer, 0, read);
+            }
+
+            await service.SaveThumbnailAsync(file, body.ToArray(), ct);
             return Results.NoContent();
         });
 
@@ -165,6 +193,7 @@ public static class FileEndpoints
         notes = f.Notes,
         sortOrder = f.SortOrder,
         uploadedUtc = f.UploadedUtc,
-        url = urls.GetUrl(f.StorageKey), // direct, signed, expiring - for thumbnails/previews
+        url = urls.GetUrl(f.StorageKey), // direct, signed, expiring - for the viewer and downloads
+        thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null, // small preview for cards
     };
 }
