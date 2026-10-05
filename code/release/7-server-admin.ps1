@@ -60,6 +60,7 @@ $actions = @(
     "App log (last 200 lines)",
     "Restart the app",
     "Show settings (app_config ms:host - includes secrets)",
+    "MySQL access (MySQL Workbench over SSH)",
     "Change a setting",
     "List users",
     "Set a user's password",
@@ -80,6 +81,20 @@ while ($true) {
             "Status report" { Invoke-Remote $target "sudo $server/status.sh" }
             "App log (last 200 lines)" { Invoke-Remote $target "sudo journalctl -u nadlan -n 200 --no-pager" }
             "Restart the app" { Restart-App }
+            "MySQL access (MySQL Workbench over SSH)" {
+                # MySQL listens on 127.0.0.1 only; Workbench reaches it through SSH with the server key, so port 3306 stays closed.
+                $cs = (Get-RemoteLines "sudo grep -m1 ^NADLAN_MYSQL_CS= /etc/nadlan/nadlan.env")[0]
+                $m = [regex]::Match($cs, '(?i)password=([^;"]*)')
+                Write-Host ""
+                Write-Host "MySQL Workbench > + > Connection Method: Standard TCP/IP over SSH" -ForegroundColor Cyan
+                Write-Host "  SSH Hostname:      $($target.Host):22"
+                Write-Host "  SSH Username:      $($target.User)"
+                Write-Host "  SSH Key File:      $($target.Key)"
+                Write-Host "  MySQL Hostname:    127.0.0.1   Port: 3306"
+                Write-Host "  Username:          nadlan      Default Schema: nadlanyavan"
+                Write-Host "  Password:          $(if ($m.Success) { $m.Groups[1].Value } else { '(not found - external database? see /etc/nadlan/nadlan.env)' })"
+                Write-Host "In Workbench, click Store in Vault... next to Password and paste it there. Edits to app_config apply after Restart the app." -ForegroundColor DarkGray
+            }
             "Show settings (app_config ms:host - includes secrets)" { Invoke-Remote $target "sudo nadlan-db config show ms:host" }
             "Change a setting" {
                 $labels = @($knownSettings | ForEach-Object { "{0,-42} {1}" -f $_[0], $_[1] }) + @("(another path)")

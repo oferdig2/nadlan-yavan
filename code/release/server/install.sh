@@ -56,7 +56,11 @@ fi
 new_password() {
     # MySQL's validate_password wants upper, lower, digit and a special character; '-' and '_' are also safe in the
     # env file and the connection string unquoted.
-    echo "$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 28)Aa1-_"
+    # A fixed 512 random bytes, cut in bash: "tr </dev/urandom | head" kills tr with SIGPIPE, which pipefail turns into
+    # a failed install. 512 bytes leave ~120 letters/digits, far more than the 28 taken.
+    local chars
+    chars=$(head -c 512 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9')
+    echo "${chars:0:28}Aa1-_"
 }
 
 if [[ -n "$CONNECTION_STRING" ]]; then
