@@ -45,7 +45,7 @@ database and in a headless browser. The real Google 3D imagery and a real phone 
 - Script 5 states plainly that users and keys are not copied.
 
 ### Database
-No new migration today. The last ones are `008_file_thumbnails` and `009_second_admin`. **009 adds Admin
+New migration `010_data_person_role`: adds the role **Data person** (see below). Earlier ones still apply if missing: `008_file_thumbnails` and `009_second_admin`. **009 adds Admin
 `alon.schwarz@gmail.com` with no password.** The deploy applies any that are missing.
 
 ---
