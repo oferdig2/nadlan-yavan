@@ -17,9 +17,10 @@ Each script also runs on its own (`.\4-install-server.ps1`). Your answers (serve
 | `4-install-server.ps1` | Installs everything on the server: MySQL, nginx, HTTPS, the app, backups. Safe to re-run |
 | `5-copy-local-db.ps1` | Replaces the server's data with your local database, keeping the server's settings. Can also copy the S3 files |
 | `6-update-server.ps1` | Deploys the current code: backup, migrate, switch, health check, automatic rollback |
-| `7-server-admin.ps1` | Status, logs, settings (Google sign-in, SMTP, Maps), passwords, MySQL access for Workbench, backups and restore, release rollback, shell |
+| `7-server-admin.ps1` | Status, logs, settings (Google sign-in, SMTP, Maps), passwords, backups and restore, release rollback, shell |
 | `8-set-keys.ps1` | Shows which outside keys the server has (Google Maps, Google sign-in, SMTP), asks for the missing ones or replaces them (rotation), restarts the app |
 | `9-admin-passwords.ps1` | Lists the server's Admins and sets their sign-in passwords (hidden, typed twice) |
+| `10-mysql-admin-user.ps1` | Creates the MySQL user nadlan_admin (full rights) for MySQL Workbench over SSH, or changes its password; prints the Workbench settings |
 
 **Needs on the PC:** .NET 9 SDK, Git, the Windows OpenSSH client (built in), and AWS CLI v2 for scripts 2, 3 and 5. Script 5 also needs local MySQL (`mysqldump`). Script 1 additionally relies on `code\installer` (see its README).
 

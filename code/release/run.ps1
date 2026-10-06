@@ -19,7 +19,7 @@ function Get-ScriptHelp([string]$Path) {
 }
 
 while ($true) {
-    $scripts = @(Get-ChildItem -LiteralPath $root -File -Filter "*.ps1" | Where-Object { $_.Name -match '^\d+-' } | Sort-Object Name)
+    $scripts = @(Get-ChildItem -LiteralPath $root -File -Filter "*.ps1" | Where-Object { $_.Name -match '^\d+-' } | Sort-Object { [int]($_.Name -replace '-.*$', '') })
     Write-Host ""
     Write-Host "Nadlan release scripts" -ForegroundColor Cyan
     for ($i = 0; $i -lt $scripts.Count; $i++) {
