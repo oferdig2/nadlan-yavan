@@ -40,6 +40,10 @@ public sealed record AssetQuery
     public IReadOnlyList<int> GeographicAreaIds { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> StatusIds { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> PropertyTypeIds { get; init; } = Array.Empty<int>();
+
+    /// <summary>Only these Assets (e.g. a presentation link); empty = no id filter.</summary>
+    public IReadOnlyList<long> AssetIds { get; init; } = Array.Empty<long>();
+
     public int Limit { get; init; } = 2000;
 
     /// <summary>What the caller may see. Required: the store refuses to run a query without it.</summary>

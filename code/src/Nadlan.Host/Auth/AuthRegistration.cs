@@ -15,7 +15,7 @@ public static class AuthRegistration
     public const string CsrfHeader = "X-Nadlan-Request";
 
     // Pages that need a signed-in user; the rest (login, password, js, css) are public files.
-    private static readonly string[] ProtectedPages = { "/index.html", "/admin.html", "/connect-importer.html" };
+    private static readonly string[] ProtectedPages = { "/index.html", "/admin.html", "/connect-importer.html", "/present.html" };
 
     public static IServiceCollection AddNadlanAuth(this IServiceCollection services, IConfiguration configuration, MySqlDatabase db)
     {

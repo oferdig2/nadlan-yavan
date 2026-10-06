@@ -132,6 +132,16 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .map-legend .swatch { display: inline-block; width: 14px; height: 10px; margin-right: 6px; vertical-align: -1px; border: 2px solid; }
 .map-legend .legend-row { display: flex; align-items: center; gap: 6px; }
 .map-legend .legend-row .swatch { margin-right: 0; }
-.map-legend .legend-row > span:nth-child(2) { flex: 1; min-width: 110px; }
-.map-legend .legend-row input { width: 80px; }
+.map-legend .legend-row > span:nth-child(3) { flex: 1; min-width: 140px; }
+.map-legend .legend-row input[type=range] { width: 80px; }
+.map-legend .legend-check { margin: 0; width: 14px; height: 14px; cursor: pointer; }
+.map-legend .legend-check-gap { display: inline-block; width: 14px; }
+.map-legend .legend-sep { border-top: 1px solid var(--border, #e5e7eb); margin: 4px 0; }
 .map-legend .legend-row .pct { width: 30px; text-align: right; color: var(--muted); }
+
+/* Parcel colour code in the results list (same as the map legend). */
+.kind-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 2px solid; box-sizing: content-box; }
+.kind-dot.kind-kaek { background: #3b82f6; border-color: #1d4ed8; }
+.kind-dot.kind-ot { background: #fb923c; border-color: #ea580c; }
+.kind-dot.kind-noid { background: #f43f5e; border-color: #be123c; }
+.kind-dot.has-assets { box-shadow: 0 0 0 2px #7c3aed; }

@@ -23,6 +23,17 @@ public class ParcelCoverageTests
         return new GeoPolygon(new[] { ring });
     }
 
+    [Theory]
+    [InlineData(false, null, ParcelKinds.Kaek)]   // a real KAEK wins, OT or not
+    [InlineData(false, "47", ParcelKinds.Kaek)]
+    [InlineData(true, "47", ParcelKinds.Ot)]      // provisional, but the block is known
+    [InlineData(true, "  ", ParcelKinds.NoId)]
+    [InlineData(true, null, ParcelKinds.NoId)]
+    public void A_parcels_map_colour_follows_how_it_is_identified(bool provisional, string? ot, string kind)
+    {
+        Assert.Equal(kind, new Parcel { RegistryIdIsProvisional = provisional, OT = ot, Geometry = Square(0, 0) }.Kind);
+    }
+
     [Fact]
     public void Neighbours_with_a_digitising_sliver_become_one_block()
     {
@@ -135,7 +146,7 @@ public class ParcelCoverageTests
         public Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double m, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
     }

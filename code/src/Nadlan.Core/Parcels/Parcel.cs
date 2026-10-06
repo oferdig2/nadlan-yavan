@@ -35,4 +35,28 @@ public sealed record Parcel
     public long? CreatedByUserId { get; init; }
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
+
+    /// <summary>
+    /// Whether an Asset the CALLER may see stands on it (only filled by <see cref="IParcelStore.QueryAsync"/>): a
+    /// competing Asset the user can't see must not show, not even as a colour (Scenario 17).
+    /// </summary>
+    public bool HasAssets { get; init; }
+
+    /// <summary>How it is identified - its colour on the map (<see cref="ParcelKinds"/>).</summary>
+    public string Kind => ParcelKinds.Of(RegistryIdIsProvisional, OT);
+}
+
+/// <summary>
+/// How a Parcel is identified, which is its colour on the map and a map filter: a real KAEK; a provisional (TMP-) KAEK
+/// whose OT (building block, with or without the plot number) is known; or a provisional one with no OT at all.
+/// </summary>
+public static class ParcelKinds
+{
+    public const string Kaek = "kaek";
+    public const string Ot = "ot";
+    public const string NoId = "noid";
+
+    public static readonly IReadOnlyList<string> All = new[] { Kaek, Ot, NoId };
+
+    public static string Of(bool provisional, string? ot) => !provisional ? Kaek : string.IsNullOrWhiteSpace(ot) ? NoId : Ot;
 }

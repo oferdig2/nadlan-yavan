@@ -11,6 +11,7 @@ using Nadlan.Host.Files;
 using Nadlan.Host.Health;
 using Nadlan.Host.Parcels;
 using Nadlan.Host.Portfolios;
+using Nadlan.Host.Presentation;
 using Nadlan.Host.Reference;
 using Nadlan.Persistence.MySql;
 
@@ -49,6 +50,7 @@ app.MapAssetEndpoints();
 app.MapContactEndpoints();
 app.MapPortfolioEndpoints();
 app.MapFileEndpoints();
+app.MapPresentationEndpoints();
 app.MapActivityEndpoints();
 app.MapAdminEndpoints();
 

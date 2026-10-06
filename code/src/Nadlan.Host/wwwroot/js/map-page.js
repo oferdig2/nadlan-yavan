@@ -77,7 +77,9 @@
     parcelOverlay = Nadlan.createParcelMapOverlay(map, {
       onClick: function (p) { popups.showParcel(p); },
       // Zoom in where the surface was clicked: to the detail zoom, or further when already there ("too many" view).
-      onSurfaceClick: function (latLng) { map.setCenter(latLng); map.setZoom(Math.min(20, Math.max(config.parcelDetailMinZoom || 15, map.getZoom() + 2))); }
+      onSurfaceClick: function (latLng) { map.setCenter(latLng); map.setZoom(Math.min(20, Math.max(config.parcelDetailMinZoom || 15, map.getZoom() + 2))); },
+      // Legend checkboxes (colour filter): search again with them.
+      onFilterChange: function () { if (state.mode === "parcels") { reload(); } }
     });
     assetOverlay = Nadlan.createAssetMapOverlay(map, {
       onClick: function (group) { popups.showParcel(group); },
@@ -176,6 +178,11 @@
       var mode = state.mode;
       var filter = filters.getFilter(mode);
       if (!filter) { clearResults("Fix the filter to search."); return; }
+      if (mode === "parcels") {
+        var colours = parcelOverlay.getFilter(); // the legend's checkboxes
+        if (colours.nothing) { showSurface(null); clearResults("Tick at least one colour in the legend (and one of Has Asset / No Asset)."); return; }
+        filter = $.extend({}, filter, colours);
+      }
       if (state.scope === "rectangle" && !rectangle.getBounds()) { clearResults("Draw a rectangle to search in."); return; }
 
       var query = $.extend({}, filter, currentArea() || {});
@@ -204,9 +211,12 @@
     var surfaces = {};      // level -> { version, surface } from GET /api/parcels/coverage
     var shownSurface = null; // "level|version" on the map now
 
-    // Not with a KAEK/area filter (that set is small, and the surface would show every Parcel), and not for users who
-    // see only some Parcels: they get their own polygons at any zoom.
-    function surfaceAllowed(filter) { return seesAllParcels && !filter.registryId && !filter.areaIds.length; }
+    // Not with a KAEK/area/Asset filter (that set is small, and the surface would show every Parcel), and not for users
+    // who see only some Parcels: they get their own polygons at any zoom. A colour (kind) filter is fine: the surface
+    // has one layer per colour and hides the unticked ones.
+    function surfaceAllowed(filter) {
+      return seesAllParcels && !filter.registryId && !filter.areaIds.length && filter.hasAssets === undefined;
+    }
 
     function overview(mode, filter) {
       return mode === "parcels" && surfaceAllowed(filter) && map.getZoom() < detailZoom;

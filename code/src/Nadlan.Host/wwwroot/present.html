@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nadlan — Presentation</title>
+  <!-- Customer presentation: a Portfolio (?portfolio=12) or chosen Assets (?assets=5,9,3) in Google's photorealistic 3D. -->
+  <link rel="stylesheet" href="/css/files.css" />
+  <link rel="stylesheet" href="/css/present.css" />
+</head>
+<body class="present">
+  <div id="stage" class="pres-stage"></div>
+
+  <header class="pres-bar">
+    <span class="pres-brand">Nadlan</span>
+    <div class="pres-title">
+      <h1 data-role="title">Loading…</h1>
+      <span class="pres-sub" data-role="sub"></span>
+    </div>
+    <nav class="pres-controls" aria-label="Presentation">
+      <button type="button" data-act="overview" title="See all (O)">⌂ All</button>
+      <button type="button" data-act="prev" title="Previous (←)">◀</button>
+      <button type="button" data-act="tour" class="pres-tour" title="Tour: fly to each in turn (Space)">▶ Tour</button>
+      <button type="button" data-act="next" title="Next (→)">▶</button>
+    </nav>
+  </header>
+
+  <aside class="pres-card" data-role="card" hidden></aside>
+  <div class="pres-strip" data-role="strip"></div>
+  <div class="pres-notice" data-role="notice" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js" integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs" crossorigin="anonymous"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/formatters.js"></script>
+  <script src="/js/file-card.js"></script>
+  <script src="/js/present-views.js"></script>
+  <script src="/js/present-page.js"></script>
+</body>
+</html>

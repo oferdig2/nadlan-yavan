@@ -88,11 +88,19 @@ public sealed class MySqlParcelStore : IParcelStore
             cancellationToken: ct));
     }
 
+    // ParcelKinds in SQL: same rule as ParcelKinds.Of.
+    private const string KindSql = "CASE WHEN p.registry_id_is_provisional = 0 THEN 'kaek' WHEN TRIM(COALESCE(p.ot, '')) <> '' THEN 'ot' ELSE 'noid' END";
+
+    /// <summary>The Parcel carries an Asset the caller may see (competing Assets they can't see don't count).</summary>
+    private static string HasVisibleAssetSql(ParcelQuery query, DynamicParameters args)
+        => $"EXISTS (SELECT 1 FROM asset_parcel hap JOIN asset ha ON ha.asset_id = hap.asset_id WHERE hap.parcel_id = p.parcel_id AND {AccessSql.AssetVisible("ha", query.Scope!, args)})";
+
     public async Task<IReadOnlyList<Parcel>> QueryAsync(ParcelQuery query, CancellationToken ct = default)
     {
         var (where, args) = Filter(query);
         args.Add("limit", query.Limit);
-        var sql = $"{SelectColumns} WHERE {where} ORDER BY p.parcel_id LIMIT @limit";
+        var columns = SelectColumns.Replace("FROM parcel p", $", {HasVisibleAssetSql(query, args)} AS has_assets\n        FROM parcel p");
+        var sql = $"{columns} WHERE {where} ORDER BY p.parcel_id LIMIT @limit";
 
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<ParcelRow>(new CommandDefinition(sql, args, cancellationToken: ct));
@@ -140,6 +148,17 @@ public sealed class MySqlParcelStore : IParcelStore
             args.Add("areaIds", query.GeographicAreaIds);
         }
 
+        if (query.Kinds.Count > 0)
+        {
+            where.Add($"({KindSql}) IN @kinds");
+            args.Add("kinds", query.Kinds);
+        }
+
+        if (query.HasAssets is bool hasAssets)
+        {
+            where.Add((hasAssets ? "" : "NOT ") + HasVisibleAssetSql(query, args));
+        }
+
         return (string.Join(" AND ", where), args);
     }
 
@@ -151,12 +170,12 @@ public sealed class MySqlParcelStore : IParcelStore
         return new ParcelFingerprint(row.Count, row.MaxId ?? 0, row.LastUpdated);
     }
 
-    public async Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        var rows = await conn.QueryAsync<(bool Provisional, string Wkt)>(new CommandDefinition(
-            "SELECT registry_id_is_provisional, ST_AsText(geometry, 'axis-order=long-lat') FROM parcel", cancellationToken: ct));
-        return rows.Select(r => (r.Provisional, GeoPolygon.FromWkt(r.Wkt))).ToList();
+        var rows = await conn.QueryAsync<(string Kind, string Wkt)>(new CommandDefinition(
+            $"SELECT {KindSql}, ST_AsText(p.geometry, 'axis-order=long-lat') FROM parcel p", cancellationToken: ct));
+        return rows.Select(r => (r.Kind, GeoPolygon.FromWkt(r.Wkt))).ToList();
     }
 
     /// <summary>
@@ -340,6 +359,7 @@ public sealed class MySqlParcelStore : IParcelStore
         public long? CreatedByUserId { get; init; }
         public DateTime CreatedUtc { get; init; }
         public DateTime UpdatedUtc { get; init; }
+        public bool HasAssets { get; init; }
 
         public Parcel ToParcel() => new()
         {
@@ -360,6 +380,7 @@ public sealed class MySqlParcelStore : IParcelStore
             CreatedByUserId = CreatedByUserId,
             CreatedUtc = DateTime.SpecifyKind(CreatedUtc, DateTimeKind.Utc),
             UpdatedUtc = DateTime.SpecifyKind(UpdatedUtc, DateTimeKind.Utc),
+            HasAssets = HasAssets,
         };
     }
 }

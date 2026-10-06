@@ -47,6 +47,13 @@ public sealed record ParcelQuery
     public string? RegistryId { get; init; }
 
     public IReadOnlyList<int> GeographicAreaIds { get; init; } = Array.Empty<int>();
+
+    /// <summary>Only these <see cref="ParcelKinds"/>; empty = all.</summary>
+    public IReadOnlyList<string> Kinds { get; init; } = Array.Empty<string>();
+
+    /// <summary>True = only Parcels carrying an Asset the caller may see, false = only those without; null = both.</summary>
+    public bool? HasAssets { get; init; }
+
     public int Limit { get; init; } = 2000;
 
     /// <summary>What the caller may see. Required: the store refuses to run a query without it.</summary>
@@ -79,7 +86,7 @@ public interface IParcelStore
     Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default);
 
     /// <summary>Every Parcel's polygon and whether its KAEK is provisional - input for the zoomed-out surface.</summary>
-    Task<IReadOnlyList<(bool Provisional, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default);
 
     /// <summary>One corner per matching Parcel (same filters and access rules, no limit): enough to know where they lie.</summary>
     Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery query, CancellationToken ct = default);

@@ -7,9 +7,9 @@ using Nadlan.Core.Parcels;
 namespace Nadlan.Host.Parcels;
 
 /// <summary>
-/// Background worker that keeps the zoomed-out map cheap: all Parcels united into one surface per kind (real KAEK,
-/// provisional TMP-) and per <see cref="CoverageLevel"/>, served as ready-made GeoJSON. Recomputed when the parcel table
-/// changes - nudged right after a create/edit/delete in this app, and checked every minute (other instances, imports).
+/// Background worker that keeps the zoomed-out map cheap: all Parcels united into one surface per kind (ParcelKinds:
+/// real KAEK, provisional with OT, provisional without) and per <see cref="CoverageLevel"/>, served as ready-made
+/// GeoJSON. Recomputed when the parcel table changes - nudged right after a create/edit/delete in this app, and checked every minute (other instances, imports).
 /// Kept in memory: each instance computes its own in a second or two.
 /// </summary>
 public sealed class ParcelCoverageService : BackgroundService
@@ -94,12 +94,19 @@ public sealed class ParcelCoverageService : BackgroundService
 
         var watch = Stopwatch.StartNew();
         var all = await _parcels.ListAllGeometriesAsync(ct);
+        // One surface per ParcelKinds value (its map colour): { "kaek": MultiPolygon, "ot": ..., "noid": ..., "vertices": n }.
         var json = await Task.Run(() => CoverageLevel.All.ToDictionary(level => level.Name, level =>
         {
-            var real = ParcelCoverageBuilder.Build(all.Where(p => !p.Provisional).Select(p => p.Geometry).ToList(), level);
-            var provisional = ParcelCoverageBuilder.Build(all.Where(p => p.Provisional).Select(p => p.Geometry).ToList(), level);
-            return $"{{\"real\":{MultiPolygonJson(real)},\"provisional\":{MultiPolygonJson(provisional)}," +
-                   $"\"vertices\":{ParcelCoverageBuilder.VertexCount(real) + ParcelCoverageBuilder.VertexCount(provisional)}}}";
+            var parts = new List<string>();
+            var vertices = 0;
+            foreach (var kind in ParcelKinds.All)
+            {
+                var surface = ParcelCoverageBuilder.Build(all.Where(p => p.Kind == kind).Select(p => p.Geometry).ToList(), level);
+                vertices += ParcelCoverageBuilder.VertexCount(surface);
+                parts.Add($"\"{kind}\":{MultiPolygonJson(surface)}");
+            }
+
+            return $"{{{string.Join(",", parts)},\"vertices\":{vertices}}}";
         }), ct);
 
         _current = new Snapshot(version, DateTime.UtcNow, fingerprint.Count, json);

@@ -62,6 +62,7 @@
           "<label>Description<textarea class=\"input\" name=\"description\" rows=\"2\">" + esc(p.description || "") + "</textarea></label>" +
           "<div class=\"btn-row\">" +
             "<button type=\"button\" class=\"btn\" data-act=\"map\">Show on map</button>" +
+            "<button type=\"button\" class=\"btn\" data-act=\"present\" title=\"Customer presentation in 3D, in a new tab - a customer with access to this Portfolio can open the same link\">Present</button>" +
             "<button type=\"button\" class=\"btn\" data-act=\"files\">Files</button>" +
             "<button type=\"button\" class=\"btn\" data-act=\"history\">History</button>" +
           "</div>" +
@@ -117,6 +118,7 @@
       });
 
       $form.on("click", "[data-act=map]", function () { options.onShowOnMap({ portfolioId: portfolioId, name: p.name }); });
+      $form.on("click", "[data-act=present]", function () { window.open("/present.html?portfolio=" + portfolioId, "_blank", "noopener"); });
       $form.on("click", "[data-act=files]", function () {
         Nadlan.filesDialog.open({ attachedToType: "Portfolio", attachedToId: portfolioId, title: "Portfolio \"" + p.name + "\" - files" });
       });

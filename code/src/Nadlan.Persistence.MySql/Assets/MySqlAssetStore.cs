@@ -130,6 +130,7 @@ public sealed class MySqlAssetStore : IAssetStore
         AddIn(where, args, "p.geographic_area_id", "areaIds", query.GeographicAreaIds);
         AddIn(where, args, "a.asset_status_id", "statusIds", query.StatusIds);
         AddIn(where, args, "a.property_type_id", "typeIds", query.PropertyTypeIds);
+        AddIn(where, args, "a.asset_id", "assetIds", query.AssetIds);
 
         if (query.PortfolioIds.Count > 0)
         {

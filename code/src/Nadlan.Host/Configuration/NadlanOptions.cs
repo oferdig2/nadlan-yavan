@@ -69,6 +69,12 @@ public sealed class NadlanOptions
 
         /// <summary>Area (code or name) the map opens on, if it has Parcels; else it opens around all Parcels.</summary>
         public string StartArea { get; set; } = "SKR";
+
+        /// <summary>
+        /// Maps JavaScript API version (v=) for the 3D customer presentation (Photorealistic 3D, present.html): "beta"
+        /// while Google ships it there, "weekly" once it is in the stable channel.
+        /// </summary>
+        public string Maps3dChannel { get; set; } = "beta";
     }
 }
 
@@ -86,6 +92,7 @@ public static class ClientConfigEndpoints
                 defaultCenter = new { lat = maps.DefaultCenterLat, lng = maps.DefaultCenterLon },
                 defaultZoom = maps.DefaultZoom,
                 parcelDetailMinZoom = maps.ParcelDetailMinZoom,
+                maps3dChannel = string.IsNullOrWhiteSpace(maps.Maps3dChannel) ? "beta" : maps.Maps3dChannel.Trim(),
                 storageConfigured = storage.IsConfigured,
                 maxFileSizeBytes = files.MaxFileSizeBytes,
             });

@@ -23,6 +23,7 @@
         "<button type=\"button\" class=\"btn btn-small\" data-role=\"select-all\">Select all</button>" +
         "<button type=\"button\" class=\"btn btn-small\" data-role=\"clear\">Clear</button>" +
         "<button type=\"button\" class=\"btn btn-small btn-primary\" data-role=\"portfolio\" disabled>Add to portfolio</button>" +
+        "<button type=\"button\" class=\"btn btn-small\" data-role=\"present\" disabled title=\"Customer presentation of the selected Assets (3D), in a new tab\">Present</button>" +
       "</div>" +
       "<ul class=\"results-list\"></ul>");
     var $list = $root.find(".results-list");
@@ -30,7 +31,10 @@
     function rowHtml(it, index) {
       var s = it.summary;
       if (mode === "parcels") {
-        return "<li data-index=\"" + index + "\"><div class=\"row-main\">" + f.registryId(s.registryId, s.registryIdIsProvisional) + "</div>" +
+        // Same colour code as the map: fill = kind, purple ring = has an Asset.
+        return "<li data-index=\"" + index + "\"><div class=\"row-main\"><span class=\"kind-dot kind-" + f.escapeHtml(s.kind || "kaek") +
+          (s.hasAssets ? " has-assets" : "") + "\" title=\"" + (s.hasAssets ? "Has Asset(s)" : "No Asset") + "\"></span>" +
+          f.registryId(s.registryId, s.registryIdIsProvisional) + "</div>" +
           "<div class=\"row-sub muted\">" + f.text(s.geographicArea) + " · OT " + f.text(s.ot) + " / Plot " + f.text(s.plot) + "</div></li>";
       }
       return "<li data-index=\"" + index + "\">" +
@@ -43,6 +47,7 @@
     function renderSelection() {
       var n = options.selection.size();
       $root.find("[data-role=portfolio]").prop("disabled", n === 0).text(n ? "Add " + n + " to portfolio" : "Add to portfolio");
+      $root.find("[data-role=present]").prop("disabled", n === 0 || n > 100);
       $list.find("[data-asset-id]").each(function () { this.checked = options.selection.has(Number($(this).data("assetId"))); });
     }
 
@@ -58,6 +63,10 @@
     });
     $root.on("click", "[data-role=clear]", function () { options.selection.clear(); });
     $root.on("click", "[data-role=portfolio]", function () { options.onAddToPortfolio(); });
+    // The selected Assets as a customer presentation (present.html), in the order they were picked.
+    $root.on("click", "[data-role=present]", function () {
+      window.open("/present.html?assets=" + options.selection.values().join(","), "_blank", "noopener");
+    });
     $root.on("click", "[data-role=zoom]", function () { options.onZoomToResults(); });
     options.selection.onChange(renderSelection);
 

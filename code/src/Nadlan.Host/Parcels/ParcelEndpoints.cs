@@ -27,6 +27,31 @@ public static class ParcelEndpoints
         [FromQuery] public double? North { get; set; }
         [FromQuery] public string? RegistryId { get; set; }
         [FromQuery] public int[]? AreaIds { get; set; }
+
+        /// <summary>Map colours to show (ParcelKinds: kaek, ot, noid); none = all.</summary>
+        [FromQuery] public string[]? Kinds { get; set; }
+
+        /// <summary>true = only Parcels with an Asset (that the caller may see), false = only without.</summary>
+        [FromQuery] public bool? HasAssets { get; set; }
+    }
+
+    private static ParcelQuery ToQuery(ParcelQueryParams q, UserAccess me)
+    {
+        var kinds = (q.Kinds ?? Array.Empty<string>()).Select(k => k.Trim().ToLowerInvariant()).Where(k => k.Length > 0).Distinct().ToList();
+        if (kinds.FirstOrDefault(k => !ParcelKinds.All.Contains(k)) is { } unknown)
+        {
+            throw new DomainValidationException("PARCEL_KIND_INVALID", $"Unknown parcel kind '{unknown}'. Use {string.Join(", ", ParcelKinds.All)}.");
+        }
+
+        return new ParcelQuery
+        {
+            Area = GeoJson.Bounds(q.West, q.South, q.East, q.North),
+            RegistryId = q.RegistryId,
+            GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),
+            Kinds = kinds.Count == ParcelKinds.All.Count ? Array.Empty<string>() : kinds,
+            HasAssets = q.HasAssets,
+            Scope = me.Scope,
+        };
     }
 
     public sealed record CreateParcelDto(
@@ -45,14 +70,7 @@ public static class ParcelEndpoints
         group.MapGet("/", async ([AsParameters] ParcelQueryParams q, bool? allowSurface, UserAccess me, IParcelStore parcels,
             IGeographicAreaStore areas, ParcelCoverageService coverage, IOptions<NadlanOptions> options, CancellationToken ct) =>
         {
-            var query = new ParcelQuery
-            {
-                Area = GeoJson.Bounds(q.West, q.South, q.East, q.North),
-                RegistryId = q.RegistryId,
-                GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),
-                Limit = int.MaxValue,
-                Scope = me.Scope,
-            };
+            var query = ToQuery(q, me) with { Limit = int.MaxValue };
 
             var count = await parcels.CountAsync(query, ct);
             if (count > options.Value.Maps.MaxParcelPolygons)
@@ -100,13 +118,7 @@ public static class ParcelEndpoints
         group.MapGet("/count", async ([AsParameters] ParcelQueryParams q, UserAccess me, IParcelStore parcels, ParcelCoverageService coverage, CancellationToken ct) =>
             Results.Ok(new
             {
-                count = await parcels.CountAsync(new ParcelQuery
-                {
-                    Area = GeoJson.Bounds(q.West, q.South, q.East, q.North),
-                    RegistryId = q.RegistryId,
-                    GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),
-                    Scope = me.Scope,
-                }, ct),
+                count = await parcels.CountAsync(ToQuery(q, me), ct),
                 coverageVersion = coverage.Current?.Version,
             }));
 
@@ -326,7 +338,9 @@ public static class ParcelEndpoints
         parcelId = p.ParcelId,
         registryId = p.RegistryId,
         registryIdIsProvisional = p.RegistryIdIsProvisional,
-        geographicArea = p.GeographicAreaId is int id && areaNames.TryGetValue(id, out var name) ? name : null,
+        kind = p.Kind,              // map colour: kaek | ot | noid
+        hasAssets = p.HasAssets,    // only Assets the caller may see; false outside the list query
+        geographicArea =p.GeographicAreaId is int id && areaNames.TryGetValue(id, out var name) ? name : null,
         ot = Join(p.OT, p.OTExt),
         plot = Join(p.PlotNumber, p.PlotExt),
         officialAreaSqm = p.OfficialAreaSqm,

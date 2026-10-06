@@ -4,21 +4,32 @@
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
 
-  // Provisional (TMP-) Parcels sit on top with a bold outline. Each kind has its own fill opacity (legend sliders):
-  // real Parcels filled and provisional ones as outlines shows exactly where the two disagree.
-  var STYLE_NORMAL = { key: "normal", strokeColor: "#1d4ed8", strokeWeight: 1.5, fillColor: "#3b82f6", zIndex: 1, defaultOpacity: 0.4 };
-  var STYLE_PROVISIONAL = { key: "provisional", strokeColor: "#ea580c", strokeWeight: 2.5, fillColor: "#fb923c", zIndex: 2, defaultOpacity: 0.1 };
+  // Colour = how the Parcel is identified (summary.kind, server ParcelKinds): a real KAEK, a provisional (TMP-) KAEK whose
+  // OT (building block) is known, or a provisional one without OT. Provisional ones sit on top with a bold outline;
+  // each kind has its own fill opacity (legend sliders): real Parcels filled and provisional ones as outlines shows
+  // exactly where the two disagree. Storage keys "normal"/"provisional" are the older names of kaek/ot.
+  var KINDS = [
+    { key: "kaek", store: "normal", label: "Real KAEK", strokeColor: "#1d4ed8", strokeWeight: 1.5, fillColor: "#3b82f6", zIndex: 1, defaultOpacity: 0.4 },
+    { key: "ot", store: "provisional", label: "Provisional, OT known", strokeColor: "#ea580c", strokeWeight: 2.5, fillColor: "#fb923c", zIndex: 2, defaultOpacity: 0.1 },
+    { key: "noid", store: "noid", label: "Provisional, no OT", strokeColor: "#be123c", strokeWeight: 2.5, fillColor: "#f43f5e", zIndex: 2, defaultOpacity: 0.15 }
+  ];
+  var BY_KEY = {};
+  KINDS.forEach(function (k) { BY_KEY[k.key] = k; });
+  // A Parcel carrying an Asset the user may see: a purple outline over its kind's fill.
+  var ASSET_OUTLINE = { strokeColor: "#7c3aed", strokeWeight: 3.5 };
   var STYLE_SELECTED = { strokeColor: "#111827", strokeWeight: 3 };
 
-  function loadOpacity(style) {
+  function kindOf(summary) { return BY_KEY[summary && summary.kind] || (summary && summary.registryIdIsProvisional ? BY_KEY.ot : BY_KEY.kaek); }
+
+  function loadOpacity(kind) {
     try {
-      var v = parseFloat(window.localStorage.getItem("nadlan.parcelFill." + style.key));
-      return v >= 0 && v <= 0.8 ? v : style.defaultOpacity;
-    } catch (e) { return style.defaultOpacity; } // storage blocked: just use the default
+      var v = parseFloat(window.localStorage.getItem("nadlan.parcelFill." + kind.store));
+      return v >= 0 && v <= 0.8 ? v : kind.defaultOpacity;
+    } catch (e) { return kind.defaultOpacity; } // storage blocked: just use the default
   }
 
-  function saveOpacity(style, v) {
-    try { window.localStorage.setItem("nadlan.parcelFill." + style.key, String(v)); } catch (e) { /* per-browser convenience only */ }
+  function saveOpacity(kind, v) {
+    try { window.localStorage.setItem("nadlan.parcelFill." + kind.store, String(v)); } catch (e) { /* per-browser convenience only */ }
   }
 
   function rgba(hex, alpha) {
@@ -28,8 +39,10 @@
 
   /**
    * @param {google.maps.Map} map
-   * @param {{ onClick: function(object): void, onSurfaceClick?: function(google.maps.LatLng): void }} options
-   *        onClick receives the Parcel summary; onSurfaceClick the point clicked on the zoomed-out surface.
+   * @param {{ onClick: function(object): void, onSurfaceClick?: function(google.maps.LatLng): void,
+   *           onFilterChange?: function(): void }} options
+   *        onClick receives the Parcel summary; onSurfaceClick the point clicked on the zoomed-out surface;
+   *        onFilterChange fires when a legend checkbox changes (the page reloads with getFilter()).
    */
   function createParcelMapOverlay(map, options) {
     var layer = new google.maps.Data({ map: map });
@@ -38,31 +51,35 @@
     var surface = new google.maps.Data({ map: map });
     var selectedId = null;
     var interactive = true;
-    var opacity = { normal: loadOpacity(STYLE_NORMAL), provisional: loadOpacity(STYLE_PROVISIONAL) };
+    var opacity = {};
+    KINDS.forEach(function (k) { opacity[k.key] = loadOpacity(k); });
+    // Legend checkboxes = the colour filter. Not remembered: a reload shows everything again.
+    var shown = { kaek: true, ot: true, noid: true, withAssets: true, withoutAssets: true };
 
     layer.setStyle(function (feature) {
-      var id = feature.getId();
-      var base = feature.getProperty("registryIdIsProvisional") ? STYLE_PROVISIONAL : STYLE_NORMAL;
-      var fill = opacity[base.key];
+      var summary = feature.getProperty("summary");
+      var kind = kindOf(summary);
+      var fill = opacity[kind.key];
       var style = {
-        clickable: interactive, strokeColor: base.strokeColor, strokeWeight: base.strokeWeight,
-        fillColor: base.fillColor, fillOpacity: fill, zIndex: base.zIndex
+        clickable: interactive, strokeColor: kind.strokeColor, strokeWeight: kind.strokeWeight,
+        fillColor: kind.fillColor, fillOpacity: fill, zIndex: kind.zIndex
       };
-      if (id === selectedId) { Object.assign(style, STYLE_SELECTED, { fillOpacity: Math.min(0.85, fill + 0.25) }); }
+      if (summary && summary.hasAssets) { Object.assign(style, ASSET_OUTLINE, { zIndex: kind.zIndex + 2 }); }
+      if (feature.getId() === selectedId) { Object.assign(style, STYLE_SELECTED, { fillOpacity: Math.min(0.85, fill + 0.25) }); }
       return style;
     });
 
     // Per-feature override (Google's hover pattern): touches one polygon, not a restyle of the whole layer.
     layer.addListener("mouseover", function (e) {
-      var fill = opacity[e.feature.getProperty("registryIdIsProvisional") ? "provisional" : "normal"];
-      layer.overrideStyle(e.feature, { strokeWeight: 3, fillOpacity: Math.min(0.85, fill + 0.2) });
+      var fill = opacity[kindOf(e.feature.getProperty("summary")).key];
+      layer.overrideStyle(e.feature, { strokeWeight: 3.5, fillOpacity: Math.min(0.85, fill + 0.2) });
     });
     layer.addListener("mouseout", function (e) { layer.revertStyle(e.feature); });
 
     surface.setStyle(function (feature) {
-      var base = feature.getProperty("kind") === "provisional" ? STYLE_PROVISIONAL : STYLE_NORMAL;
-      return { clickable: interactive, strokeColor: base.strokeColor, strokeWeight: 1, fillColor: base.fillColor,
-        fillOpacity: Math.max(opacity[base.key], 0.15), zIndex: base.zIndex };
+      var kind = BY_KEY[feature.getProperty("kind")] || BY_KEY.kaek;
+      return { visible: shown[kind.key], clickable: interactive, strokeColor: kind.strokeColor, strokeWeight: 1, fillColor: kind.fillColor,
+        fillOpacity: Math.max(opacity[kind.key], 0.15), zIndex: kind.zIndex };
     });
     surface.addListener("click", function (e) { if (options.onSurfaceClick) { options.onSurfaceClick(e.latLng); } });
     layer.addListener("click", function (e) {
@@ -78,35 +95,51 @@
 
     var legend = document.createElement("div");
     legend.className = "map-legend";
-    function row(style, label) {
-      return "<div class=\"legend-row\"><span class=\"swatch\" data-swatch=\"" + style.key + "\"></span><span>" + label + "</span>" +
-        "<input type=\"range\" min=\"0\" max=\"80\" step=\"5\" data-fill=\"" + style.key + "\" title=\"Fill opacity\">" +
-        "<span class=\"pct\" data-pct=\"" + style.key + "\"></span></div>";
+    function check(key, title) {
+      return "<input type=\"checkbox\" class=\"legend-check\" data-show=\"" + key + "\" checked title=\"" + title + "\">";
     }
-    legend.innerHTML = row(STYLE_NORMAL, "Real KAEK") + row(STYLE_PROVISIONAL, "Provisional (TMP-)") +
-      "<div class=\"legend-row\"><span class=\"swatch\" data-swatch=\"overlap\"></span><span>Both (overlap)</span></div>";
+    function kindRow(kind) {
+      return "<div class=\"legend-row\">" + check(kind.key, "Show these Parcels") +
+        "<span class=\"swatch\" data-swatch=\"" + kind.key + "\"></span><span>" + kind.label + "</span>" +
+        "<input type=\"range\" min=\"0\" max=\"80\" step=\"5\" data-fill=\"" + kind.key + "\" title=\"Fill opacity\">" +
+        "<span class=\"pct\" data-pct=\"" + kind.key + "\"></span></div>";
+    }
+    legend.innerHTML = KINDS.map(kindRow).join("") +
+      "<div class=\"legend-row\"><span class=\"legend-check-gap\"></span><span class=\"swatch\" data-swatch=\"overlap\"></span><span>Real + provisional overlap</span></div>" +
+      "<div class=\"legend-sep\"></div>" +
+      "<div class=\"legend-row\">" + check("withAssets", "Show Parcels with an Asset") +
+        "<span class=\"swatch\" style=\"background:transparent;border:3px solid " + ASSET_OUTLINE.strokeColor + "\"></span><span>Has Asset(s)</span></div>" +
+      "<div class=\"legend-row\">" + check("withoutAssets", "Show Parcels without an Asset") +
+        "<span class=\"swatch\" style=\"background:transparent\"></span><span>No Asset</span></div>";
     map.controls[google.maps.ControlPosition.LEFT_BOTTOM].push(legend);
-    [STYLE_NORMAL, STYLE_PROVISIONAL].forEach(function (style) {
-      var slider = legend.querySelector("[data-fill=" + style.key + "]");
-      slider.value = Math.round(opacity[style.key] * 100);
+    KINDS.forEach(function (kind) {
+      var slider = legend.querySelector("[data-fill=" + kind.key + "]");
+      slider.value = Math.round(opacity[kind.key] * 100);
       slider.addEventListener("input", function () {
-        opacity[style.key] = Number(slider.value) / 100;
-        saveOpacity(style, opacity[style.key]);
+        opacity[kind.key] = Number(slider.value) / 100;
+        saveOpacity(kind, opacity[kind.key]);
         paintLegend();
         refresh();
+      });
+    });
+    Array.prototype.forEach.call(legend.querySelectorAll("[data-show]"), function (box) {
+      box.addEventListener("change", function () {
+        shown[box.getAttribute("data-show")] = box.checked;
+        refresh(); // the surface hides unchecked kinds at once; the list follows on reload
+        if (options.onFilterChange) { options.onFilterChange(); }
       });
     });
     paintLegend();
 
     // The overlap swatch is the provisional fill laid over the real one, as on the map.
     function paintLegend() {
-      var normal = rgba(STYLE_NORMAL.fillColor, opacity.normal), provisional = rgba(STYLE_PROVISIONAL.fillColor, opacity.provisional);
-      legend.querySelector("[data-swatch=normal]").style.cssText = "background:" + normal + ";border-color:" + STYLE_NORMAL.strokeColor;
-      legend.querySelector("[data-swatch=provisional]").style.cssText = "background:" + provisional + ";border-color:" + STYLE_PROVISIONAL.strokeColor;
+      KINDS.forEach(function (k) {
+        legend.querySelector("[data-swatch=" + k.key + "]").style.cssText = "background:" + rgba(k.fillColor, opacity[k.key]) + ";border-color:" + k.strokeColor;
+        legend.querySelector("[data-pct=" + k.key + "]").textContent = Math.round(opacity[k.key] * 100) + "%";
+      });
+      var normal = rgba(BY_KEY.kaek.fillColor, opacity.kaek), provisional = rgba(BY_KEY.ot.fillColor, opacity.ot);
       legend.querySelector("[data-swatch=overlap]").style.cssText =
-        "background:linear-gradient(" + provisional + "," + provisional + ")," + normal + ";border-color:" + STYLE_PROVISIONAL.strokeColor;
-      legend.querySelector("[data-pct=normal]").textContent = Math.round(opacity.normal * 100) + "%";
-      legend.querySelector("[data-pct=provisional]").textContent = Math.round(opacity.provisional * 100) + "%";
+        "background:linear-gradient(" + provisional + "," + provisional + ")," + normal + ";border-color:" + BY_KEY.ot.strokeColor;
     }
 
     return {
@@ -118,21 +151,29 @@
         layer.addGeoJson({
           type: "FeatureCollection",
           features: items.map(function (it) {
-            return {
-              type: "Feature", id: it.summary.parcelId, geometry: it.geometry,
-              properties: { summary: it.summary, registryIdIsProvisional: it.summary.registryIdIsProvisional }
-            };
+            return { type: "Feature", id: it.summary.parcelId, geometry: it.geometry, properties: { summary: it.summary } };
           })
         });
       },
-      /** @param {{ real: object, provisional: object }|null} geo  MultiPolygons from GET /api/parcels/coverage; null = none */
+      /** @param {{ kaek: object, ot: object, noid: object }|null} geo  MultiPolygons from GET /api/parcels/coverage; null = none */
       setSurface: function (geo) {
         surface.forEach(function (f) { surface.remove(f); });
         if (!geo) { return; }
-        surface.addGeoJson({ type: "FeatureCollection", features: [
-          { type: "Feature", geometry: geo.real, properties: { kind: "normal" } },
-          { type: "Feature", geometry: geo.provisional, properties: { kind: "provisional" } }
-        ].filter(function (f) { return f.geometry.coordinates.length > 0; }) });
+        surface.addGeoJson({ type: "FeatureCollection", features: KINDS.map(function (k) {
+          return { type: "Feature", geometry: geo[k.key], properties: { kind: k.key } };
+        }).filter(function (f) { return f.geometry && f.geometry.coordinates.length > 0; }) });
+      },
+      /**
+       * The legend's colour filter for GET /api/parcels: { kinds: [...] } when some kinds are unchecked, hasAssets
+       * true/false when only one Asset box is; { nothing: true } when a whole group is unchecked (nothing can match).
+       */
+      getFilter: function () {
+        var kinds = KINDS.filter(function (k) { return shown[k.key]; }).map(function (k) { return k.key; });
+        if (!kinds.length || (!shown.withAssets && !shown.withoutAssets)) { return { nothing: true }; }
+        var f = {};
+        if (kinds.length < KINDS.length) { f.kinds = kinds; }
+        if (shown.withAssets !== shown.withoutAssets) { f.hasAssets = shown.withAssets; }
+        return f;
       },
       select: function (parcelId) { selectedId = parcelId; refresh(); },
       clearSelection: function () { selectedId = null; refresh(); },
