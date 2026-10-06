@@ -151,6 +151,41 @@
 
     function pick(i) { stopTour(); select(i); }
 
+    // "Me": fly to where the viewer stands (a buyer walking the land); the pin then follows them. If they stand on one
+    // of the properties, its card opens.
+    var flyToMe = false;
+    var $me = $("[data-act=me]");
+
+    function arrive(p) {
+      view.showMe(p, true);
+      var on = p.accuracy <= 150 ? items.findIndex(function (it) {
+        return it.polygons.some(function (g) { return Nadlan.myLocation.containsPoint(g, p.lat, p.lng); });
+      }) : -1;
+      if (on >= 0) { select(on, false); notice("You're standing on " + heading(items[on]) + "."); }
+      else { notice(p.accuracy > 150 ? "Your location is rough (± " + Math.round(p.accuracy) + " m)." : ""); }
+      setTimeout(function () { notice(""); }, 6000);
+    }
+
+    var locator = Nadlan.myLocation.createLocator(function (p) {
+      if (!view) { return; }
+      $me.removeClass("busy").addClass("on");
+      if (flyToMe) { flyToMe = false; arrive(p); } else { view.showMe(p, false); } // later fixes only move the pin
+    }, function (message) {
+      flyToMe = false;
+      $me.removeClass("busy on");
+      notice(message, true);
+      setTimeout(function () { notice(""); }, 8000);
+    });
+
+    function showMe() {
+      if (!view) { return; }
+      stopTour();
+      if (!locator.start()) { return; }
+      var known = locator.last();
+      if (known) { arrive(known); } else { flyToMe = true; $me.addClass("busy"); }
+    }
+    $me.on("click", showMe);
+
     $strip.on("click", ".pres-chip", function () { pick(Number($(this).data("index"))); });
     $("[data-act=next]").on("click", function () { pick(current + 1); });
     $("[data-act=prev]").on("click", function () { pick(current < 0 ? items.length - 1 : current - 1); });
@@ -163,6 +198,7 @@
       else if (e.key === "ArrowLeft") { pick(current < 0 ? items.length - 1 : current - 1); }
       else if (e.key === " ") { e.preventDefault(); $tour.trigger("click"); }
       else if (e.key === "o" || e.key === "O") { $("[data-act=overview]").trigger("click"); }
+      else if (e.key === "m" || e.key === "M") { showMe(); }
     });
 
     loadGoogle(config.googleMapsApiKey, config.maps3dChannel).then(function () {

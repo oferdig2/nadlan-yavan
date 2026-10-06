@@ -88,6 +88,18 @@
     assetOverlay.setVisible(false);
     selection.onChange(function () { assetOverlay.refreshStyles(); });
 
+    // "Where am I": centre on the user; once the Parcels there are loaded, say (and highlight) which one they stand on.
+    Nadlan.myLocation.createMyLocationControl(map, {
+      onError: function (message) { setStatus(message, true); },
+      onLocated: function (p) {
+        state.standingAt = p;
+        setStatus(p.accuracy > 150 ? "Your location is rough (± " + Math.round(p.accuracy) + " m) - GPS outdoors is more exact." : "");
+        // Already centred there (the map didn't move, so no new search): use the Parcels already shown.
+        var seqAtFix = requestSeq;
+        setTimeout(function () { if (state.standingAt === p && requestSeq === seqAtFix) { showWhereIStand(state.items); } }, 1500);
+      }
+    });
+
     // While a drawing tool is active, polygons must not swallow the clicks.
     function setDrawing(active) {
       parcelOverlay.setInteractive(!active);
@@ -200,6 +212,7 @@
         results.setItems(res.items, res.truncated);
         if (state.fitAfterLoad) { state.fitAfterLoad = false; fitItems(res.items); }
         setStatus("");
+        if (state.standingAt) { showWhereIStand(res.items); }
       }, function (err) {
         if (seq === requestSeq) { setStatus("Search failed: " + err.message, true); }
       });
@@ -293,6 +306,17 @@
       // the zoom on the user's next pan.
       var once = google.maps.event.addListenerOnce(map, "idle", function () { if (map.getZoom() > maxZoom) { map.setZoom(maxZoom); } });
       setTimeout(function () { google.maps.event.removeListener(once); }, 1500);
+    }
+
+    // After centring on the user: the Parcel (or Asset's Parcel) under their feet, if any is in the results.
+    function showWhereIStand(items) {
+      var p = state.standingAt;
+      state.standingAt = null;
+      if (p.accuracy > 150) { return; } // too rough to name a Parcel
+      var hit = items.filter(function (it) { return Nadlan.myLocation.containsPoint(it.geometry, p.lat, p.lng); })[0];
+      if (!hit) { setStatus("You're not on a Parcel in the results here."); return; }
+      if (state.mode === "assets") { assetOverlay.focus(hit.summary.parcelId); } else { parcelOverlay.select(hit.summary.parcelId); }
+      setStatus("You're standing on Parcel " + (hit.summary.registryId || "#" + hit.summary.parcelId) + (p.accuracy > 25 ? " (± " + Math.round(p.accuracy) + " m)" : "") + ".");
     }
 
     function fitItems(items) {

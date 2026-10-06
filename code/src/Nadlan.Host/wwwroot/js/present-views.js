@@ -1,7 +1,7 @@
 // The two map views of the customer presentation, behind one interface:
 //   create3dView - Google's photorealistic 3D (Maps JavaScript "maps3d": Map3DElement), the show-off view
 //   create2dView - the satellite map, when 3D can't load (key/API not enabled, old browser, no WebGL)
-// Both: { showAll(): Promise, fly(i): Promise, orbit(i, ms): Promise, stop(), highlight(i) }.
+// Both: { showAll(): Promise, fly(i): Promise, orbit(i, ms): Promise, stop(), highlight(i), showMe(position, fly): Promise }.
 // Items come from GET /api/presentation: { polygons: [GeoJSON Polygon], statusColor, ... }.
 (function (window) {
   "use strict";
@@ -110,8 +110,24 @@
       return { camera: camera, durationMillis: ms, repeatCount: 1 };
     }
 
+    var me = null; // "you are here" pin
+    var MePin = lib.Marker3DElement || lib.Marker3DInteractiveElement;
+
     return {
       kind: "3d",
+      /** The viewer's own position (my-location.js); fly = also bring the camera there. */
+      showMe: function (p, fly) {
+        var position = { lat: p.lat, lng: p.lng, altitude: 3 };
+        if (!me) {
+          me = new MePin({ position: position, altitudeMode: relativeToGround, extruded: true, label: "You" });
+          map.append(me);
+        } else {
+          me.position = position;
+        }
+        if (!fly) { return Promise.resolve(); }
+        var cam = { center: { lat: p.lat, lng: p.lng, altitude: 0 }, range: Math.min(20000, Math.max(350, p.accuracy * 4)), tilt: 60, heading: 30 };
+        return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 2500 }); }, 2500);
+      },
       showAll: function () {
         return animation(map, function () { map.flyCameraTo({ endCamera: overview, durationMillis: 3000 }); }, 3000);
       },
@@ -163,8 +179,26 @@
     }
     fit(allBounds(items), 80);
 
+    var dot = null, ring = null;
+
     return {
       kind: "2d",
+      showMe: function (p, fly) {
+        var here = { lat: p.lat, lng: p.lng };
+        if (!dot) {
+          ring = new google.maps.Circle({ map: map, center: here, radius: p.accuracy, clickable: false,
+            strokeColor: "#2563eb", strokeOpacity: 0.5, strokeWeight: 1, fillColor: "#3b82f6", fillOpacity: 0.15 });
+          dot = new google.maps.Marker({ map: map, position: here, clickable: false, zIndex: 9999, title: "You are here",
+            icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#2563eb", fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 3 } });
+        } else {
+          dot.setPosition(here);
+          ring.setCenter(here);
+          ring.setRadius(p.accuracy);
+        }
+        if (!fly) { return Promise.resolve(); }
+        if (p.accuracy > 150) { map.fitBounds(ring.getBounds()); } else { map.panTo(here); if (map.getZoom() < 18) { map.setZoom(18); } }
+        return new Promise(function (r) { setTimeout(r, 1200); });
+      },
       showAll: function () { return fit(allBounds(items), 80); },
       fly: function (i) {
         return fit(boundsOf(items[i].polygons), 160).then(function () { if (map.getZoom() > 19) { map.setZoom(19); } });

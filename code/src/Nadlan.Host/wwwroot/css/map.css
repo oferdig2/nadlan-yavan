@@ -145,3 +145,12 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .kind-dot.kind-ot { background: #fb923c; border-color: #ea580c; }
 .kind-dot.kind-noid { background: #f43f5e; border-color: #be123c; }
 .kind-dot.has-assets { box-shadow: 0 0 0 2px #7c3aed; }
+
+/* "Show where I am" (my-location.js): round button above Google's zoom buttons. */
+.map-locate { width: 40px; height: 40px; margin: 0 10px 10px 0; border: 0; border-radius: 50%; background: #fff; color: #475569;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+.map-locate svg { width: 22px; height: 22px; }
+.map-locate:hover { color: #0f172a; }
+.map-locate.on { color: #2563eb; }
+.map-locate.busy svg { animation: map-locate-pulse 1s ease-in-out infinite; }
+@keyframes map-locate-pulse { 50% { opacity: 0.3; } }
