@@ -21,6 +21,8 @@
   // GPS is a battery drain on a phone or iPad in a meeting: tracking ends this long after the last button press, and
   // pauses while the page is in the background.
   var TRACK_FOR_MS = 5 * 60 * 1000;
+  // A position older than this is not used for "where am I" (the user may have walked on, phone locked, to another plot).
+  var FRESH_MS = 30 * 1000;
 
   /**
    * @param {function({ lat: number, lng: number, accuracy: number }): void} onFix  every new position
@@ -30,15 +32,17 @@
   function createLocator(onFix, onError, onStopped) {
     var watchId = null, last = null, stopTimer = null, active = false;
 
+    function fixed(pos) {
+      last = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy || 0, at: Date.now() };
+      onFix(last);
+    }
+    function failed(err) {
+      if (err.code === 1) { stop(); last = null; onError(errorMessage(err)); return; }
+      if (!last) { onError(errorMessage(err)); } // a slow update once we have a position is not worth a message
+    }
     function watch() {
       if (watchId !== null) { return; }
-      watchId = navigator.geolocation.watchPosition(function (pos) {
-        last = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy || 0 };
-        onFix(last);
-      }, function (err) {
-        if (err.code === 1) { stop(); last = null; onError(errorMessage(err)); return; }
-        if (!last) { onError(errorMessage(err)); } // a slow update once we have a position is not worth a message
-      }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+      watchId = navigator.geolocation.watchPosition(fixed, failed, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
     }
     function unwatch() {
       if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
@@ -51,7 +55,8 @@
 
     document.addEventListener("visibilitychange", function () {
       if (!active) { return; }
-      if (document.hidden) { unwatch(); } else { watch(); }
+      // Back from the background (phone unlocked): the old position no longer counts - wait for a fresh one.
+      if (document.hidden) { unwatch(); last = null; } else { watch(); }
     });
 
     return {
@@ -63,11 +68,17 @@
         active = true;
         clearTimeout(stopTimer);
         stopTimer = setTimeout(function () { stop(); if (onStopped) { onStopped(); } }, TRACK_FOR_MS);
+        var watching = watchId !== null;
         watch();
+        // Standing still, a phone may not report again for a long time: ask for a fresh position now instead.
+        if (watching && !(last && Date.now() - last.at <= FRESH_MS)) {
+          navigator.geolocation.getCurrentPosition(fixed, failed, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+        }
         return true;
       },
       stop: stop,
-      last: function () { return last; }
+      /** The current position, or null when there is none yet or it is no longer fresh. */
+      last: function () { return last && Date.now() - last.at <= FRESH_MS ? last : null; }
     };
   }
 

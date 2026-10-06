@@ -57,6 +57,10 @@ public sealed class S3PresignedUrlProvider : IFileUrlProvider
 
     public string GetUrl(string storageKey)
         => _storage.GetDownloadUrl(storageKey, TimeSpan.FromMinutes(_options.Delivery.UrlMinutes), CachingFileUrlProvider.ReuseFor(_options.Delivery.UrlMinutes));
+
+    public string GetUrl(string storageKey, string downloadName)
+        => _storage.GetDownloadUrl(storageKey, TimeSpan.FromMinutes(_options.Delivery.UrlMinutes), CachingFileUrlProvider.ReuseFor(_options.Delivery.UrlMinutes),
+            downloadName);
 }
 
 /// <summary>

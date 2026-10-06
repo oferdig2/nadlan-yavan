@@ -24,12 +24,15 @@ database and in a headless browser. The real Google 3D imagery and a real phone 
   - It now also takes over when 3D loads but never draws (no graphics acceleration, Map Tiles API off, quota used up).
 - **Presentation privacy:**
   - Only **Marketing** photos and videos are shown, whoever presents, so no deeds or ID scans. Captions never show file names.
-  - The Portfolio's internal name and notes are never shown.
+  - The Portfolio's internal name and notes are never shown. The title is sealed by the server into the link: only someone who may edit the Portfolio (or every chosen Asset) can set one, and text typed into the address is ignored.
+  - New uploads keep the file name out of the storage address, and buyer-facing photo links download as "photo.jpg". Files uploaded before this release still have their name in the address (S3 delivery hides it from the download name only).
 - **Large portfolios:** only the first 100 properties are shown, in the Portfolio's own order, with a "first 100 of N" notice.
 - **Touch stops the tour.** Shortcuts ignore Ctrl, Alt and ⌘.
+- **3D fallback, round 7:** any failure on the 3D path (not only the library failing to load) ends in the satellite map. A 3D view that shows any sign of life is never swapped mid-meeting.
+- **"Where am I"** never uses a position older than 30 seconds, or one from before the phone was locked.
 - **Map after saving an Asset:** it refreshes in Parcels view too (purple outline, filter).
 - **Admin lockout prevented:** an Admin without a password no longer counts as "another Admin" while Google sign-in is off. See §2, step 4.
-- **User managers** who aren't Admins can only give roles, grants, passwords and tokens within their own rights. They can never create other user managers.
+- **User managers** who aren't Admins can only give roles, grants, passwords and tokens within their own rights. They can never create other user managers, link a user to a Contact, or manage a user who has one. Their admin lists hide objects and Contacts they can't see. Grants they give last no longer than their own, and revoking someone's access also revokes what they passed on.
 - **Sign-in redirect:** sign-in can no longer be bounced to another site.
 - **Numbers:** build factor, inclination and ownership % keep their decimals (`1.125` stays 1.125). Prices and areas keep the Greek rule (`250.000` = 250,000).
 - **Restore script:** its rollback now really runs on failure, and a failed safety backup restarts the app instead of leaving it stopped.

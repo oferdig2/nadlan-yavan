@@ -42,4 +42,10 @@ public interface IObjectStorage
 public interface IFileUrlProvider
 {
     string GetUrl(string storageKey);
+
+    /// <summary>
+    /// The same, opened inline under <paramref name="downloadName"/> instead of the uploader's file name (for customers:
+    /// "photo.jpg", not "ID_scan_Papadopoulos.jpg"). Delivery modes that can't override it ignore the name.
+    /// </summary>
+    string GetUrl(string storageKey, string downloadName) => GetUrl(storageKey);
 }

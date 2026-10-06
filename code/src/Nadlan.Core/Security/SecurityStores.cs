@@ -139,6 +139,10 @@ public interface IResourceAccessStore
 
     Task<bool> RevokeAsync(long resourceAccessId, CancellationToken ct = default);
 
+    /// <summary>Revokes every grant on the object that <paramref name="grantedByUserId"/> gave. Returns how many.</summary>
+    Task<int> RevokeGrantedByAsync(long grantedByUserId, string resourceType, long resourceId, CancellationToken ct = default)
+        => Task.FromResult(0);
+
     /// <summary>Type-ahead over objects that can be granted.</summary>
     Task<IReadOnlyList<ResourceRef>> SearchResourcesAsync(string resourceType, string? text, int limit, CancellationToken ct = default);
 

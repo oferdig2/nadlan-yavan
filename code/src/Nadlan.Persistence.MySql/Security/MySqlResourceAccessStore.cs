@@ -71,6 +71,15 @@ public sealed class MySqlResourceAccessStore : IResourceAccessStore
             "DELETE FROM resource_access WHERE resource_access_id = @resourceAccessId", new { resourceAccessId }, cancellationToken: ct)) > 0;
     }
 
+    public async Task<int> RevokeGrantedByAsync(long grantedByUserId, string resourceType, long resourceId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM resource_access
+            WHERE granted_by_user_id = @grantedByUserId AND resource_type = @resourceType AND resource_id = @resourceId
+            """, new { grantedByUserId, resourceType, resourceId }, cancellationToken: ct));
+    }
+
     public async Task<IReadOnlyList<ResourceRef>> SearchResourcesAsync(string resourceType, string? text, int limit, CancellationToken ct = default)
     {
         var t = text?.Trim() ?? "";

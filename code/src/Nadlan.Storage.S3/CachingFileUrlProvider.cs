@@ -25,21 +25,26 @@ public sealed class CachingFileUrlProvider : IFileUrlProvider
     /// <summary>How long one signed URL is handed out (and may be cached by the browser): half its lifetime.</summary>
     public static TimeSpan ReuseFor(int urlMinutes) => TimeSpan.FromMinutes(Math.Max(1, urlMinutes) / 2.0);
 
-    public string GetUrl(string storageKey)
+    public string GetUrl(string storageKey) => Cached(storageKey, () => _inner.GetUrl(storageKey));
+
+    public string GetUrl(string storageKey, string downloadName)
+        => Cached(storageKey + "|" + downloadName, () => _inner.GetUrl(storageKey, downloadName)); // "|" never occurs in keys
+
+    private string Cached(string cacheKey, Func<string> sign)
     {
         var now = DateTime.UtcNow;
-        if (_cache.TryGetValue(storageKey, out var hit) && hit.ExpiresUtc > now)
+        if (_cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresUtc > now)
         {
             return hit.Url;
         }
 
-        var url = _inner.GetUrl(storageKey);
+        var url = sign();
         if (_cache.Count >= MaxEntries)
         {
             _cache.Clear();
         }
 
-        _cache[storageKey] = (url, now + _reuseFor);
+        _cache[cacheKey] = (url, now + _reuseFor);
         return url;
     }
 }

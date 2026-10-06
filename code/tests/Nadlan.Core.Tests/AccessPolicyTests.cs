@@ -218,6 +218,24 @@ public class AccessPolicyTests
     private sealed record SignIn(bool GoogleEnabled) : ISignInMethods;
 
     [Fact]
+    public async Task A_user_manager_never_reaches_Assets_through_a_linked_Contact()
+    {
+        var (service, users) = AdminService(); // 1 = Admin, 2 = Agent
+        users.Add(User(6, "agent6@example.gr", null) with { SecurityRoleId = 3, RoleCode = "AGENT", RoleName = "Agent", ContactId = 77 });
+        var manager = new UserAccess { UserId = 3, RoleCode = "AGENT", DisplayName = "Manager",
+            Permissions = new HashSet<string> { Permissions.ManageUsers, "VIEW_OWN_ASSET", "EDIT_OWN_ASSET" } };
+
+        // A peer agent owns Contact 77's Assets: resetting their password would let the manager act as them.
+        Assert.Equal("USERS_ABOVE_YOU", (await Assert.ThrowsAsync<ForbiddenException>(() => service.SetPasswordAsync(manager, 6, "peer takeover 1", false))).Code);
+        // Nor may they make an account linked to a Contact (whose Assets it would own) and sign in as it.
+        Assert.Equal("USERS_CONTACT_ADMIN_ONLY", (await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.CreateAsync(manager, new UserInput("puppet@example.gr", null, 77, 3, true, false), "puppet password 1"))).Code);
+        // An Admin may.
+        await service.CreateAsync(new UserAccess { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Ofer" },
+            new UserInput("linked@example.gr", null, 78, 3, true, false), "linked password 1");
+    }
+
+    [Fact]
     public async Task A_user_manager_hands_out_nothing_they_dont_have_themselves()
     {
         var (service, users) = AdminService(); // 1 = Admin, 2 = Agent

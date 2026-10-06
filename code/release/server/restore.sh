@@ -32,12 +32,34 @@ trap 'rm -f "$CNF" "$KEEP_DUMP"' EXIT
 DB=$(cnf_database "$CNF")
 [[ "$DB" =~ ^[A-Za-z0-9_]+$ ]] || die "Unexpected database name '$DB'."
 
+# The old data is safe in the safety dump, but whatever goes wrong from here on - an error, Ctrl-C, a dropped SSH
+# connection - must leave the server running: before the old data is dropped the app is simply started again, after
+# that the safety dump is put back first.
+PHASE=stopping
+rollback() {
+    echo "Restore FAILED - putting the previous data back from $SAFETY" >&2
+    mysql --defaults-file="$CNF" -e "DROP DATABASE IF EXISTS \`$DB\`; CREATE DATABASE \`$DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;" &&
+        gunzip -c "$SAFETY" | mysql --defaults-file="$CNF" --default-character-set=utf8mb4 "$DB" &&
+        echo "Previous data restored." >&2 || echo "Rollback failed too: restore $SAFETY by hand (restore.sh $SAFETY --yes)." >&2
+}
+on_failure() {
+    trap - ERR INT TERM HUP
+    if [[ "$PHASE" == "replacing" ]]; then
+        rollback
+    else
+        echo "Restore stopped before any data was changed - starting the app again." >&2
+    fi
+    systemctl start "$SERVICE" || true
+}
+trap 'on_failure' ERR
+trap 'on_failure; exit 130' INT TERM HUP
+
 step "Stopping the app"
 systemctl stop "$SERVICE" || true
 
 step "Safety dump of the current data"
 SAFETY=$(bash "$SELF_DIR/backup.sh" before-restore | tail -n 1) || SAFETY="" # a failure must not exit here: the app is stopped
-[[ -f "$SAFETY" ]] || { systemctl start "$SERVICE" || true; die "Safety dump failed; nothing was changed."; }
+[[ -f "$SAFETY" ]] || { on_failure; die "Safety dump failed; nothing was changed."; }
 
 if [[ ${#KEEP_TABLES[@]} -gt 0 ]]; then
     mysqldump --defaults-file="$CNF" --single-transaction --no-tablespaces --set-gtid-purged=OFF \
@@ -46,14 +68,7 @@ if [[ ${#KEEP_TABLES[@]} -gt 0 ]]; then
 fi
 
 # From here on the old data is gone until the restore finishes: any failure puts the safety dump back.
-rollback() {
-    echo "Restore FAILED - putting the previous data back from $SAFETY" >&2
-    mysql --defaults-file="$CNF" -e "DROP DATABASE IF EXISTS \`$DB\`; CREATE DATABASE \`$DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;" &&
-        gunzip -c "$SAFETY" | mysql --defaults-file="$CNF" --default-character-set=utf8mb4 "$DB" &&
-        echo "Previous data restored." >&2 || echo "Rollback failed too: restore $SAFETY by hand (restore.sh $SAFETY --yes)." >&2
-    systemctl start "$SERVICE" || true
-}
-trap 'rollback' ERR
+PHASE=replacing
 
 step "Restoring '$DB' from $(basename "$FILE")"
 mysql --defaults-file="$CNF" -e "DROP DATABASE IF EXISTS \`$DB\`; CREATE DATABASE \`$DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
@@ -81,7 +96,8 @@ fi
 step "Schema"
 run_dbtool "$RELEASE_DIR" migrate
 
-trap - ERR
+PHASE=done
+trap - ERR INT TERM HUP
 step "Starting the app"
 systemctl start "$SERVICE"
 wait_healthy "" 90

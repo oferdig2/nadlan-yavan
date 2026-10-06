@@ -35,11 +35,19 @@ public static class UserAdminEndpoints
                 : Results.Json(new { error = "USERS_FORBIDDEN", message = "Only an administrator can manage users." }, statusCode: StatusCodes.Status403Forbidden);
         });
 
-        group.MapGet("/users", async (string? q, bool? includeInactive, IUserStore users, CancellationToken ct) =>
-            Results.Ok((await users.SearchAsync(q, includeInactive ?? true, 500, ct)).Select(ToDto)));
+        group.MapGet("/users", async (string? q, bool? includeInactive, UserAccess me, IUserStore users, UserAdminService service, CancellationToken ct) =>
+        {
+            var shown = new List<object>();
+            foreach (var u in await users.SearchAsync(q, includeInactive ?? true, 500, ct))
+            {
+                shown.Add(ToDto(await service.ForManagerAsync(me, u, ct)));
+            }
 
-        group.MapGet("/users/{userId:long}", async (long userId, IUserStore users, CancellationToken ct) =>
-            await users.GetAsync(userId, ct) is { } u ? Results.Ok(ToDto(u)) : throw new EntityNotFoundException("User", userId));
+            return Results.Ok(shown);
+        });
+
+        group.MapGet("/users/{userId:long}", async (long userId, UserAccess me, IUserStore users, UserAdminService service, CancellationToken ct) =>
+            await users.GetAsync(userId, ct) is { } u ? Results.Ok(ToDto(await service.ForManagerAsync(me, u, ct))) : throw new EntityNotFoundException("User", userId));
 
         group.MapPost("/users", async (UserDto dto, UserAccess me, UserAdminService service, CancellationToken ct) =>
             Results.Ok(ToDto(await service.CreateAsync(me, ToInput(dto), dto.Password, ct))));
@@ -111,8 +119,8 @@ public static class UserAdminEndpoints
         });
 
         // Explicit access (ResourceAccessEditor).
-        group.MapGet("/users/{userId:long}/access", async (long userId, IResourceAccessStore grants, CancellationToken ct) =>
-            Results.Ok(await grants.ListForUserAsync(userId, ct)));
+        group.MapGet("/users/{userId:long}/access", async (long userId, UserAccess me, UserAdminService service, CancellationToken ct) =>
+            Results.Ok(await service.ListGrantsAsync(me, userId, ct)));
 
         group.MapPost("/users/{userId:long}/access", async (long userId, GrantDto dto, UserAccess me, UserAdminService service, CancellationToken ct) =>
             Results.Ok(new { resourceAccessId = await service.GrantAsync(me, userId, dto.ResourceType, dto.ResourceId, dto.PermissionCode, dto.ExpiresUtc, ct) }));
@@ -124,11 +132,11 @@ public static class UserAdminEndpoints
             return Results.NoContent();
         });
 
-        // Type-ahead for the grant editor: any Asset/Parcel/Portfolio/Contact (Admins see everything).
-        group.MapGet("/resources", async (string? type, string? q, IResourceAccessStore grants, CancellationToken ct) =>
+        // Type-ahead for the grant editor: Admins search everything, user managers only what they can see.
+        group.MapGet("/resources", async (string? type, string? q, UserAccess me, UserAdminService service, CancellationToken ct) =>
         {
             var t = ResourceTypes.Normalize(type) ?? throw new DomainValidationException("GRANT_TYPE_INVALID", "Choose Asset, Parcel, Portfolio or Contact.");
-            return Results.Ok(await grants.SearchResourcesAsync(t, q, 20, ct));
+            return Results.Ok(await service.SearchResourcesAsync(me, t, q, ct)); // a user manager: only what they can see
         });
 
         // Roles and the permission catalog.

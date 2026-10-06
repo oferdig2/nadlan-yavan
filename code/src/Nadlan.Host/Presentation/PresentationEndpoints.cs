@@ -1,8 +1,11 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Files;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Portfolios;
 using Nadlan.Core.Security;
+using Nadlan.Core.Text;
 using Nadlan.Core.Validation;
 using Nadlan.Host.Geo;
 
@@ -26,12 +29,68 @@ public static class PresentationEndpoints
     // and engineering drawings (Legal, Engineering, Cadastral files), the customer must not.
     private const string CustomerCategory = "Marketing";
 
+    public sealed record LinkDto(long? PortfolioId, long[]? AssetIds, string? Title);
+
+    // The title the customer reads travels in the link SEALED by the server (data protection keys, as the sign-in
+    // cookie) and bound to exactly these properties: a hand-made link can't put "pay the deposit to IBAN ..." under
+    // the GreekPlot name. Links last half a year.
+    private const string TitlePurpose = "Nadlan.Presentation.Title.v1";
+    private static readonly TimeSpan LinkLifetime = TimeSpan.FromDays(180);
+    private const int MaxTitleLength = 120;
+
+    private sealed record SealedTitle(long? P, long[]? A, string T);
+
+    private static string Target(long? portfolioId, IReadOnlyList<long>? assetIds)
+        => portfolioId is long p ? "p" + p : "a" + string.Join(",", assetIds ?? Array.Empty<long>());
+
     public static void MapPresentationEndpoints(this IEndpointRouteBuilder app)
     {
-        // ?portfolioId=12  or  ?assetIds=5&assetIds=9 (in that order)
-        app.MapGet("/api/presentation", async (long? portfolioId, long[]? assetIds, UserAccess me, AccessPolicy policy,
-            IPortfolioStore portfolios, IAssetStore assets, IParcelStore parcels, IFileAttachmentStore files, IFileUrlProvider urls,
+        // A link to send: only someone who may edit what is presented (the Portfolio, or every one of the Assets) may
+        // write the customer's title.
+        app.MapPost("/api/presentation/link", async (LinkDto dto, UserAccess me, AccessPolicy policy, IDataProtectionProvider protection,
             CancellationToken ct) =>
+        {
+            var ids = (dto.AssetIds ?? Array.Empty<long>()).Distinct().ToArray();
+            if (dto.PortfolioId is long pid)
+            {
+                if (!(await policy.PortfolioAsync(me, pid, ct)).CanEdit)
+                {
+                    throw new ForbiddenException("PRESENTATION_TITLE_FORBIDDEN", "Only someone who may edit this Portfolio can title its presentation.");
+                }
+            }
+            else
+            {
+                if (ids.Length is 0 or > MaxAssets)
+                {
+                    throw new DomainValidationException("PRESENTATION_EMPTY", $"Choose 1 to {MaxAssets} Assets.");
+                }
+
+                foreach (var id in ids)
+                {
+                    if (!(await policy.AssetAsync(me, id, ct)).CanEdit)
+                    {
+                        throw new ForbiddenException("PRESENTATION_TITLE_FORBIDDEN", $"You may not present Asset #{id} with a title of your own.");
+                    }
+                }
+            }
+
+            var query = dto.PortfolioId is long p ? $"portfolio={p}" : "assets=" + string.Join(",", ids);
+            var title = TextNormalize.NullIfBlank(dto.Title);
+            if (title is null)
+            {
+                return Results.Ok(new { url = "/present.html?" + query });
+            }
+
+            title = title.Length <= MaxTitleLength ? title : title[..MaxTitleLength];
+            var sealedTitle = protection.CreateProtector(TitlePurpose).ToTimeLimitedDataProtector()
+                .Protect(JsonSerializer.Serialize(new SealedTitle(dto.PortfolioId, dto.PortfolioId is null ? ids : null, title)), LinkLifetime);
+            return Results.Ok(new { url = "/present.html?" + query + "&t=" + Uri.EscapeDataString(sealedTitle) });
+        });
+
+        // ?portfolioId=12  or  ?assetIds=5&assetIds=9 (in that order); t = the sealed title from the link
+        app.MapGet("/api/presentation", async (long? portfolioId, long[]? assetIds, string? t, UserAccess me, AccessPolicy policy,
+            IPortfolioStore portfolios, IAssetStore assets, IParcelStore parcels, IFileAttachmentStore files, IFileUrlProvider urls,
+            IDataProtectionProvider protection, CancellationToken ct) =>
         {
             List<long> order;
             AssetQuery query;
@@ -94,9 +153,39 @@ public static class PresentationEndpoints
                 });
             }
 
-            // No Portfolio name or notes: they are internal ("Deal with X"). The page shows the presenter's own title.
-            return Results.Ok(new { items, total = all.Count, truncated = all.Count > groups.Count });
+            // No Portfolio name or notes: they are internal ("Deal with X"). The title is the presenter's, from a sealed
+            // link for exactly these properties - and only shown when there is something to show.
+            var title = items.Count > 0 ? OpenTitle(protection, t, portfolioId, portfolioId is null ? order : null) : null;
+            return Results.Ok(new { title, items, total = all.Count, truncated = all.Count > groups.Count });
         });
+    }
+
+    // "photo.jpg" / "video.mp4": the kind plus the original's (plain) extension.
+    private static string NeutralName(FileListItem f)
+    {
+        var ext = Path.GetExtension(f.OriginalFileName).ToLowerInvariant();
+        ext = ext.Length is > 1 and <= 6 && ext.Skip(1).All(char.IsAsciiLetterOrDigit) ? ext : "";
+        return (f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ? "video" : "photo") + ext;
+    }
+
+    /// <summary>The sealed title if it is genuine, unexpired and for exactly these properties; else none (never an error).</summary>
+    private static string? OpenTitle(IDataProtectionProvider protection, string? token, long? portfolioId, IReadOnlyList<long>? assetIds)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        try
+        {
+            var json = protection.CreateProtector(TitlePurpose).ToTimeLimitedDataProtector().Unprotect(token);
+            var sealedTitle = JsonSerializer.Deserialize<SealedTitle>(json);
+            return sealedTitle is not null && Target(sealedTitle.P, sealedTitle.A) == Target(portfolioId, assetIds) ? sealedTitle.T : null;
+        }
+        catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or JsonException or FormatException)
+        {
+            return null; // tampered, expired, or from another server
+        }
     }
 
     /// <summary>
@@ -119,8 +208,9 @@ public static class PresentationEndpoints
             .Select(f => (object)new
             {
                 kind = f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ? "video" : "image",
-                url = urls.GetUrl(f.StorageKey),
-                thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null,
+                // Neutral names: the uploader's file name must not reach the customer through the download name.
+                url = urls.GetUrl(f.StorageKey, NeutralName(f)),
+                thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey), "photo.jpg") : null,
                 caption = string.IsNullOrWhiteSpace(f.Caption) ? f.FileTypeName : f.Caption,
             })
             .ToList();

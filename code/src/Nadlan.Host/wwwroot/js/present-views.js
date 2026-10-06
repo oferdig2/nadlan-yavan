@@ -114,22 +114,22 @@
     var MePin = lib.Marker3DElement || lib.Marker3DInteractiveElement;
 
     // Loading the 3D library is not enough: without graphics acceleration, with the Map Tiles API off on the key, or
-    // with its quota used up, the element stays black. It reports "steady" once it has drawn the view.
-    var steady = false, failed = false;
-    map.addEventListener("gmp-steadychange", function (e) {
-      if (e.isSteady || (e.detail && e.detail.isSteady)) { steady = true; }
-    });
+    // with its quota used up, the element stays black and silent. A working one reports its loading state (steady or
+    // not - slow tiles, a presenter dragging the globe) - any such sign means it works. (Not a touch: someone tapping a
+    // black screen would keep it black.)
+    var alive = false, failed = false;
+    map.addEventListener("gmp-steadychange", function () { alive = true; });
     map.addEventListener("gmp-error", function () { failed = true; });
 
     return {
       kind: "3d",
-      /** Resolves true once the 3D map has drawn, false on an error or when nothing came within ms. */
+      /** Decided once, at start: true as soon as the 3D map shows signs of life, false on an error or silence for ms. */
       ready: function (ms) {
         return new Promise(function (resolve) {
           var start = Date.now();
           (function poll() {
             if (failed) { resolve(false); return; }
-            if (steady) { resolve(true); return; }
+            if (alive) { resolve(true); return; }
             if (Date.now() - start > ms) { resolve(false); return; }
             setTimeout(poll, 250);
           })();

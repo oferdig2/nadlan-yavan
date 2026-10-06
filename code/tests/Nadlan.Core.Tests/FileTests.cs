@@ -17,8 +17,8 @@ public class FileTests
 
         var row = files.Rows.Single();
         Assert.Equal("Asset", row.AttachedToType);                          // normalized target type
-        Assert.StartsWith("asset/5/", row.StorageKey);                       // target/id/guid/name, relative to RootFolder
-        Assert.EndsWith("/1.jpg", row.StorageKey);                           // ASCII-only key segment
+        Assert.StartsWith("asset/5/", row.StorageKey);                       // target/id/guid.ext, relative to RootFolder
+        Assert.Matches(@"^asset/5/[0-9a-f]{32}\.jpg$", row.StorageKey);    // no file name in the key (it is in every URL)
         Assert.Equal("Βίλα 1.jpg", row.OriginalFileName);                    // real name kept, path stripped
         Assert.Equal(FileUploadStatus.Pending, row.UploadStatus);
         Assert.Equal(3, session.PartCount);                                  // 20 MiB in 8 MiB parts

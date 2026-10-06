@@ -367,10 +367,18 @@ public sealed class FileService
         }
     }
 
-    // {target}/{id}/{guid}/{name}, relative to the storage root folder (added by IObjectStorage): unique, traceable,
-    // grouped per entity, and unaffected when the files move to another bucket/folder.
+    // {target}/{id}/{guid}{.ext}, relative to the storage root folder (added by IObjectStorage): unique, grouped per
+    // entity, and unaffected when the files move to another bucket/folder. Not the file's name: it is in every URL of the
+    // file, also those a customer sees ("ID_scan_Papadopoulos.jpg"); the name lives in the DB and the download header.
     private string BuildKey(string targetType, long targetId, string fileName)
-        => $"{targetType.ToLowerInvariant()}/{targetId}/{Guid.NewGuid():N}/{SafeKeyName(fileName)}";
+        => $"{targetType.ToLowerInvariant()}/{targetId}/{Guid.NewGuid():N}{KeyExtension(fileName)}";
+
+    // ".jpg" from "Photo.JPG": lower-case, plain characters only, at most 10 - so the object keeps a useful type.
+    internal static string KeyExtension(string fileName)
+    {
+        var ext = SafeKeyName(Path.GetExtension(fileName)).ToLowerInvariant();
+        return ext.Length is > 0 and <= 10 && ext != "file" ? "." + ext.TrimStart('.') : "";
+    }
 
     internal static string CleanFileName(string? name)
     {

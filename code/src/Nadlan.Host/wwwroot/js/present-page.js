@@ -16,12 +16,14 @@
   }
 
   // ?portfolio=12 | ?assets=5,9,3
+  // t = the title sealed by the server (POST /api/presentation/link); text in the address itself is never shown.
   function readQuery() {
     var q = new URLSearchParams(window.location.search);
+    var sealed = q.get("t") || null;
     var portfolio = Number(q.get("portfolio"));
-    if (portfolio > 0) { return { portfolioId: portfolio }; }
+    if (portfolio > 0) { return { portfolioId: portfolio, t: sealed }; }
     var ids = (q.get("assets") || "").split(",").map(function (s) { return Number(s.trim()); }).filter(function (n) { return n > 0; });
-    return ids.length ? { assetIds: ids } : null;
+    return ids.length ? { assetIds: ids, t: sealed } : null;
   }
 
   function loadGoogle(apiKey, channel) {
@@ -46,8 +48,9 @@
     } catch (e) { return false; }
   }
 
-  // How long the 3D map may take to draw its first view before the satellite map takes over.
-  var READY_3D_MS = 15000;
+  // How long a silent 3D map (no sign of life at all) is given before the satellite map takes over. Checked once, at
+  // start: a 3D view that works is never swapped later in the meeting.
+  var READY_3D_MS = 20000;
 
   // 3D when Google serves it for this key and browser AND it actually draws; otherwise the satellite map, said once in
   // a small notice. "Draws" covers what loading alone doesn't: no graphics acceleration, the Map Tiles API off on the
@@ -62,15 +65,21 @@
       });
     }
     if (!hasWebGl()) { return satellite(); }
+    var view = null;
     return google.maps.importLibrary("maps3d").then(function (lib) {
       if (!lib || !lib.Map3DElement) { throw new Error("no 3D"); }
-      var view = Nadlan.presentViews.create3dView(lib, stage, items, { onPick: onPick });
+      view = Nadlan.presentViews.create3dView(lib, stage, items, { onPick: onPick });
       return view.ready(READY_3D_MS).then(function (ok) {
-        if (ok) { return view; }
-        view.destroy();
-        return satellite();
+        if (!ok) { throw new Error("3D didn't draw"); }
+        return view;
       });
-    }, satellite);
+    }).catch(function () {
+      // ANY failure on the 3D path - the library, the element (missing in this beta, or refusing to start), drawing -
+      // ends in the satellite map, never a blank page. Whatever 3D left behind is removed first.
+      try { if (view) { view.destroy(); } } catch (e) { /* already gone */ }
+      $(stage).empty();
+      return satellite();
+    });
   }
 
   function price(it) {
@@ -120,10 +129,10 @@
     }).join("");
   }
 
-  // What the customer reads at the top: the title the presenter chose (&title=, from the Present dialog), never the
+  // What the customer reads at the top: the presenter's title (sealed in the link, checked by the server), never the
   // Portfolio's internal name or notes; else a plain "4 properties · Skroponeria, Kokkinis".
-  function titles(items) {
-    var chosen = $.trim(new URLSearchParams(window.location.search).get("title") || "").slice(0, 120);
+  function titles(items, sealedTitle) {
+    var chosen = $.trim(sealedTitle || "").slice(0, 120);
     var areas = [];
     items.forEach(function (it) { if (it.area && areas.indexOf(it.area) < 0) { areas.push(it.area); } });
     var count = items.length === 1 ? heading(items[0]) : items.length + " properties";
@@ -132,7 +141,7 @@
 
   function start(data, config) {
     var items = data.items || [];
-    var t = titles(items);
+    var t = titles(items, data.title);
     $title.text(t.title);
     $sub.text(t.sub);
     document.title = t.title + " — GreekPlot";

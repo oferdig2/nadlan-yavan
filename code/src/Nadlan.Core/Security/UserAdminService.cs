@@ -78,8 +78,21 @@ public sealed class UserAdminService
             throw new ForbiddenException("USERS_ABOVE_YOU", $"{target.Email} has rights you don't have ({role.Name}). Only an Admin can change that account.");
         }
 
+        // A linked Contact makes that Contact's Assets the user's own (edit, prices, files): signing in as them - with a
+        // password the manager set, or a token - would give the manager all of it, whatever the role says.
+        if (target.ContactId is not null)
+        {
+            throw new ForbiddenException("USERS_ABOVE_YOU", $"{target.Email} is linked to a Contact (and so owns its Assets). Only an Admin can change that account.");
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
         foreach (var grant in await _grants.ListForUserAsync(target.UserId, ct))
         {
+            if (grant.ExpiresUtc is DateTime until && until <= now)
+            {
+                continue; // expired: gives nothing any more
+            }
+
             if (!await HoldsAsync(admin, grant.ResourceType, grant.ResourceId, grant.PermissionCode, ct))
             {
                 throw new ForbiddenException("USERS_ABOVE_YOU",
@@ -106,10 +119,59 @@ public sealed class UserAdminService
         }
     }
 
+    // The Contact link decides whose "own" Assets a user gets: only an Admin sets or changes it.
+    private static void RequireMayLinkContact(UserAccess admin, long? contactId, long? existing)
+    {
+        if (!admin.IsAdmin && contactId != existing)
+        {
+            throw new ForbiddenException("USERS_CONTACT_ADMIN_ONLY", "Only an Admin can link a user to a Contact: it makes that Contact's Assets theirs.");
+        }
+    }
+
     // A role a user manager may give (or a user they may handle): no user management, nothing they don't have.
     private static bool WithinOwnRights(UserAccess admin, SecurityRole role)
         => !role.PermissionCodes.Contains(Permissions.ManageUsers, StringComparer.OrdinalIgnoreCase)
            && role.PermissionCodes.All(code => admin.Permissions.Contains(code));
+
+    // Role permissions that give a right on every object of a type: access through them doesn't expire.
+    private static readonly Dictionary<string, (string View, string Edit)> AllObjects = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [ResourceTypes.Asset] = (Permissions.ViewAllAssets, Permissions.EditAllAssets),
+        [ResourceTypes.Parcel] = (Permissions.ViewAllParcels, Permissions.EditAllParcels),
+        [ResourceTypes.Portfolio] = (Permissions.ViewAllPortfolios, Permissions.ManagePortfolios),
+        [ResourceTypes.Contact] = (Permissions.ViewAllContacts, Permissions.ManageContacts),
+    };
+
+    /// <summary>
+    /// When a (non-Admin) manager's own right on the object ends: the latest expiry of their own grants that give it, or
+    /// null when it doesn't end (role covers all objects, an open-ended grant, or ownership).
+    /// </summary>
+    private async Task<DateTime?> OwnAccessEndsAsync(UserAccess u, string type, long resourceId, string permissionCode, CancellationToken ct)
+    {
+        if (u.IsAdmin)
+        {
+            return null;
+        }
+
+        var edit = permissionCode.StartsWith("EDIT_", StringComparison.OrdinalIgnoreCase);
+        if (AllObjects.TryGetValue(type, out var all) && (u.Has(all.Edit) || (!edit && u.Has(all.View))))
+        {
+            return null;
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var own = (await _grants.ListForUserAsync(u.UserId, ct))
+            .Where(g => string.Equals(g.ResourceType, type, StringComparison.OrdinalIgnoreCase) && g.ResourceId == resourceId
+                        && (g.ExpiresUtc is null || g.ExpiresUtc > now)
+                        && (!edit || g.PermissionCode.StartsWith("EDIT_", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (own.Count == 0 || own.Any(g => g.ExpiresUtc is null))
+        {
+            return null; // through ownership / a Portfolio, or open-ended
+        }
+
+        return own.Max(g => g.ExpiresUtc);
+    }
 
     /// <summary>The manager has this right on the object themselves (so may hand it on). Unknown code or no policy: no.</summary>
     private async Task<bool> HoldsAsync(UserAccess u, string resourceType, long resourceId, string permissionCode, CancellationToken ct)
@@ -165,6 +227,7 @@ public sealed class UserAdminService
         RequireAdmin(admin);
         var (email, name, role) = await ValidateAsync(input, existing: null, ct);
         RequireMayAssign(admin, role);
+        RequireMayLinkContact(admin, input.ContactId, existing: null);
         if (await _users.GetByEmailAsync(email, ct) is not null)
         {
             throw new DomainValidationException("USER_EMAIL_EXISTS", $"A user with {email} already exists.");
@@ -208,6 +271,7 @@ public sealed class UserAdminService
         await RequireMayManageAsync(admin, existing, ct);
         var (email, name, role) = await ValidateAsync(input, existing, ct);
         RequireMayAssign(admin, role);
+        RequireMayLinkContact(admin, input.ContactId, existing.ContactId);
         if (email != existing.Email && await _users.GetByEmailAsync(email, ct) is not null)
         {
             throw new DomainValidationException("USER_EMAIL_EXISTS", $"A user with {email} already exists.");
@@ -389,6 +453,12 @@ public sealed class UserAdminService
             throw new ForbiddenException("GRANT_ABOVE_YOU", $"You can only give access you have yourself - you don't have \"{permission.Name}\" here.");
         }
 
+        // ... and for no longer than they have it: their own grant's expiry caps the one they give.
+        if (await OwnAccessEndsAsync(admin, type, resourceId, permission.Code, ct) is DateTime ownEnd && (expiresUtc is null || expiresUtc > ownEnd))
+        {
+            expiresUtc = ownEnd;
+        }
+
         if (expiresUtc is DateTime e && e <= _clock.GetUtcNow().UtcDateTime)
         {
             throw new DomainValidationException("GRANT_EXPIRY_PAST", "The expiry must be in the future.");
@@ -415,12 +485,70 @@ public sealed class UserAdminService
             throw new EntityNotFoundException("Grant", resourceAccessId);
         }
 
+        // What this user had passed on for the object goes with their own access (a manager can't keep a door open
+        // for someone else after losing it themselves).
+        var passedOn = await _grants.RevokeGrantedByAsync(userId, grant.ResourceType, grant.ResourceId, ct);
+        if (passedOn > 0)
+        {
+            await _activity.RecordAsync(new ActivityEntry(grant.ResourceType, grant.ResourceId, ActivityActions.AccessRevoked,
+                $"{passedOn} grant(s) given by {user.DisplayName} ({user.Email}) revoked with their own access."), ct);
+        }
+
         var label = grant.ResourceLabel ?? $"{grant.ResourceType} #{grant.ResourceId}";
         await AuditAsync(userId, ActivityActions.AccessRevoked, $"{grant.PermissionName} revoked: {label} (by {admin.DisplayName}).",
             new { grant.ResourceType, grant.ResourceId, permission = grant.PermissionCode }, ct);
         await _activity.RecordAsync(new ActivityEntry(grant.ResourceType, grant.ResourceId, ActivityActions.AccessRevoked,
             $"{user.DisplayName} ({user.Email}) no longer has \"{grant.PermissionName}\".", new { userId, permission = grant.PermissionCode }), ct);
     }
+
+    // ---- What the admin lists show a (non-Admin) user manager ---------------------------------------------------
+    // Only objects and Contacts they could see anyway: user administration must not be a window onto everything.
+
+    private const string NotVisibleLabel = "(not visible to you)";
+
+    /// <summary>Type-ahead of the grant editor: for a user manager, only objects they can see.</summary>
+    public async Task<IReadOnlyList<ResourceRef>> SearchResourcesAsync(UserAccess me, string type, string? text, CancellationToken ct = default)
+    {
+        RequireAdmin(me);
+        if (me.IsAdmin)
+        {
+            return await _grants.SearchResourcesAsync(type, text, 20, ct);
+        }
+
+        var visible = new List<ResourceRef>();
+        foreach (var r in await _grants.SearchResourcesAsync(type, text, 200, ct))
+        {
+            if (visible.Count == 20) { break; }
+            if (await HoldsAsync(me, type, r.Id, "VIEW_", ct)) { visible.Add(r); }
+        }
+
+        return visible;
+    }
+
+    /// <summary>A user's grants; objects the manager can't see keep their kind and permission but lose their name.</summary>
+    public async Task<IReadOnlyList<ResourceGrant>> ListGrantsAsync(UserAccess me, long userId, CancellationToken ct = default)
+    {
+        RequireAdmin(me);
+        var grants = await _grants.ListForUserAsync(userId, ct);
+        if (me.IsAdmin)
+        {
+            return grants;
+        }
+
+        var shown = new List<ResourceGrant>();
+        foreach (var g in grants)
+        {
+            shown.Add(await HoldsAsync(me, g.ResourceType, g.ResourceId, "VIEW_", ct) ? g : g with { ResourceLabel = NotVisibleLabel });
+        }
+
+        return shown;
+    }
+
+    /// <summary>The user as the manager may see it: the linked Contact's name only if they can see that Contact.</summary>
+    public async Task<AppUser> ForManagerAsync(UserAccess me, AppUser user, CancellationToken ct = default)
+        => me.IsAdmin || user.ContactId is not long contactId || await HoldsAsync(me, ResourceTypes.Contact, contactId, "VIEW_", ct)
+            ? user
+            : user with { ContactName = NotVisibleLabel };
 
     // ---- API tokens (for tools such as the KAEK importer) -------------------------------------------------------
 

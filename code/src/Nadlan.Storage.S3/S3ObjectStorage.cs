@@ -40,7 +40,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
     /// "Cache-Control: private, max-age=<paramref name="browserCache"/>", so a browser that sees the same URL again
     /// (CachingFileUrlProvider hands out one URL per file for a while) shows the file from its cache.
     /// </summary>
-    public string GetDownloadUrl(string key, TimeSpan lifetime, TimeSpan? browserCache = null)
+    public string GetDownloadUrl(string key, TimeSpan lifetime, TimeSpan? browserCache = null, string? downloadName = null)
         => Guard(() =>
         {
             var request = new GetPreSignedUrlRequest
@@ -54,6 +54,11 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             if (browserCache is { } cache && cache > TimeSpan.Zero)
             {
                 request.ResponseHeaderOverrides.CacheControl = $"private, max-age={(long)cache.TotalSeconds}";
+            }
+
+            if (!string.IsNullOrEmpty(downloadName))
+            {
+                request.ResponseHeaderOverrides.ContentDisposition = $"inline; filename=\"{downloadName}\"";
             }
 
             return Client.GetPreSignedURL(request);
