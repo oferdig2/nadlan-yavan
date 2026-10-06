@@ -198,10 +198,16 @@ function Get-SshOptions($Target) {
 }
 
 function Test-SshTarget($Target) {
-    for ($attempt = 1; $attempt -le 2; $attempt++) {
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
         $r = Invoke-Native "ssh" (@(Get-SshOptions $Target) + @("-o", "BatchMode=yes", $Target.Address, "echo ok"))
         if ($r.Ok) { Write-Host "SSH to $($Target.Address): ok" -ForegroundColor DarkGray; return }
-        if ($attempt -eq 1 -and $r.Err -match "UNPROTECTED PRIVATE KEY|bad permissions") {
+        # A dropped connection (exit 255 without a key/permission problem) is often a passing network hiccup.
+        if ($attempt -lt 4 -and $r.Code -eq 255 -and $r.Err -notmatch "Permission denied|UNPROTECTED PRIVATE KEY|bad permissions|Could not resolve") {
+            Write-Host "SSH to $($Target.Address) dropped$(if ($r.Err) { " ($($r.Err.Trim()))" }); retrying in 5 s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 5
+            continue
+        }
+        if ($r.Err -match "UNPROTECTED PRIVATE KEY|bad permissions") {
             Write-Host "Windows OpenSSH refuses a key file that other accounts can read." -ForegroundColor Yellow
             if (Read-YesNo "Restrict '$($Target.Key)' to your Windows user only?" $true) {
                 & icacls $Target.Key /inheritance:r /grant:r "$($env:USERNAME):R" | Out-Null
