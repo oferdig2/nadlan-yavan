@@ -656,6 +656,9 @@ public sealed class UserAdminService
             throw new DomainValidationException("ROLE_SYSTEM", "The Admin role always has every permission and can't be changed.");
         }
 
+        // Blank or missing entries (e.g. [""] or [null] sent by a script) mean nothing - not a crash.
+        permissionCodes = permissionCodes.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList();
+
         var n = TextNormalize.NullIfBlank(name) ?? throw new DomainValidationException("ROLE_NAME_REQUIRED", "Enter a name.");
         if (!_allowUserManagers && permissionCodes.Contains(Permissions.ManageUsers, StringComparer.OrdinalIgnoreCase))
         {

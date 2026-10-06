@@ -188,7 +188,8 @@ public sealed class AccessPolicy
                 return await ContactAsync(u, attachedToId, ct);
             case FileTargetTypes.User:
                 var self = u.UserId == attachedToId;
-                return new ObjectRights(self || u.Has(Permissions.ManageUsers), self || u.Has(Permissions.ManageUsers));
+                // A user's own files (ID scans, passports): the user and Admins only - user administration is Admin-only.
+                return new ObjectRights(self || u.IsAdmin, self || u.IsAdmin);
             default:
                 return ObjectRights.None;
         }

@@ -219,6 +219,15 @@ public class AccessPolicyTests
     private sealed record SignIn(bool GoogleEnabled) : ISignInMethods;
 
     [Fact]
+    public async Task A_role_saved_with_blank_permission_entries_just_ignores_them()
+    {
+        var (service, _) = AdminService();
+        var admin = new UserAccess { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Ofer" };
+
+        await service.UpdateRoleAsync(admin, 2, "Viewer", null, true, new[] { "", " ", null!, "VIEW_OWN_ASSET" }); // no crash
+    }
+
+    [Fact]
     public async Task User_administration_is_for_Admins_only()
     {
         var users = new FakeUsers();

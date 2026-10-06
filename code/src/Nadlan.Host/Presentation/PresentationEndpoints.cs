@@ -29,6 +29,15 @@ public static class PresentationEndpoints
     // and engineering drawings (Legal, Engineering, Cadastral files), the customer must not.
     private const string CustomerCategory = "Marketing";
 
+    // What a buyer's browser can show as a photo or play as a video, and nothing that could run as a page (SVG, XHTML,
+    // XML...): an allow-list, so a new or odd type is left out rather than let in. HEIC is out too - most browsers
+    // can't show it.
+    private static readonly HashSet<string> CustomerMediaTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/png", "image/webp", "image/gif", "image/avif",
+        "video/mp4", "video/webm", "video/quicktime",
+    };
+
     public sealed record LinkDto(long? PortfolioId, long[]? AssetIds, string? Title);
 
     // The title the customer reads travels in the link SEALED by the server (data protection keys, as the sign-in
@@ -161,9 +170,21 @@ public static class PresentationEndpoints
         });
     }
 
+    // Besides the 120 visible characters, a ceiling on what they are made of: one "character" can be a family emoji or a
+    // letter under a stack of accents, and the sealed link must stay short enough to open.
+    private const int MaxTitleChars = 240;
+
+    // Letters that look like nothing (Hangul fillers, braille blank) or a mark that does nothing (combining grapheme
+    // joiner, Mongolian vowel separator): invisible, so dropped like control characters.
+    private static readonly HashSet<char> BlankLookingChars = new() { 'ᅟ', 'ᅠ', 'ㅤ', 'ﾠ', '⠀', '͏', '᠎' };
+
+    // Accents per letter: real text has one or two; "Zalgo" text stacks dozens to smear over the page.
+    private const int MaxMarksPerLetter = 2;
+
     /// <summary>
     /// The title as plain visible text: no control or invisible formatting characters (right-to-left overrides,
-    /// zero-width joiners used to disguise text), spaces collapsed, cut on whole characters (never inside an emoji).
+    /// zero-width joiners used to disguise text), at most 2 accents per letter, spaces collapsed, cut on whole
+    /// characters (never inside an emoji) at 120 of them or 240 text units, whichever comes first.
     /// </summary>
     internal static string? CleanTitle(string? raw)
     {
@@ -173,10 +194,11 @@ public static class PresentationEndpoints
         }
 
         var sb = new System.Text.StringBuilder(raw.Length);
+        var marks = 0;
         for (var i = 0; i < raw.Length; i++)
         {
             var ch = raw[i];
-            // The zero-width joiner holds emoji together ("👨‍👩‍👧"): kept right after an emoji, dropped anywhere else.
+            // The zero-width joiner holds emoji together (family emoji): kept right after an emoji, dropped anywhere else.
             if (ch == '‍' && i > 0 && (char.IsLowSurrogate(raw[i - 1]) || raw[i - 1] == '️'))
             {
                 sb.Append(ch);
@@ -185,7 +207,8 @@ public static class PresentationEndpoints
 
             var category = char.GetUnicodeCategory(ch);
             if (category is System.Globalization.UnicodeCategory.Control or System.Globalization.UnicodeCategory.Format
-                or System.Globalization.UnicodeCategory.LineSeparator or System.Globalization.UnicodeCategory.ParagraphSeparator)
+                or System.Globalization.UnicodeCategory.LineSeparator or System.Globalization.UnicodeCategory.ParagraphSeparator
+                || BlankLookingChars.Contains(ch))
             {
                 if (char.IsWhiteSpace(ch))
                 {
@@ -193,6 +216,19 @@ public static class PresentationEndpoints
                 }
 
                 continue;
+            }
+
+            if (category is System.Globalization.UnicodeCategory.NonSpacingMark or System.Globalization.UnicodeCategory.EnclosingMark
+                && ch != '️') // the emoji presentation selector is not an accent
+            {
+                if (++marks > MaxMarksPerLetter)
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                marks = 0;
             }
 
             sb.Append(char.IsWhiteSpace(ch) ? ' ' : ch);
@@ -204,8 +240,16 @@ public static class PresentationEndpoints
             return null;
         }
 
+        // Whole characters only: drop the last ones until both limits hold.
         var info = new System.Globalization.StringInfo(text);
-        return info.LengthInTextElements <= MaxTitleLength ? text : info.SubstringByTextElements(0, MaxTitleLength).TrimEnd();
+        var count = Math.Min(info.LengthInTextElements, MaxTitleLength);
+        var cut = info.SubstringByTextElements(0, count);
+        while (cut.Length > MaxTitleChars && count > 1)
+        {
+            cut = info.SubstringByTextElements(0, --count);
+        }
+
+        return cut.Length <= MaxTitleChars ? cut.TrimEnd() : null; // one endless emoji chain: no title rather than a broken link
     }
 
     // "photo.jpg" / "video.mp4": the kind plus the original's (plain) extension.
@@ -251,9 +295,7 @@ public static class PresentationEndpoints
         }
 
         return all.Where(f => string.Equals(f.Category, CustomerCategory, StringComparison.OrdinalIgnoreCase) && me.CanSeeFileCategory(f.Category)
-                              // Photos and videos only - not SVG, which a browser runs as a page (scripts) when opened.
-                              && (f.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) && !f.MimeType.Contains("svg", StringComparison.OrdinalIgnoreCase)
-                                  || f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)))
+                              && CustomerMediaTypes.Contains(f.MimeType.Split(';')[0].Trim()))
             .Take(MaxMediaPerAsset)
             .Select(f => (object)new
             {

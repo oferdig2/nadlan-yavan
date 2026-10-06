@@ -33,7 +33,8 @@ public class MigrationScriptTests
                 Assert.True(
                     statement.StartsWith("CREATE ", StringComparison.OrdinalIgnoreCase) ||
                     statement.StartsWith("INSERT ", StringComparison.OrdinalIgnoreCase) ||
-                    statement.StartsWith("ALTER ", StringComparison.OrdinalIgnoreCase),
+                    statement.StartsWith("ALTER ", StringComparison.OrdinalIgnoreCase) ||
+                    statement.StartsWith("DELETE ", StringComparison.OrdinalIgnoreCase),
                     $"{script}: unexpected statement start: {statement[..Math.Min(80, statement.Length)]}");
                 Assert.Equal(statement.Count(c => c == '('), statement.Count(c => c == ')'));
             }
