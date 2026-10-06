@@ -52,6 +52,8 @@ if ! rpm -q mysql84-community-release >/dev/null 2>&1; then
     dnf -y install https://dev.mysql.com/get/mysql84-community-release-el9-1.noarch.rpm ||
         dnf -y install https://repo.mysql.com/mysql84-community-release-el9.rpm
 fi
+# MySQL publishes for el/9; Amazon Linux 2023's $releasever (e.g. 2023.12.20260930) gives 404s on every dnf run.
+sed -i 's/\$releasever/9/g' /etc/yum.repos.d/mysql-community*.repo
 
 new_password() {
     # MySQL's validate_password wants upper, lower, digit and a special character; '-' and '_' are also safe in the
