@@ -58,7 +58,7 @@ try {
     [IO.File]::WriteAllText($cnf, "[client]`nhost=$dbHost`nport=$dbPort`nuser=$dbUser`npassword=$quote$($dbPassword.Replace('\', '\\'))$quote`n", (New-Object System.Text.UTF8Encoding($false)))
 
     $localVersion = [int](Invoke-LocalSql "SELECT COALESCE(MAX(version), 0) FROM schema_version")
-    $counts = Invoke-LocalSql "SELECT CONCAT((SELECT COUNT(*) FROM parcel), ' parcels, ', (SELECT COUNT(*) FROM app_user), ' users')"
+    $counts = Invoke-LocalSql "SELECT CONCAT((SELECT COUNT(*) FROM parcel), ' parcels, ', (SELECT COUNT(*) FROM asset), ' assets, ', (SELECT COUNT(*) FROM contact), ' contacts')"
     $localBucket = Invoke-LocalSql 'SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(json_text, ''$.Nadlan.Storage.Bucket'')), '''') FROM app_config WHERE config_key = ''ms:host'''
     $localRoot = (Invoke-LocalSql 'SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(json_text, ''$.Nadlan.Storage.RootFolder'')), '''') FROM app_config WHERE config_key = ''ms:host''').Trim('/')
     Write-Host "Local '$dbName': schema version $localVersion, $counts; files in s3://$localBucket/$localRoot"
@@ -78,8 +78,9 @@ try {
     $serverRoot = "$($serverConfig.Nadlan.Storage.RootFolder)".Trim('/')
 
     Write-Host ""
-    Write-Host "This REPLACES all data on $($target.Host) with your local '$dbName' ($counts)." -ForegroundColor Yellow
-    Write-Host "The server's settings (app_config) are kept, and its current data is dumped to /var/backups/nadlan first." -ForegroundColor Yellow
+    Write-Host "This REPLACES the data on $($target.Host) - parcels, assets, contacts, areas, portfolios, history - with your local '$dbName' ($counts)." -ForegroundColor Yellow
+    Write-Host "NOT copied (the server keeps its own): users and passwords, roles, grants, API tokens, reset links, cookie keys, settings." -ForegroundColor Yellow
+    Write-Host "The server's current data is dumped to /var/backups/nadlan first." -ForegroundColor Yellow
     $typed = "$(Read-Host "Type the server address ($($target.Host)) to confirm")"
     if ($typed.Trim() -ne $target.Host) { throw "Not confirmed; nothing changed." }
 
