@@ -1,31 +1,31 @@
-Nadlan KAEK Importer - Windows
+GreekPlot KAEK Importer - Windows
 ==============================
 
 Install
 1. Right-click the downloaded zip > "Extract All...", then open the extracted folder.
 2. Double-click Install.cmd.
    If Windows shows "Windows protected your PC": click "More info" > "Run anyway".
-3. Start "Nadlan KAEK Importer" from the Start Menu or the desktop shortcut.
+3. Start "GreekPlot KAEK Importer" from the Start Menu or the desktop shortcut.
 
 It installs for your Windows user only; no administrator rights are needed.
 It uses Microsoft Edge (already on every Windows PC) to open the Greek Cadastre map.
 
 Use
-- Zoom in on the map until the yellow parcel lines show, choose the geographic area in the Nadlan panel,
+- Zoom in on the map until the yellow parcel lines show, choose the geographic area in the GreekPlot panel,
   then click "Acquire polygons". Or tick "Import each parcel I click on the map" and click parcels yourself.
 - Close the browser window to quit.
 - A report of every run is saved in Documents\Nadlan\KAEK imports.
 
 Offline (demo) mode
-If the Nadlan server cannot be reached, the importer still runs the whole process and shows the parcels it
-finds (in purple), with a yellow "Offline - nothing will be saved" notice. Nothing is stored in Nadlan; the
+If the GreekPlot server cannot be reached, the importer still runs the whole process and shows the parcels it
+finds (in purple), with a yellow "Offline - nothing will be saved" notice. Nothing is stored in GreekPlot; the
 report in Documents still lists every parcel found.
 
 Settings
-The Nadlan address comes with the package. To change it, create
+The GreekPlot address comes with the package. To change it, create
 %LOCALAPPDATA%\Nadlan\importer.json with:
     { "apiUrl": "https://your-nadlan-address" }
 Logs: %LOCALAPPDATA%\Nadlan\logs
 
 Uninstall
-Settings > Apps > Installed apps > Nadlan KAEK Importer > Uninstall.
+Settings > Apps > Installed apps > GreekPlot KAEK Importer > Uninstall.

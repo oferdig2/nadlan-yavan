@@ -1,5 +1,5 @@
 #!/bin/sh
-# Entry point of "Nadlan KAEK Importer.app".
+# Entry point of "GreekPlot KAEK Importer.app".
 # Apple Silicon Macs only run signed programs. The package is built on Windows, which cannot sign, so on first
 # start the program gets the free "ad-hoc" signature with Apple's own codesign tool (part of every macOS).
 # Once the app is signed with a Developer ID and notarized, this step finds a valid signature and does nothing.
@@ -8,7 +8,7 @@ APP="$DIR/NadlanKaekImporter"
 
 if ! /usr/bin/codesign --verify "$APP" >/dev/null 2>&1; then
     if ! /usr/bin/codesign --force --sign - "$APP" >/dev/null 2>&1; then
-        /usr/bin/osascript -e 'display alert "Nadlan KAEK Importer" message "The app could not prepare itself to run. Move it into the Applications folder (drag it from the download), then open it again." as critical'
+        /usr/bin/osascript -e 'display alert "GreekPlot KAEK Importer" message "The app could not prepare itself to run. Move it into the Applications folder (drag it from the download), then open it again." as critical'
         exit 1
     fi
 fi

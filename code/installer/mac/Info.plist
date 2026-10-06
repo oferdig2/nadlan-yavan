@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Nadlan KAEK Importer</string>
+    <string>GreekPlot KAEK Importer</string>
     <key>CFBundleDisplayName</key>
-    <string>Nadlan KAEK Importer</string>
+    <string>GreekPlot KAEK Importer</string>
     <key>CFBundleIdentifier</key>
     <string>com.nadlan.kaekimporter</string>
     <key>CFBundleVersion</key>

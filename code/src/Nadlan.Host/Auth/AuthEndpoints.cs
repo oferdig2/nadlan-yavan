@@ -123,7 +123,7 @@ public static class AuthEndpoints
                 var link = $"{baseUrl}/password.html?token={Uri.EscapeDataString(token)}";
                 try
                 {
-                    await email.SendAsync(user.Email, "Nadlan - reset your password",
+                    await email.SendAsync(user.Email, "GreekPlot - reset your password",
                         $"Hello {user.DisplayName},\n\nTo choose a new password, open this link (valid for a short time, once):\n{link}\n\n" +
                         "If you didn't ask for this, ignore this email - your password stays as it is.\n", ct);
                 }
@@ -184,6 +184,6 @@ public static class AuthEndpoints
         return local && http.Connection.RemoteIpAddress is { } ip && System.Net.IPAddress.IsLoopback(ip)
             ? $"{http.Request.Scheme}://{http.Request.Host}"
             : throw new DomainValidationException("PUBLIC_URL_NOT_SET",
-                "The server's public address is not set, so no link can be made. An Admin sets Nadlan:Auth:PublicBaseUrl (e.g. https://nadlan.example.com).");
+                "The server's public address is not set, so no link can be made. An Admin sets Nadlan:Auth:PublicBaseUrl (e.g. https://greekplot.example.com).");
     }
 }

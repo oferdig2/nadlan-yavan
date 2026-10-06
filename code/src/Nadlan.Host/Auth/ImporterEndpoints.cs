@@ -18,7 +18,7 @@ public static class ImporterEndpoints
             // Only a person signed in with the cookie; a token must not be able to mint more tokens.
             if (http.User.Identity?.AuthenticationType != AuthSchemes.Cookie)
             {
-                return Results.Json(new { error = "IMPORTER_COOKIE_ONLY", message = "Sign in to Nadlan in the browser to connect the importer." },
+                return Results.Json(new { error = "IMPORTER_COOKIE_ONLY", message = "Sign in to GreekPlot in the browser to connect the importer." },
                     statusCode: StatusCodes.Status403Forbidden);
             }
 

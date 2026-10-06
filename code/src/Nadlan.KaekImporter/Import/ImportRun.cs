@@ -166,7 +166,7 @@ public sealed class ImportRun
 
         if (existing.Count > 0)
         {
-            await _site.LogAsync($"{existing.Count} parcels in this view are already in Nadlan; skipping them.");
+            await _site.LogAsync($"{existing.Count} parcels in this view are already in GreekPlot; skipping them.");
         }
     }
 

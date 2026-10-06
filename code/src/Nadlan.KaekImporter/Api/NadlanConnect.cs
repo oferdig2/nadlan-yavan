@@ -22,7 +22,7 @@ public static class NadlanConnect
         {
             var device = Uri.EscapeDataString(Environment.MachineName);
             await tab.GotoAsync(new Uri(nadlan, $"connect-importer.html?device={device}").ToString(), new() { Timeout = 60_000 });
-            console.WriteLine("Waiting for sign-in and Connect in the Nadlan tab...");
+            console.WriteLine("Waiting for sign-in and Connect in the GreekPlot tab...");
 
             // Survives the detour through the login page and back.
             var token = tab.Locator("#importer-token[data-token]");
@@ -37,7 +37,7 @@ public static class NadlanConnect
             var here = new Uri(tab.Url);
             if (here.Scheme != nadlan.Scheme || !string.Equals(here.Host, nadlan.Host, StringComparison.OrdinalIgnoreCase) || here.Port != nadlan.Port)
             {
-                console.WriteLine($"Ignored a token from {here.GetLeftPart(UriPartial.Authority)}: not the Nadlan address {nadlan}.");
+                console.WriteLine($"Ignored a token from {here.GetLeftPart(UriPartial.Authority)}: not the GreekPlot address {nadlan}.");
                 return null;
             }
 

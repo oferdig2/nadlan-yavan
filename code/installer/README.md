@@ -1,4 +1,4 @@
-# Nadlan KAEK Importer: install packages
+# GreekPlot KAEK Importer: install packages
 
 Build every package from Windows:
 
@@ -9,7 +9,7 @@ cd code\installer
 
 For a release, use `code\release\1-build-importer.ps1` instead. It calls this script, then adds checksums and an admin README, and `2-upload-importer-s3.ps1` publishes the result (see `code\release\README.md`).
 
-The packages are written to `code\dist` (git-ignored). Each one carries `importer.json` with `-ApiUrl`, so its users reach the right Nadlan server with no setup. The packages are self-contained: customers don't need .NET installed.
+The packages are written to `code\dist` (git-ignored). Each one carries `importer.json` with `-ApiUrl`, so its users reach the right GreekPlot server with no setup. The packages are self-contained: customers don't need .NET installed.
 
 | Package | For | Customer steps |
 |---|---|---|
@@ -22,9 +22,9 @@ Each package includes `INSTALL.txt` with these steps for the end user.
 ## How it runs on the customer machine
 
 - **Browser:** the importer uses the installed Edge (Windows) or Chrome (Mac). It downloads Playwright's Chromium (~150 MB, once) only if neither is found. Override with `"browser": "chromium"` in `importer.json`, or with `--browser`.
-- **Connecting to Nadlan:** the first time, the panel shows **Connect to Nadlan**. It opens Nadlan in a new tab of the importer's browser; sign in with email and password (Google usually refuses automated browsers) and click **Connect**. The tab closes by itself and the token is saved in the user's `importer.json`, so later starts are connected at once. The user must be allowed to create Parcels. If the token is revoked, the running import stops and the panel asks to connect again. (A token made by an Admin, Admin → Users → API tokens, can still be put in `importer.json` as `token` or passed with `--token`.)
+- **Connecting to GreekPlot:** the first time, the panel shows **Connect to GreekPlot**. It opens GreekPlot in a new tab of the importer's browser; sign in with email and password (Google usually refuses automated browsers) and click **Connect**. The tab closes by itself and the token is saved in the user's `importer.json`, so later starts are connected at once. The user must be allowed to create Parcels. If the token is revoked, the running import stops and the panel asks to connect again. (A token made by an Admin, Admin → Users → API tokens, can still be put in `importer.json` as `token` or passed with `--token`.)
 - **Settings:** `importer.json` next to the program (from the package) is read first. The user's own `importer.json` then takes priority: `%LOCALAPPDATA%\Nadlan\` on Windows, `~/Library/Application Support/Nadlan/` on Mac. Command-line options override both. Supported keys: `apiUrl`, `token`, `delay`, `missDelay`, `maxViewMetres`, `browser`, `offline`.
-- **Offline (demo) mode:** if the Nadlan server can't be reached within 8 seconds, or with `--offline` / `"offline": true`, the importer runs the whole process but saves nothing. The panel says so, found parcels are drawn in purple, and the CSV report lists them. The server can be given with `--api <url>` (default `http://localhost:5515`) or `apiUrl` in `importer.json`.
+- **Offline (demo) mode:** if the GreekPlot server can't be reached within 8 seconds, or with `--offline` / `"offline": true`, the importer runs the whole process but saves nothing. The panel says so, found parcels are drawn in purple, and the CSV report lists them. The server can be given with `--api <url>` (default `http://localhost:5515`) or `apiUrl` in `importer.json`.
 - **Logs:** daily files in the same user folder under `logs/`. A startup failure (e.g. a bad settings file, or no browser could be started) is shown in a dialog on Mac, or in the console on Windows.
 
 ## Why the warnings, and how to remove them

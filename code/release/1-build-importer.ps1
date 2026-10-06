@@ -56,7 +56,7 @@ foreach ($p in $packages) {
 }
 
 $readme = @"
-Nadlan KAEK Importer $Version - for Nadlan admins
+GreekPlot KAEK Importer $Version - for GreekPlot admins
 ================================================
 Imports parcel polygons from the Greek Cadastre map (gis.ktimanet.gr) into Nadlan at:
     $ApiUrl
@@ -71,7 +71,7 @@ Which file
 Install
 - Windows: right-click the zip > Extract All, open the folder, double-click Install.cmd.
   If "Windows protected your PC" appears: More info > Run anyway. No administrator rights needed.
-- Mac: double-click the .tar.gz, drag "Nadlan KAEK Importer.app" to Applications, open it.
+- Mac: double-click the .tar.gz, drag "GreekPlot KAEK Importer.app" to Applications, open it.
   The first time macOS blocks it: System Settings > Privacy & Security > "Open Anyway" (macOS 13-14: right-click > Open).
 Each package has INSTALL.txt with the full steps.
 

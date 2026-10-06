@@ -1,9 +1,9 @@
-# Installs Nadlan KAEK Importer for the current user: no administrator rights needed.
+# Installs GreekPlot KAEK Importer for the current user: no administrator rights needed.
 # Copies the program to %LOCALAPPDATA%\Programs, adds Start Menu and desktop shortcuts, and registers an
 # uninstaller in Settings > Apps. Run through Install.cmd, from the extracted zip.
 $ErrorActionPreference = "Stop"
 
-$name = "Nadlan KAEK Importer"
+$name = "GreekPlot KAEK Importer"
 $source = Join-Path $PSScriptRoot "app"
 $target = Join-Path $env:LOCALAPPDATA "Programs\$name"
 $exe = Join-Path $target "NadlanKaekImporter.exe"
@@ -16,6 +16,20 @@ try {
     $running = Get-Process NadlanKaekImporter -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }
     if ($running) {
         throw "$name is running. Close its browser window, then run Install.cmd again."
+    }
+
+    # The product was called "Nadlan KAEK Importer" before: remove that install (folder and shortcuts) so only one
+    # remains. The user's settings, token and reports stay where they are (%LOCALAPPDATA%\Nadlan, Documents\Nadlan).
+    $oldName = "Nadlan KAEK Importer"
+    $oldTarget = Join-Path $env:LOCALAPPDATA "Programs\$oldName"
+    if (Get-Process NadlanKaekImporter -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$oldTarget\*" }) {
+        throw "$oldName (the previous name of this program) is running. Close its browser window, then run Install.cmd again."
+    }
+    foreach ($old in @(
+            (Join-Path ([Environment]::GetFolderPath("Programs")) "$oldName.lnk"),
+            (Join-Path ([Environment]::GetFolderPath("Desktop")) "$oldName.lnk"),
+            $oldTarget)) {
+        if (Test-Path $old) { Remove-Item $old -Recurse -Force }
     }
 
     Write-Host "Installing $name to $target ..."
@@ -38,7 +52,7 @@ try {
         $link = $shell.CreateShortcut($path)
         $link.TargetPath = $exe
         $link.WorkingDirectory = $target
-        $link.Description = "Import parcels from the Greek Cadastre map into Nadlan"
+        $link.Description = "Import parcels from the Greek Cadastre map into GreekPlot"
         $link.Save()
     }
 
@@ -48,7 +62,7 @@ try {
     $values = @{
         DisplayName     = $name
         DisplayVersion  = "$version"
-        Publisher       = "Nadlan"
+        Publisher       = "GreekPlot"
         InstallLocation = $target
         DisplayIcon     = $exe
         UninstallString = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$uninstall`""
@@ -61,7 +75,7 @@ try {
 
     Write-Host ""
     Write-Host "$name $version is installed. Start it from the Start Menu or the desktop shortcut." -ForegroundColor Green
-    Write-Host "Your own settings (e.g. a different Nadlan address) go in $env:LOCALAPPDATA\Nadlan\importer.json"
+    Write-Host "Your own settings (e.g. a different GreekPlot address) go in $env:LOCALAPPDATA\Nadlan\importer.json"
     Write-Host ""
     Read-Host "Press Enter to close"
 }

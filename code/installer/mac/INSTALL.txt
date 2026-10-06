@@ -1,4 +1,4 @@
-Nadlan KAEK Importer - Mac
+GreekPlot KAEK Importer - Mac
 ==========================
 
 Needs macOS 13 (Ventura) or newer. Take the package that matches your Mac:
@@ -6,32 +6,32 @@ Needs macOS 13 (Ventura) or newer. Take the package that matches your Mac:
 - "mac-intel" for Macs with an Intel processor
 
 Install
-1. Double-click the downloaded .tar.gz; it unpacks to "Nadlan KAEK Importer.app".
-2. Drag "Nadlan KAEK Importer.app" into your Applications folder.
+1. Double-click the downloaded .tar.gz; it unpacks to "GreekPlot KAEK Importer.app".
+2. Drag "GreekPlot KAEK Importer.app" into your Applications folder.
 3. Open it from Applications. The first time, macOS says it cannot verify the developer:
    - macOS 15 (Sequoia) and newer: click "Done", then open System Settings > Privacy & Security,
-     scroll down to "Nadlan KAEK Importer was blocked" and click "Open Anyway", then confirm.
+     scroll down to "GreekPlot KAEK Importer was blocked" and click "Open Anyway", then confirm.
    - macOS 13-14: right-click (or Control-click) the app > Open > Open.
    This is needed only once.
 
 It uses Google Chrome if it is installed; otherwise it downloads its own browser the first time (~150 MB).
 
 Use
-- Zoom in on the map until the yellow parcel lines show, choose the geographic area in the Nadlan panel,
+- Zoom in on the map until the yellow parcel lines show, choose the geographic area in the GreekPlot panel,
   then click "Acquire polygons". Or tick "Import each parcel I click on the map" and click parcels yourself.
 - Close the browser window to quit.
 - A report of every run is saved in Documents/Nadlan/KAEK imports.
 
 Offline (demo) mode
-If the Nadlan server cannot be reached, the importer still runs the whole process and shows the parcels it
-finds (in purple), with a yellow "Offline - nothing will be saved" notice. Nothing is stored in Nadlan; the
+If the GreekPlot server cannot be reached, the importer still runs the whole process and shows the parcels it
+finds (in purple), with a yellow "Offline - nothing will be saved" notice. Nothing is stored in GreekPlot; the
 report in Documents still lists every parcel found.
 
 Settings
-The Nadlan address comes with the package. To change it, create
+The GreekPlot address comes with the package. To change it, create
 ~/Library/Application Support/Nadlan/importer.json with:
     { "apiUrl": "https://your-nadlan-address" }
 Logs: ~/Library/Application Support/Nadlan/logs
 
 Uninstall
-Drag "Nadlan KAEK Importer" from Applications to the Bin.
+Drag "GreekPlot KAEK Importer" from Applications to the Bin.

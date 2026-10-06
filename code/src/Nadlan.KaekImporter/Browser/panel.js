@@ -57,12 +57,12 @@
     panel = document.createElement("div");
     panel.id = "nadlan-panel";
     panel.innerHTML =
-      "<header><span>Nadlan - import parcels<span id=\"nadlan-user\"></span></span><button type=\"button\" id=\"nadlan-min\" title=\"Minimise\">_</button></header>" +
+      "<header><span>GreekPlot - import parcels<span id=\"nadlan-user\"></span></span><button type=\"button\" id=\"nadlan-min\" title=\"Minimise\">_</button></header>" +
       "<div class=\"body\">" +
       "<div id=\"nadlan-offline\" hidden></div>" +
-      "<div id=\"nadlan-connect\" hidden><b>Not connected to Nadlan.</b> Parcels can only be saved once the importer is signed in." +
-        "<button type=\"button\" id=\"nadlan-connect-btn\">Connect to Nadlan</button>" +
-        "Opens Nadlan in a new tab: sign in with your email and password, then click Connect. The tab closes by itself and " +
+      "<div id=\"nadlan-connect\" hidden><b>Not connected to GreekPlot.</b> Parcels can only be saved once the importer is signed in." +
+        "<button type=\"button\" id=\"nadlan-connect-btn\">Connect to GreekPlot</button>" +
+        "Opens GreekPlot in a new tab: sign in with your email and password, then click Connect. The tab closes by itself and " +
         "the importer remembers the connection. Your user must be allowed to create Parcels.</div>" +
       "<label id=\"nadlan-area-label\">Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">(none)</option></select></label>" +
       "<label class=\"check\"><input type=\"checkbox\" id=\"nadlan-click\"> Import each parcel I click on the map</label>" +
@@ -98,14 +98,14 @@
     document.getElementById("nadlan-connect-btn").onclick = function () {
       var btn = this;
       btn.disabled = true;
-      btn.textContent = "Waiting for the Nadlan tab...";
-      status("Sign in in the Nadlan tab and click Connect.");
+      btn.textContent = "Waiting for the GreekPlot tab...";
+      status("Sign in in the GreekPlot tab and click Connect.");
       window.nadlanConnect().then(function (error) {
         btn.disabled = false;
-        btn.textContent = "Connect to Nadlan";
+        btn.textContent = "Connect to GreekPlot";
         if (error) { status(error); log(error, "err"); } else { status("Connected. Zoom in and click Acquire polygons - or tick the box and click parcels."); }
         refreshState();
-      }, function (e) { btn.disabled = false; btn.textContent = "Connect to Nadlan"; status("Could not connect: " + e.message); });
+      }, function (e) { btn.disabled = false; btn.textContent = "Connect to GreekPlot"; status("Could not connect: " + e.message); });
     };
     counts({});
     refreshState();
@@ -185,7 +185,7 @@
     var off = document.getElementById("nadlan-offline");
     off.hidden = !offline;
     off.innerHTML = offline ? "<b>Offline - nothing will be saved.</b> " + esc(offline) +
-      " The whole process runs and parcels are shown and listed in the report, but they are not stored in Nadlan." : "";
+      " The whole process runs and parcels are shown and listed in the report, but they are not stored in GreekPlot." : "";
     document.getElementById("nadlan-connect").hidden = !needsConnect;
     document.getElementById("nadlan-area-label").hidden = !!offline || needsConnect;
     document.getElementById("nadlan-user").textContent = s.userName && !needsConnect && !offline ? "as " + s.userName : "";
@@ -215,7 +215,7 @@
       (offline
         ? "<div>" + sw("found") + "Found (not saved): <b>" + (c.found || 0) + "</b></div>"
         : "<div>" + sw("created") + "Created: <b>" + (c.created || 0) + "</b></div>" +
-          "<div>" + sw("exists") + "Already in Nadlan: <b>" + (c.exists || 0) + "</b></div>" +
+          "<div>" + sw("exists") + "Already in GreekPlot: <b>" + (c.exists || 0) + "</b></div>" +
           "<div>" + sw("rejected") + "Rejected: <b>" + (c.rejected || 0) + "</b></div>") +
       "<div>" + sw("road") + "Roads skipped: <b>" + (c.roads || 0) + "</b></div>" +
       "<div>Requests to site: <b>" + (c.requests || 0) + "</b></div>" +

@@ -1,8 +1,8 @@
-# Builds the customer install packages of Nadlan KAEK Importer into code\dist:
+# Builds the customer install packages of GreekPlot KAEK Importer into code\dist:
 #   NadlanKaekImporter-<version>-windows.zip          extract, run Install.cmd (per user, no admin)
 #   NadlanKaekImporter-<version>-mac-apple-silicon.tar.gz   M1/M2/M3/M4 Macs
 #   NadlanKaekImporter-<version>-mac-intel.tar.gz            older Intel Macs
-# Each package carries importer.json with the Nadlan address its users should talk to.
+# Each package carries importer.json with the GreekPlot address its users should talk to.
 #
 # Usage:  .\Publish-KaekImporter.ps1 -ApiUrl https://nadlan.example.com -Version 1.0.0
 param(
@@ -17,7 +17,7 @@ $code = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $code "src\Nadlan.KaekImporter\Nadlan.KaekImporter.csproj"
 $dist = Join-Path $code "dist"
 $work = Join-Path $dist "work"
-$appName = "Nadlan KAEK Importer"
+$appName = "GreekPlot KAEK Importer"
 $rids = @{ "windows" = "win-x64"; "mac-apple-silicon" = "osx-arm64"; "mac-intel" = "osx-x64" }
 # Windows' own tar (bsdtar) - it can set Unix file modes, which a Mac needs to run the app.
 $tar = Join-Path $env:SystemRoot "System32\tar.exe"
@@ -115,5 +115,5 @@ foreach ($target in $Targets) {
 
 Remove-Item $work -Recurse -Force
 Write-Host ""
-Write-Host "Packages for Nadlan at $ApiUrl (version $Version):" -ForegroundColor Green
+Write-Host "Packages for GreekPlot at $ApiUrl (version $Version):" -ForegroundColor Green
 $built | ForEach-Object { Write-Host ("  {0}  ({1:N0} MB)" -f $_.FullName, ($_.Length / 1MB)) }

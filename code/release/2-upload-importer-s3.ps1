@@ -69,7 +69,7 @@ foreach ($f in $files) {
     }
 }
 
-$latest = [ordered]@{ product = "Nadlan KAEK Importer"; version = $Version; uploadedUtc = (Get-Date).ToUniversalTime().ToString("o"); packages = $manifest }
+$latest = [ordered]@{ product = "GreekPlot KAEK Importer"; version = $Version; uploadedUtc = (Get-Date).ToUniversalTime().ToString("o"); packages = $manifest }
 $tmp = Join-Path $env:TEMP ("nadlan-latest-" + [guid]::NewGuid().ToString("N") + ".json")
 try {
     [IO.File]::WriteAllText($tmp, ($latest | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
@@ -85,7 +85,7 @@ if ($who.Arn -match ':assumed-role/') {
     Write-Warning "This identity uses temporary credentials (SSO / assumed role): the links stop working when its session ends, possibly before $LinkDays day(s). For week-long links use an IAM user's profile."
 }
 $expires = (Get-Date).AddDays($LinkDays).ToString("yyyy-MM-dd HH:mm")
-$lines = @("Nadlan KAEK Importer $Version - download links (valid until about $expires)", "")
+$lines = @("GreekPlot KAEK Importer $Version - download links (valid until about $expires)", "")
 foreach ($f in @($files | Where-Object { $_.Name -match '(\.zip|\.tar\.gz|README\.txt)$' })) {
     $url = (Invoke-Native "aws" @("s3", "presign", "$base/$($f.Name)", "--expires-in", "$($LinkDays * 86400)", "--region", $region, "--profile", $AwsProfile)).Out.Trim()
     if (-not $url) { throw "aws s3 presign failed for $($f.Name)." }

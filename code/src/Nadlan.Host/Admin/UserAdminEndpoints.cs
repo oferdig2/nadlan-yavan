@@ -75,8 +75,8 @@ public static class UserAdminEndpoints
             var emailed = false;
             if (dto.SendEmail == true && email.IsConfigured)
             {
-                await email.SendAsync(user.Email, "Nadlan - choose your password",
-                    $"Hello {user.DisplayName},\n\n{me.DisplayName} set up your Nadlan account ({user.Email}).\n" +
+                await email.SendAsync(user.Email, "GreekPlot - choose your password",
+                    $"Hello {user.DisplayName},\n\n{me.DisplayName} set up your GreekPlot account ({user.Email}).\n" +
                     $"Choose your password here (the link works once, for {options.Value.Auth.InviteLinkHours} hours):\n{link}\n", ct);
                 emailed = true;
             }

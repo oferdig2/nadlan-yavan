@@ -104,7 +104,7 @@
     var items = data.items || [];
     $title.text(data.title || (items.length === 1 ? heading(items[0]) : items.length + " properties"));
     $sub.text(data.description || (items.length + (items.length === 1 ? " property" : " properties")));
-    document.title = (data.title || "Presentation") + " — Nadlan";
+    document.title = (data.title || "Presentation") + " — GreekPlot";
     if (!items.length) {
       notice("Nothing to show: these properties don't exist, or they were not shared with you.", true);
       return;

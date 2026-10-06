@@ -42,7 +42,7 @@ public sealed class ImportSession
         if (_seen.Add(kaek))
         {
             Report.Add(new ReportRow(kaek, ParcelResult.AlreadyInNadlan, null, null, Array.Empty<string>(),
-                "Already in Nadlan before this run - not requested from the site."));
+                "Already in GreekPlot before this run - not requested from the site."));
         }
     }
 
@@ -77,7 +77,7 @@ public sealed class ImportSession
         _nadlanErrors = saved ? 0 : _nadlanErrors + 1;
         if (_nadlanErrors >= MaxConsecutiveNadlanErrors)
         {
-            throw new StopImportException($"Nadlan failed {_nadlanErrors} times in a row; stopped. Check the Nadlan server and start again.");
+            throw new StopImportException($"GreekPlot failed {_nadlanErrors} times in a row; stopped. Check the GreekPlot server and start again.");
         }
 
         return saved ? ShapeOutcome.Saved : ShapeOutcome.NadlanFailed;
@@ -120,7 +120,7 @@ public sealed class ImportSession
             case CreateOutcome.AlreadyExists:
                 Report.Add(new ReportRow(shape.Kaek, ParcelResult.AlreadyInNadlan, result.ParcelId, area, Array.Empty<string>(), result.Message));
                 await _site.AddShapeAsync(shape.Rings, "exists");
-                await _site.LogAsync($"{shape.Kaek}: already in Nadlan");
+                await _site.LogAsync($"{shape.Kaek}: already in GreekPlot");
                 break;
             case CreateOutcome.Rejected:
                 Report.Add(new ReportRow(shape.Kaek, ParcelResult.Rejected, null, area, Array.Empty<string>(), result.Message));
@@ -129,11 +129,11 @@ public sealed class ImportSession
                 break;
             case CreateOutcome.Unauthorized:
                 // Every further parcel would be refused too: stop, and the panel offers "Connect to Nadlan".
-                throw new StopImportException($"Nadlan refused the importer's sign-in ({result.Message}). Click \"Connect to Nadlan\" in the panel, then start again.");
+                throw new StopImportException($"GreekPlot refused the importer's sign-in ({result.Message}). Click \"Connect to GreekPlot\" in the panel, then start again.");
             case CreateOutcome.ServerError:
-                Report.Add(new ReportRow(shape.Kaek, ParcelResult.Rejected, null, area, Array.Empty<string>(), "Nadlan server error - " + result.Message));
+                Report.Add(new ReportRow(shape.Kaek, ParcelResult.Rejected, null, area, Array.Empty<string>(), "GreekPlot server error - " + result.Message));
                 await _site.AddShapeAsync(shape.Rings, "rejected");
-                await _site.LogAsync($"{shape.Kaek}: Nadlan server error - {result.Message}", "err");
+                await _site.LogAsync($"{shape.Kaek}: GreekPlot server error - {result.Message}", "err");
                 break;
         }
 

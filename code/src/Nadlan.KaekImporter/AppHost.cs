@@ -118,7 +118,7 @@ public static class AppHost
                 var text = message.Replace("\\", "\\\\").Replace("\"", "\\\"");
                 using var p = Process.Start(new ProcessStartInfo("osascript")
                 {
-                    ArgumentList = { "-e", $"display alert \"Nadlan KAEK Importer\" message \"{text}\" as critical" },
+                    ArgumentList = { "-e", $"display alert \"GreekPlot KAEK Importer\" message \"{text}\" as critical" },
                     UseShellExecute = false,
                 });
                 p?.WaitForExit();

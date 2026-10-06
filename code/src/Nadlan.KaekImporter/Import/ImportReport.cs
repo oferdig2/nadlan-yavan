@@ -38,7 +38,7 @@ public sealed class ImportReport
 
     public string Summary => Count(ParcelResult.NotSaved) > 0
         ? $"{Count(ParcelResult.NotSaved)} parcels found - NOT saved (offline), {Roads} roads skipped ({Requests} requests to the site)."
-        : $"{Count(ParcelResult.Created)} created, {Count(ParcelResult.AlreadyInNadlan)} already in Nadlan, " +
+        : $"{Count(ParcelResult.Created)} created, {Count(ParcelResult.AlreadyInNadlan)} already in GreekPlot, " +
         $"{Count(ParcelResult.Rejected)} rejected, {Roads} roads skipped ({Requests} requests to the site).";
 
     public async Task<string> WriteCsvAsync(DateTime startedLocal)
@@ -54,7 +54,7 @@ public sealed class ImportReport
                .Append(r.Result switch
                {
                    ParcelResult.Created => "Created",
-                   ParcelResult.AlreadyInNadlan => "Already in Nadlan",
+                   ParcelResult.AlreadyInNadlan => "Already in GreekPlot",
                    ParcelResult.NotSaved => "Found (offline, not saved)",
                    _ => "Rejected",
                }).Append(',')

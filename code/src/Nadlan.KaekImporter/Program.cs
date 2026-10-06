@@ -16,10 +16,10 @@ public static class Program
 {
     private const string Usage = """
         NadlanKaekImporter [options]
-          --api <url>            Nadlan web app (default http://localhost:5515)
-          --offline              run without Nadlan: the whole process is shown, but nothing is saved
-                                 (also used automatically when the Nadlan server cannot be reached)
-          --token <token>        API token; normally not needed: click "Connect to Nadlan" in the panel once
+          --api <url>            GreekPlot web app (default http://localhost:5515)
+          --offline              run without GreekPlot: the whole process is shown, but nothing is saved
+                                 (also used automatically when the GreekPlot server cannot be reached)
+          --token <token>        API token; normally not needed: click "Connect to GreekPlot" in the panel once
           --delay <min-max>      seconds to wait after each new parcel (default 4-10)
           --miss-delay <min-max> seconds to wait after a click with nothing new (default 2-5)
           --max-view <metres>    largest view width/height allowed (default 2000)
@@ -63,12 +63,12 @@ public static class Program
             {
                 connection.NeedsConnect = true;
                 Console.WriteLine(string.IsNullOrWhiteSpace(options.Token)
-                    ? "Not connected to Nadlan yet: use \"Connect to Nadlan\" in the panel."
-                    : "Nadlan refused the saved token: use \"Connect to Nadlan\" in the panel.");
+                    ? "Not connected to GreekPlot yet: use \"Connect to GreekPlot\" in the panel."
+                    : "GreekPlot refused the saved token: use \"Connect to GreekPlot\" in the panel.");
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
             {
-                connection.Offline = $"The Nadlan server at {options.Api} cannot be reached.";
+                connection.Offline = $"The GreekPlot server at {options.Api} cannot be reached.";
                 Console.WriteLine($"{connection.Offline} ({ex.Message}) Running offline: nothing will be saved.");
             }
         }
@@ -107,15 +107,15 @@ public static class Program
 
         await context.ExposeFunctionAsync("nadlanConnect", async () =>
         {
-            if (connection.Offline is not null) return "Offline: restart the importer when Nadlan is reachable.";
-            if (connecting) return "The Nadlan tab is already open - sign in there and click Connect.";
+            if (connection.Offline is not null) return "Offline: restart the importer when GreekPlot is reachable.";
+            if (connecting) return "The GreekPlot tab is already open - sign in there and click Connect.";
             if (current is not null || clicks is not null) return "Stop the running import first.";
             connecting = true;
             try
             {
                 var token = await NadlanConnect.GetTokenAsync(context, options.Api, Console.Out);
                 await page.BringToFrontAsync();
-                if (token is null) return "Not connected: the Nadlan tab was closed before Connect.";
+                if (token is null) return "Not connected: the GreekPlot tab was closed before Connect.";
 
                 client.SetToken(token);
                 using var quick = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -123,7 +123,7 @@ public static class Program
                 connection.UserName = await client.WhoAmIAsync(quick.Token);
                 connection.NeedsConnect = false;
                 AppHost.SaveUserToken(token);
-                Console.WriteLine($"Connected to Nadlan as {connection.UserName}; the token is saved for next time.");
+                Console.WriteLine($"Connected to GreekPlot as {connection.UserName}; the token is saved for next time.");
                 return "";
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or PlaywrightException or IOException)
@@ -135,7 +135,7 @@ public static class Program
 
         await context.ExposeFunctionAsync("nadlanStart", async (string areaId) =>
         {
-            if (connection.NeedsConnect) return "Connect to Nadlan first.";
+            if (connection.NeedsConnect) return "Connect to GreekPlot first.";
             if (current is not null) return "An import is already running.";
             if (clicks is not null) return "Switch off click import first.";
             var run = new ImportRun(site, Nadlan(), options.Settings, Console.Out);
@@ -162,7 +162,7 @@ public static class Program
                 {
                     current = null;
                     cts.Dispose();
-                    if (connection.NeedsConnect) await site.RefreshStateAsync(); // token refused: show "Connect to Nadlan"
+                    if (connection.NeedsConnect) await site.RefreshStateAsync(); // token refused: show "Connect to GreekPlot"
                 }
             });
             return "";
@@ -172,7 +172,7 @@ public static class Program
         {
             if (on)
             {
-                if (connection.NeedsConnect) return "Connect to Nadlan first.";
+                if (connection.NeedsConnect) return "Connect to GreekPlot first.";
                 if (current is not null) return "Stop the running import first.";
                 clicks ??= new ClickImport(site, Nadlan(), AreaId(areaId), Console.Out);
                 Console.WriteLine("Click import on.");
@@ -346,7 +346,7 @@ public static class Program
 
         private static Uri Url(string value) =>
             Uri.TryCreate(value.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https")
-                ? uri : throw new ArgumentException($"Bad Nadlan address {value}; expected e.g. https://nadlan.example.com");
+                ? uri : throw new ArgumentException($"Bad GreekPlot address {value}; expected e.g. https://greekplot.example.com");
 
         private static string BrowserName(string value) => value.ToLowerInvariant() switch
         {
