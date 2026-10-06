@@ -38,10 +38,10 @@ public static class ActivityEndpoints
                     await policy.RequireContactViewAsync(me, entityId, ct);
                     break;
                 case "User":
-                    if (!me.Has(Permissions.ManageUsers) && me.UserId != entityId) { throw new EntityNotFoundException("User", entityId); }
+                    if (!me.IsAdmin && me.UserId != entityId) { throw new EntityNotFoundException("User", entityId); }
                     break;
                 default: // Role
-                    if (!me.Has(Permissions.ManageUsers)) { throw new EntityNotFoundException("Role", entityId); }
+                    if (!me.IsAdmin) { throw new EntityNotFoundException("Role", entityId); }
                     break;
             }
 
@@ -51,7 +51,7 @@ public static class ActivityEndpoints
             {
                 if (hidePrice && a.ActionType == ActivityActions.AssetPriceChanged) { continue; }
                 if (hideOwners && a.ActionType is ActivityActions.LegalOwnerAdded or ActivityActions.LegalOwnerRemoved) { continue; }
-                if (a.ActionType is ActivityActions.AccessGranted or ActivityActions.AccessRevoked && !me.Has(Permissions.ManageUsers)) { continue; }
+                if (a.ActionType is ActivityActions.AccessGranted or ActivityActions.AccessRevoked && !me.IsAdmin) { continue; }
                 if (a.ActionType is ActivityActions.FileUploaded or ActivityActions.FileDeleted && !FileEntryVisible(me, a.MetadataJson)) { continue; }
 
                 // "Asset created ... for X, EUR 120,000, For sale." carries the price.

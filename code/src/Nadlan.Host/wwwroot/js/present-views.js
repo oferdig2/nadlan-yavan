@@ -114,28 +114,38 @@
     var MePin = lib.Marker3DElement || lib.Marker3DInteractiveElement;
 
     // Loading the 3D library is not enough: without graphics acceleration, with the Map Tiles API off on the key, or
-    // with its quota used up, the element stays black and silent. A working one reports its loading state (steady or
-    // not - slow tiles, a presenter dragging the globe) - any such sign means it works. (Not a touch: someone tapping a
-    // black screen would keep it black.)
-    var alive = false, failed = false;
-    map.addEventListener("gmp-steadychange", function () { alive = true; });
-    map.addEventListener("gmp-error", function () { failed = true; });
+    // with its quota used up, the element stays black. Only a fully drawn view ("steady") proves it works - a "not
+    // steady yet" can come from a globe that will never draw.
+    var steady = false, failed = false, onErrors = [];
+    map.addEventListener("gmp-steadychange", function (e) {
+      if (e.isSteady || (e.detail && e.detail.isSteady)) { steady = true; }
+    });
+    map.addEventListener("gmp-error", function () {
+      failed = true;
+      onErrors.forEach(function (f) { f(); });
+    });
 
     return {
       kind: "3d",
-      /** Decided once, at start: true as soon as the 3D map shows signs of life, false on an error or silence for ms. */
+      /**
+       * True once the 3D map has drawn a view; false on an error, or when it hasn't within ms. Only time while the
+       * tab is visible counts: a background tab doesn't draw, which says nothing about 3D working.
+       */
       ready: function (ms) {
         return new Promise(function (resolve) {
-          var start = Date.now();
+          var waited = 0;
           (function poll() {
             if (failed) { resolve(false); return; }
-            if (alive) { resolve(true); return; }
-            if (Date.now() - start > ms) { resolve(false); return; }
+            if (steady) { resolve(true); return; }
+            if (!document.hidden) { waited += 250; }
+            if (waited > ms) { resolve(false); return; }
             setTimeout(poll, 250);
           })();
         });
       },
-      destroy: function () { map.remove(); },
+      /** An error after it worked (e.g. quota used up mid-meeting): the page then switches to the satellite map. */
+      onError: function (f) { onErrors.push(f); },
+      destroy: function () { onErrors = []; map.remove(); },
       /** The viewer's own position (my-location.js); fly = also bring the camera there. */
       showMe: function (p, fly) {
         var position = { lat: p.lat, lng: p.lng, altitude: 3 };

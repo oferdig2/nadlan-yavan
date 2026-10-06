@@ -30,9 +30,9 @@ public static class UserAdminEndpoints
         var group = app.MapGroup("/api/admin").AddEndpointFilter(async (context, next) =>
         {
             var me = context.HttpContext.GetUserAccess();
-            return me is not null && me.Has(Permissions.ManageUsers)
+            return me is not null && me.IsAdmin // user administration is Admin-only (UserAdminService.RequireAdmin)
                 ? await next(context)
-                : Results.Json(new { error = "USERS_FORBIDDEN", message = "Only an administrator can manage users." }, statusCode: StatusCodes.Status403Forbidden);
+                : Results.Json(new { error = "USERS_FORBIDDEN", message = "Only an Admin can manage users." }, statusCode: StatusCodes.Status403Forbidden);
         });
 
         group.MapGet("/users", async (string? q, bool? includeInactive, UserAccess me, IUserStore users, UserAdminService service, CancellationToken ct) =>

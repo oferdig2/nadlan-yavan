@@ -21,10 +21,11 @@ public sealed class UserAdminService
     private readonly IApiTokenStore? _apiTokens;
     private readonly ISignInMethods? _signIn;
     private readonly AccessPolicy? _policy;
+    private readonly bool _allowUserManagers;
 
     public UserAdminService(IUserStore users, IRoleStore roles, IResourceAccessStore grants, AuthService auth,
         IActivityLog? activity = null, TimeProvider? clock = null, IApiTokenStore? apiTokens = null, ISignInMethods? signIn = null,
-        AccessPolicy? policy = null)
+        AccessPolicy? policy = null, bool allowUserManagers = false)
     {
         _users = users;
         _roles = roles;
@@ -35,6 +36,7 @@ public sealed class UserAdminService
         _apiTokens = apiTokens;
         _signIn = signIn;
         _policy = policy;
+        _allowUserManagers = allowUserManagers;
     }
 
     // Who still counts as "another Admin" depends on whether passwordless Admins can sign in (Google on) or not.
@@ -43,11 +45,17 @@ public sealed class UserAdminService
     private const string LastAdminMessage = "No other Admin could sign in after this (an Admin without a password can't while Google " +
         "sign-in is off). Give another Admin a password first.";
 
-    private static void RequireAdmin(UserAccess admin)
+    /// <summary>
+    /// User administration is for Admins. A "Manage users" permission on another role is not honoured: handing out
+    /// passwords, tokens, roles and grants can always be turned into access the manager doesn't have (linked Contacts,
+    /// Portfolio-based access, chains of grants, history that names hidden objects). The checks below for such managers
+    /// stay, tested, for the day it is reopened (<see cref="_allowUserManagers"/>).
+    /// </summary>
+    private void RequireAdmin(UserAccess admin)
     {
-        if (!admin.Has(Permissions.ManageUsers))
+        if (!admin.IsAdmin && !(_allowUserManagers && admin.Has(Permissions.ManageUsers)))
         {
-            throw new ForbiddenException("USERS_FORBIDDEN", "Only an administrator can manage users.");
+            throw new ForbiddenException("USERS_FORBIDDEN", "Only an Admin can manage users.");
         }
     }
 
@@ -207,7 +215,7 @@ public sealed class UserAdminService
     }
 
     /// <summary>Roles decide what everyone may do; changing them is for Admins only.</summary>
-    private static void RequireRealAdmin(UserAccess admin)
+    private void RequireRealAdmin(UserAccess admin)
     {
         RequireAdmin(admin);
         if (!admin.IsAdmin)
@@ -649,6 +657,11 @@ public sealed class UserAdminService
         }
 
         var n = TextNormalize.NullIfBlank(name) ?? throw new DomainValidationException("ROLE_NAME_REQUIRED", "Enter a name.");
+        if (!_allowUserManagers && permissionCodes.Contains(Permissions.ManageUsers, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new DomainValidationException("ROLE_PERMISSION_ADMIN_ONLY", "Managing users is for Admins only - it can't be given to another role.");
+        }
+
         var catalog = (await _roles.ListPermissionsAsync(ct)).Where(p => p.Scope == "Role").ToDictionary(p => p.Code, StringComparer.OrdinalIgnoreCase);
         var unknown = permissionCodes.Where(c => !catalog.ContainsKey(c)).ToList();
         if (unknown.Count > 0)

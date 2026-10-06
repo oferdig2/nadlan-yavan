@@ -31,14 +31,19 @@
    */
   function createLocator(onFix, onError, onStopped) {
     var watchId = null, last = null, stopTimer = null, active = false;
+    var waiting = false; // a button press is waiting for a (fresh) position
 
+    function fresh() { return !!last && Date.now() - last.at <= FRESH_MS; }
     function fixed(pos) {
       last = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy || 0, at: Date.now() };
+      waiting = false;
       onFix(last);
     }
     function failed(err) {
-      if (err.code === 1) { stop(); last = null; onError(errorMessage(err)); return; }
-      if (!last) { onError(errorMessage(err)); } // a slow update once we have a position is not worth a message
+      if (err.code === 1) { stop(); last = null; waiting = false; onError(errorMessage(err)); return; }
+      // Only someone waiting gets a message - and then the button stops waiting (instead of spinning, and flying the
+      // camera to wherever the user is minutes later). Background watch timeouts stay quiet.
+      if (waiting) { waiting = false; onError(errorMessage(err)); }
     }
     function watch() {
       if (watchId !== null) { return; }
@@ -69,16 +74,17 @@
         clearTimeout(stopTimer);
         stopTimer = setTimeout(function () { stop(); if (onStopped) { onStopped(); } }, TRACK_FOR_MS);
         var watching = watchId !== null;
+        waiting = !fresh();
         watch();
         // Standing still, a phone may not report again for a long time: ask for a fresh position now instead.
-        if (watching && !(last && Date.now() - last.at <= FRESH_MS)) {
+        if (watching && waiting) {
           navigator.geolocation.getCurrentPosition(fixed, failed, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
         }
         return true;
       },
-      stop: stop,
+      stop: function () { waiting = false; stop(); },
       /** The current position, or null when there is none yet or it is no longer fresh. */
-      last: function () { return last && Date.now() - last.at <= FRESH_MS ? last : null; }
+      last: function () { return fresh() ? last : null; }
     };
   }
 

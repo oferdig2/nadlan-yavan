@@ -5,7 +5,7 @@ using Nadlan.Core.Files;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Portfolios;
 using Nadlan.Core.Security;
-using Nadlan.Core.Text;
+
 using Nadlan.Core.Validation;
 using Nadlan.Host.Geo;
 
@@ -51,37 +51,38 @@ public static class PresentationEndpoints
             CancellationToken ct) =>
         {
             var ids = (dto.AssetIds ?? Array.Empty<long>()).Distinct().ToArray();
-            if (dto.PortfolioId is long pid)
+            if (dto.PortfolioId is null && ids.Length is 0 or > MaxAssets)
             {
-                if (!(await policy.PortfolioAsync(me, pid, ct)).CanEdit)
-                {
-                    throw new ForbiddenException("PRESENTATION_TITLE_FORBIDDEN", "Only someone who may edit this Portfolio can title its presentation.");
-                }
-            }
-            else
-            {
-                if (ids.Length is 0 or > MaxAssets)
-                {
-                    throw new DomainValidationException("PRESENTATION_EMPTY", $"Choose 1 to {MaxAssets} Assets.");
-                }
-
-                foreach (var id in ids)
-                {
-                    if (!(await policy.AssetAsync(me, id, ct)).CanEdit)
-                    {
-                        throw new ForbiddenException("PRESENTATION_TITLE_FORBIDDEN", $"You may not present Asset #{id} with a title of your own.");
-                    }
-                }
+                throw new DomainValidationException("PRESENTATION_EMPTY", $"Choose 1 to {MaxAssets} Assets.");
             }
 
+            // Without a title it is just the address: anyone may present what they can see (Sales, viewers, buyers);
+            // the page itself shows each viewer only what they may see.
             var query = dto.PortfolioId is long p ? $"portfolio={p}" : "assets=" + string.Join(",", ids);
-            var title = TextNormalize.NullIfBlank(dto.Title);
+            var title = CleanTitle(dto.Title);
             if (title is null)
             {
                 return Results.Ok(new { url = "/present.html?" + query });
             }
 
-            title = title.Length <= MaxTitleLength ? title : title[..MaxTitleLength];
+            // Writing text the customer reads under the GreekPlot name: only someone who may edit what is presented.
+            if (dto.PortfolioId is long pid)
+            {
+                if (!(await policy.PortfolioAsync(me, pid, ct)).CanEdit)
+                {
+                    throw new ForbiddenException("PRESENTATION_TITLE_FORBIDDEN", "Only someone who may edit this Portfolio can give its presentation a title. Leave the title empty.");
+                }
+            }
+            else
+            {
+                foreach (var id in ids)
+                {
+                    if (!(await policy.AssetAsync(me, id, ct)).CanEdit)
+                    {
+                        throw new ForbiddenException("PRESENTATION_TITLE_FORBIDDEN", $"A title needs edit rights on every Asset (not on #{id}). Leave the title empty.");
+                    }
+                }
+            }
             var sealedTitle = protection.CreateProtector(TitlePurpose).ToTimeLimitedDataProtector()
                 .Protect(JsonSerializer.Serialize(new SealedTitle(dto.PortfolioId, dto.PortfolioId is null ? ids : null, title)), LinkLifetime);
             return Results.Ok(new { url = "/present.html?" + query + "&t=" + Uri.EscapeDataString(sealedTitle) });
@@ -160,6 +161,53 @@ public static class PresentationEndpoints
         });
     }
 
+    /// <summary>
+    /// The title as plain visible text: no control or invisible formatting characters (right-to-left overrides,
+    /// zero-width joiners used to disguise text), spaces collapsed, cut on whole characters (never inside an emoji).
+    /// </summary>
+    internal static string? CleanTitle(string? raw)
+    {
+        if (raw is null)
+        {
+            return null;
+        }
+
+        var sb = new System.Text.StringBuilder(raw.Length);
+        for (var i = 0; i < raw.Length; i++)
+        {
+            var ch = raw[i];
+            // The zero-width joiner holds emoji together ("👨‍👩‍👧"): kept right after an emoji, dropped anywhere else.
+            if (ch == '‍' && i > 0 && (char.IsLowSurrogate(raw[i - 1]) || raw[i - 1] == '️'))
+            {
+                sb.Append(ch);
+                continue;
+            }
+
+            var category = char.GetUnicodeCategory(ch);
+            if (category is System.Globalization.UnicodeCategory.Control or System.Globalization.UnicodeCategory.Format
+                or System.Globalization.UnicodeCategory.LineSeparator or System.Globalization.UnicodeCategory.ParagraphSeparator)
+            {
+                if (char.IsWhiteSpace(ch))
+                {
+                    sb.Append(' '); // a tab or line break becomes a space; anything invisible is dropped
+                }
+
+                continue;
+            }
+
+            sb.Append(char.IsWhiteSpace(ch) ? ' ' : ch);
+        }
+
+        var text = string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (text.Length == 0)
+        {
+            return null;
+        }
+
+        var info = new System.Globalization.StringInfo(text);
+        return info.LengthInTextElements <= MaxTitleLength ? text : info.SubstringByTextElements(0, MaxTitleLength).TrimEnd();
+    }
+
     // "photo.jpg" / "video.mp4": the kind plus the original's (plain) extension.
     private static string NeutralName(FileListItem f)
     {
@@ -203,7 +251,9 @@ public static class PresentationEndpoints
         }
 
         return all.Where(f => string.Equals(f.Category, CustomerCategory, StringComparison.OrdinalIgnoreCase) && me.CanSeeFileCategory(f.Category)
-                              && (f.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) || f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)))
+                              // Photos and videos only - not SVG, which a browser runs as a page (scripts) when opened.
+                              && (f.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) && !f.MimeType.Contains("svg", StringComparison.OrdinalIgnoreCase)
+                                  || f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)))
             .Take(MaxMediaPerAsset)
             .Select(f => (object)new
             {

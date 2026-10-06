@@ -26,6 +26,7 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-controls { display: flex; gap: 6px; }
 .pres-controls button { border: 1px solid var(--p-line); background: rgba(255, 255, 255, 0.08); border-radius: 999px; padding: 6px 12px; }
 .pres-controls button:hover { background: rgba(255, 255, 255, 0.18); }
+.pres-controls button[hidden] { display: none; }
 .pres-controls .pres-tour { background: var(--p-accent); border-color: var(--p-accent); color: #111827; font-weight: 650; min-width: 92px; }
 .pres-controls .pres-tour.on { background: #fff; border-color: #fff; }
 .pres-controls .pres-me.on { border-color: #60a5fa; color: #93c5fd; }

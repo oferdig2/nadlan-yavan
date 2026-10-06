@@ -149,7 +149,8 @@ public class AccessPolicyTests
         users.Add(User(1, "oferdig2@gmail.com", null) with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
         users.Add(User(2, "agent@example.gr", null));
         var auth = new AuthService(users, new FakeRoles(), new FakeTokenStore(), new AuthSettings());
-        return (new UserAdminService(users, new FakeRoles(), new FakeGrants(), auth), users);
+        // Delegated user management (non-Admins with MANAGE_USERS) is switched off in the app; on here so its guards stay tested.
+        return (new UserAdminService(users, new FakeRoles(), new FakeGrants(), auth, allowUserManagers: true), users);
     }
 
     private static UserAccess Me() => new() { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Ofer" };
@@ -216,6 +217,25 @@ public class AccessPolicyTests
     }
 
     private sealed record SignIn(bool GoogleEnabled) : ISignInMethods;
+
+    [Fact]
+    public async Task User_administration_is_for_Admins_only()
+    {
+        var users = new FakeUsers();
+        users.Add(User(1, "oferdig2@gmail.com", "admin password 1") with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
+        users.Add(User(2, "viewer@example.gr", null));
+        var auth = new AuthService(users, new FakeRoles(), new FakeTokenStore(), new AuthSettings());
+        var service = new UserAdminService(users, new FakeRoles(), new FakeGrants(), auth); // as in the app
+        var manager = new UserAccess { UserId = 3, RoleCode = "VIEWER", DisplayName = "Manager", Permissions = new HashSet<string> { Permissions.ManageUsers } };
+        var admin = new UserAccess { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Ofer" };
+
+        Assert.Equal("USERS_FORBIDDEN", (await Assert.ThrowsAsync<ForbiddenException>(() => service.SetPasswordAsync(manager, 2, "viewer password 1", false))).Code);
+        Assert.Equal("USERS_FORBIDDEN", (await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.CreateAsync(manager, new UserInput("x@example.gr", null, null, 2, true, false), null))).Code);
+        // ... and the permission can't be put in a role any more.
+        Assert.Equal("ROLE_PERMISSION_ADMIN_ONLY", (await Assert.ThrowsAsync<DomainValidationException>(() =>
+            service.UpdateRoleAsync(admin, 2, "Viewer", null, true, new[] { Permissions.ManageUsers }))).Code);
+    }
 
     [Fact]
     public async Task A_user_manager_never_reaches_Assets_through_a_linked_Contact()

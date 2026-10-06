@@ -14,7 +14,7 @@ database and in a headless browser. The real Google 3D imagery and a real phone 
 |---|---|---|
 | **Parcel colour codes** | Main map, Parcels view | Fill colour shows how the parcel is identified. **Blue** = real KAEK. **Orange** = provisional, OT (block) known. **Red** = provisional, no OT. A **purple outline** = the parcel has an Asset the viewer may see (a competitor's hidden Asset never shows). |
 | **Filter by colour** | Map legend (bottom left) | Each legend row has a checkbox, plus *Has Asset(s)* and *No Asset*. Unticking one re-runs the search. The results list shows the same colour dots. |
-| **3D customer presentation** | Portfolio panel → **Present**, or select Assets → **Present** | A dialog asks for the title the customer sees, then **Open** or **Copy link**. The page shows Google's photorealistic 3D with parcel outlines, numbered pins, an info card with photos, a strip of all properties, a **Tour** button (flies to each property and circles it) and **Me**. |
+| **3D customer presentation** | Portfolio panel → **Present**, or select Assets → **Present** | A dialog asks for an optional title the customer sees, then **Open** or **Copy link**. Anyone who can see the properties can present them; a title needs edit rights on them. The page shows Google's photorealistic 3D with parcel outlines, numbered pins, an info card with photos, a strip of all properties, a **Tour** button (flies to each property and circles it) and **Me**. |
 | **Where am I** | Main map: round button above the zoom buttons. Presentation: **◎ Me** (key M) | Centres on the user's position with a blue dot. On the map it says which parcel they stand on (only if the fix is ±30 m or better; all parcels are named when they overlap). In the presentation it opens that property's card. Tracking stops by itself after 5 minutes. |
 | **Brand: GreekPlot** | Everywhere users look | Page titles, sign-in page, presentation, emails, KAEK importer panel and installers. Internal names, settings and folders keep "Nadlan" on purpose. |
 
@@ -28,11 +28,11 @@ database and in a headless browser. The real Google 3D imagery and a real phone 
   - New uploads keep the file name out of the storage address, and buyer-facing photo links download as "photo.jpg". Files uploaded before this release still have their name in the address (S3 delivery hides it from the download name only).
 - **Large portfolios:** only the first 100 properties are shown, in the Portfolio's own order, with a "first 100 of N" notice.
 - **Touch stops the tour.** Shortcuts ignore Ctrl, Alt and ⌘.
-- **3D fallback, round 7:** any failure on the 3D path (not only the library failing to load) ends in the satellite map. A 3D view that shows any sign of life is never swapped mid-meeting.
+- **3D fallback:** any failure on the 3D path ends in the satellite map. Only a fully drawn 3D view counts as working (waiting time counts only while the tab is visible), an error later in the meeting switches to satellite too, and a **🛰 Satellite** button in the top bar lets the presenter switch at any time.
 - **"Where am I"** never uses a position older than 30 seconds, or one from before the phone was locked.
 - **Map after saving an Asset:** it refreshes in Parcels view too (purple outline, filter).
 - **Admin lockout prevented:** an Admin without a password no longer counts as "another Admin" while Google sign-in is off. See §2, step 4.
-- **User managers** who aren't Admins can only give roles, grants, passwords and tokens within their own rights. They can never create other user managers, link a user to a Contact, or manage a user who has one. Their admin lists hide objects and Contacts they can't see. Grants they give last no longer than their own, and revoking someone's access also revokes what they passed on.
+- **User management is Admin-only.** "Manage users" can no longer be given to another role (the role editor doesn't offer it); the admin pages, user and role history are for Admins.
 - **Sign-in redirect:** sign-in can no longer be bounced to another site.
 - **Numbers:** build factor, inclination and ownership % keep their decimals (`1.125` stays 1.125). Prices and areas keep the Greek rule (`250.000` = 250,000).
 - **Restore script:** its rollback now really runs on failure, and a failed safety backup restarts the app instead of leaving it stopped.

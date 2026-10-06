@@ -37,7 +37,8 @@
       role.permissionCodes.forEach(function (c) { has[c] = true; });
       var groups = [];
       var byGroup = {};
-      permissions.filter(function (p) { return p.scope === "Role"; }).forEach(function (p) {
+      // "Manage users" is Admin-only (the server refuses it in a role), so it isn't offered.
+      permissions.filter(function (p) { return p.scope === "Role" && p.code !== "MANAGE_USERS"; }).forEach(function (p) {
         if (!byGroup[p.groupName]) { byGroup[p.groupName] = []; groups.push(p.groupName); }
         byGroup[p.groupName].push(p);
       });

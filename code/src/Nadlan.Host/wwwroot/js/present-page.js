@@ -48,25 +48,36 @@
     } catch (e) { return false; }
   }
 
-  // How long a silent 3D map (no sign of life at all) is given before the satellite map takes over. Checked once, at
-  // start: a 3D view that works is never swapped later in the meeting.
-  var READY_3D_MS = 20000;
+  // How long (tab visible) the 3D map may take to draw its first view before the satellite map takes over. A 3D view
+  // that has drawn is only swapped later on an error, or by the presenter (Satellite button).
+  var READY_3D_MS = 30000;
+
+  function withTimeout(promise, ms, what) {
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { reject(new Error(what + " took too long")); }, ms);
+      promise.then(function (v) { clearTimeout(timer); resolve(v); }, function (e) { clearTimeout(timer); reject(e); });
+    });
+  }
+
+  function satelliteView(items, onPick, message) {
+    var stage = document.getElementById("stage");
+    $(stage).empty();
+    return Promise.all([google.maps.importLibrary("maps"), google.maps.importLibrary("marker")]).then(function () {
+      notice(message || "3D view isn't available here - showing the satellite map.");
+      setTimeout(function () { notice(""); }, 6000);
+      return Nadlan.presentViews.create2dView(stage, items, { onPick: onPick });
+    });
+  }
 
   // 3D when Google serves it for this key and browser AND it actually draws; otherwise the satellite map, said once in
   // a small notice. "Draws" covers what loading alone doesn't: no graphics acceleration, the Map Tiles API off on the
-  // key, its quota used up.
+  // key, its quota used up - and a 3D library that never arrives.
   function createView(items, onPick) {
     var stage = document.getElementById("stage");
-    function satellite() {
-      return Promise.all([google.maps.importLibrary("maps"), google.maps.importLibrary("marker")]).then(function () {
-        notice("3D view isn't available here - showing the satellite map.");
-        setTimeout(function () { notice(""); }, 6000);
-        return Nadlan.presentViews.create2dView(stage, items, { onPick: onPick });
-      });
-    }
+    function satellite() { return satelliteView(items, onPick); }
     if (!hasWebGl()) { return satellite(); }
     var view = null;
-    return google.maps.importLibrary("maps3d").then(function (lib) {
+    return withTimeout(google.maps.importLibrary("maps3d"), READY_3D_MS, "The 3D library").then(function (lib) {
       if (!lib || !lib.Map3DElement) { throw new Error("no 3D"); }
       view = Nadlan.presentViews.create3dView(lib, stage, items, { onPick: onPick });
       return view.ready(READY_3D_MS).then(function (ok) {
@@ -257,13 +268,37 @@
       else if (e.key === "m" || e.key === "M") { showMe(); }
     });
 
-    loadGoogle(config.googleMapsApiKey, config.maps3dChannel).then(function () {
+    var $satellite = $("[data-act=satellite]");
+    function useView(v) {
+      view = v;
+      $("body").removeClass("view-3d view-2d").addClass("view-" + v.kind);
+      $satellite.prop("hidden", v.kind !== "3d");
+      if (v.kind === "3d") {
+        // Quota used up, tiles refused mid-meeting: don't leave the customer in front of a black globe.
+        v.onError(function () { toSatellite("3D stopped working - showing the satellite map."); });
+      }
+      if (current >= 0) { v.highlight(current); }
+    }
+
+    // The presenter's escape hatch (and the automatic one after an error): same properties, same card, satellite map.
+    function toSatellite(message) {
+      if (!view || view.kind !== "3d") { return; }
+      stopTour();
+      try { view.destroy(); } catch (e) { /* already gone */ }
+      view = null;
+      satelliteView(items, pick, message).then(function (v) {
+        useView(v);
+        if (current >= 0) { v.fly(current); }
+      }, function (err) { notice(err.message, true); });
+    }
+    $satellite.on("click", function () { toSatellite("Showing the satellite map."); });
+
+    withTimeout(loadGoogle(config.googleMapsApiKey, config.maps3dChannel), 30000, "Google Maps").then(function () {
       return createView(items, pick);
     }).then(function (v) {
-      view = v;
-      $("body").addClass("view-" + v.kind);
+      useView(v);
       select(0, false); // first card open; the camera starts on the whole set
-    }).catch(function (err) { notice(err.message, true); });
+    }).catch(function (err) { notice(err.message + " Check the connection and reload the page.", true); });
   }
 
   var query = readQuery();
