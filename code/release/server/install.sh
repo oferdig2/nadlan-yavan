@@ -114,10 +114,15 @@ chmod 600 "$ENV_FILE"
 step "5/8 nginx"
 if [[ ! -f /etc/nginx/nginx.conf.orig ]]; then cp -p /etc/nginx/nginx.conf /etc/nginx/nginx.conf.orig; fi
 install -m 644 "$PKG/server/nginx.conf" /etc/nginx/nginx.conf
-SERVER_NAME="${DOMAIN:-_}"
+# www.example.com: the bare example.com is served too and sent on to www (one certificate for both names).
+ALIAS=""
+if [[ "$DOMAIN" == www.* ]]; then ALIAS="${DOMAIN#www.}"; fi
+SERVER_NAME="${DOMAIN:-_}${ALIAS:+ $ALIAS}"
+ALIAS_REDIRECT="# (no other name)"
+if [[ -n "$ALIAS" ]]; then ALIAS_REDIRECT="if (\$host = $ALIAS) { return 301 \$scheme://$DOMAIN\$request_uri; }"; fi
 SITE=/etc/nginx/conf.d/nadlan.conf
 if [[ ! -f "$SITE" ]] || ! grep -q "server_name $SERVER_NAME;" "$SITE"; then
-    sed "s/__SERVER_NAME__/$SERVER_NAME/" "$PKG/server/nginx-site.conf" > "$SITE"
+    sed -e "s/__SERVER_NAME__/$SERVER_NAME/" -e "s|__ALIAS_REDIRECT__|$ALIAS_REDIRECT|" "$PKG/server/nginx-site.conf" > "$SITE"
     echo "Wrote $SITE for '$SERVER_NAME'."
 fi
 if command -v getenforce >/dev/null && [[ "$(getenforce)" == "Enforcing" ]]; then
@@ -133,7 +138,14 @@ if [[ -n "$DOMAIN" ]]; then
     rpm -q python3-certbot-nginx >/dev/null 2>&1 || dnf -y install certbot python3-certbot-nginx
     EMAIL_ARGS=(--register-unsafely-without-email)
     if [[ -n "$CERT_EMAIL" ]]; then EMAIL_ARGS=(-m "$CERT_EMAIL"); fi
-    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --keep-until-expiring --redirect "${EMAIL_ARGS[@]}"; then
+    CERTBOT=(certbot --nginx --non-interactive --agree-tos --keep-until-expiring --expand --redirect "${EMAIL_ARGS[@]}")
+    if [[ -n "$ALIAS" ]] && "${CERTBOT[@]}" -d "$DOMAIN" -d "$ALIAS"; then
+        HTTPS=1
+        systemctl enable --now certbot-renew.timer >/dev/null 2>&1 || true
+    elif [[ -n "$ALIAS" ]] && warn "No certificate for $ALIAS (its DNS may not point here yet); trying $DOMAIN alone." && "${CERTBOT[@]}" -d "$DOMAIN"; then
+        HTTPS=1
+        systemctl enable --now certbot-renew.timer >/dev/null 2>&1 || true
+    elif [[ -z "$ALIAS" ]] && "${CERTBOT[@]}" -d "$DOMAIN"; then
         HTTPS=1
         systemctl enable --now certbot-renew.timer >/dev/null 2>&1 || true
     else

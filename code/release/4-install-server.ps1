@@ -32,9 +32,15 @@ $Domain = Read-Value "Domain name for the site (its DNS A record -> $($target.Ho
     -Pattern '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' -PatternHint "Like nadlan.example.com (lowercase, no http://)."
 $certEmail = ""
 if ($Domain) {
-    $resolved = @(try { [Net.Dns]::GetHostAddresses($Domain) | ForEach-Object { $_.IPAddressToString } } catch { })
-    if ($resolved -notcontains $target.Host) {
-        Write-Warning "$Domain resolves to '$($resolved -join ', ')', not $($target.Host). HTTPS will be skipped until DNS points here (re-run this script then)."
+    # www.example.com: the server also answers on example.com and sends it on to www, so both names need DNS.
+    $names = @($Domain) + @(if ($Domain -like "www.*") { $Domain.Substring(4) })
+    foreach ($name in $names) {
+        $resolved = @(try { [Net.Dns]::GetHostAddresses($name) | ForEach-Object { $_.IPAddressToString } } catch { })
+        if ($resolved -notcontains $target.Host) {
+            $what = if ($name -eq $Domain) { "HTTPS will be skipped until DNS points here (re-run this script then)" } else { "the certificate will cover $Domain only (re-run this script once it does)" }
+            Write-Warning "$name resolves to '$($resolved -join ', ')', not $($target.Host): $what."
+        }
+        else { Write-Host "$name -> $($target.Host): ok" }
     }
     $certEmail = Read-Value "Email for Let's Encrypt certificate notices" -Setting "certEmail" -Optional -Pattern '^[^\s@]+@[^\s@]+$'
 }
