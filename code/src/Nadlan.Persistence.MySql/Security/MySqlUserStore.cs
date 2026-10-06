@@ -74,11 +74,11 @@ public sealed class MySqlUserStore : IUserStore
         }
     }
 
-    public async Task<bool> UpdateAsync(AppUser user, bool requireAnotherActiveAdmin, CancellationToken ct = default)
+    public async Task<bool> UpdateAsync(AppUser user, LastAdminCheck keepAdmin, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
-        if (requireAnotherActiveAdmin && !await AnotherActiveAdminLockedAsync(conn, tx, user.UserId, ct))
+        if (!await AnotherAdminLockedAsync(conn, tx, user.UserId, keepAdmin, ct))
         {
             return false;
         }
@@ -103,17 +103,44 @@ public sealed class MySqlUserStore : IUserStore
 
     /// <summary>
     /// Locks every active Admin row (always in id order, so concurrent callers queue instead of deadlocking) and says
-    /// whether one other than <paramref name="userId"/> exists. The lock holds until the transaction ends.
+    /// whether one other than <paramref name="userId"/> exists that counts per <paramref name="keepAdmin"/> (with a password,
+    /// when that is the only way in). True right away for <see cref="LastAdminCheck.None"/>. The lock holds until the
+    /// transaction ends.
     /// </summary>
-    private static async Task<bool> AnotherActiveAdminLockedAsync(MySqlConnection conn, MySqlTransaction tx, long userId, CancellationToken ct)
+    private static async Task<bool> AnotherAdminLockedAsync(MySqlConnection conn, MySqlTransaction tx, long userId, LastAdminCheck keepAdmin,
+        CancellationToken ct)
     {
-        var admins = await conn.QueryAsync<long>(new CommandDefinition("""
-            SELECT u.user_id FROM app_user u JOIN security_role r ON r.security_role_id = u.security_role_id
+        if (keepAdmin == LastAdminCheck.None)
+        {
+            return true;
+        }
+
+        var admins = await conn.QueryAsync<(long UserId, bool HasPassword)>(new CommandDefinition("""
+            SELECT u.user_id, u.password_hash IS NOT NULL FROM app_user u JOIN security_role r ON r.security_role_id = u.security_role_id
             WHERE r.code = 'ADMIN' AND u.is_active = 1
             ORDER BY u.user_id
             FOR UPDATE
             """, transaction: tx, cancellationToken: ct));
-        return admins.Any(id => id != userId);
+        return admins.Any(a => a.UserId != userId && (keepAdmin == LastAdminCheck.AnyActiveAdmin || a.HasPassword));
+    }
+
+    public async Task<bool> RemovePasswordAsync(long userId, LastAdminCheck keepAdmin, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        if (!await AnotherAdminLockedAsync(conn, tx, userId, keepAdmin, ct))
+        {
+            return false;
+        }
+
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE app_user
+            SET password_hash = NULL, password_changed_utc = NULL, must_change_password = 0, failed_login_count = 0,
+                locked_until_utc = NULL, session_version = session_version + 1, updated_utc = UTC_TIMESTAMP(3)
+            WHERE user_id = @userId
+            """, new { userId }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return true;
     }
 
     public async Task SetPasswordAsync(long userId, string? passwordHash, bool mustChangePassword, CancellationToken ct = default)
@@ -168,11 +195,11 @@ public sealed class MySqlUserStore : IUserStore
             "UPDATE app_user SET failed_login_count = 0, locked_until_utc = NULL WHERE user_id = @userId", new { userId }, cancellationToken: ct));
     }
 
-    public async Task<bool> DeleteAsync(long userId, bool requireAnotherActiveAdmin, CancellationToken ct = default)
+    public async Task<bool> DeleteAsync(long userId, LastAdminCheck keepAdmin, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
-        if (requireAnotherActiveAdmin && !await AnotherActiveAdminLockedAsync(conn, tx, userId, ct))
+        if (!await AnotherAdminLockedAsync(conn, tx, userId, keepAdmin, ct))
         {
             return false;
         }
@@ -182,12 +209,13 @@ public sealed class MySqlUserStore : IUserStore
         return deleted;
     }
 
-    public async Task<int> CountActiveAdminsAsync(long? exceptUserId, CancellationToken ct = default)
+    public async Task<int> CountActiveAdminsAsync(long? exceptUserId, bool withPasswordOnly, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
         return await conn.ExecuteScalarAsync<int>(new CommandDefinition("""
             SELECT COUNT(*) FROM app_user u JOIN security_role r ON r.security_role_id = u.security_role_id
             WHERE r.code = 'ADMIN' AND u.is_active = 1 AND (@exceptUserId IS NULL OR u.user_id <> @exceptUserId)
-            """, new { exceptUserId }, cancellationToken: ct));
+              AND (NOT @withPasswordOnly OR u.password_hash IS NOT NULL)
+            """, new { exceptUserId, withPasswordOnly }, cancellationToken: ct));
     }
 }

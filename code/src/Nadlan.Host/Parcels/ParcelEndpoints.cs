@@ -167,6 +167,7 @@ public static class ParcelEndpoints
             IGeographicAreaStore areas, IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.RequireParcelViewAsync(me, parcelId, ct);
+            var version = await versions.GetAsync(EditTargets.Parcel, parcelId, ct); // before the data: a save in between = a 409, never a stale form
             var parcel = await parcels.GetAsync(parcelId, ct) ?? throw new EntityNotFoundException("Parcel", parcelId);
 
             return Results.Ok(new
@@ -177,7 +178,7 @@ public static class ParcelEndpoints
                 parcel.Notes,
                 parcel.CreatedUtc,
                 geometry = GeoJson.Polygon(parcel.Geometry),
-                version = await versions.GetAsync(EditTargets.Parcel, parcelId, ct), // sent back on save (edit check)
+                version, // sent back on save (edit check)
                 // Raw values for the edit form (the summary joins OT/plot with their extensions).
                 fields = new
                 {

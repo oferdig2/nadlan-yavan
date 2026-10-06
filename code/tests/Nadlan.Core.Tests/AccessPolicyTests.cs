@@ -172,7 +172,8 @@ public class AccessPolicyTests
     {
         var (service, users) = AdminService(); // 1 = Admin, 2 = Agent
         users.Add(User(3, "manager@example.gr", null) with { SecurityRoleId = 2, RoleCode = "VIEWER", RoleName = "Viewer" });
-        var manager = new UserAccess { UserId = 3, RoleCode = "VIEWER", DisplayName = "Manager", Permissions = new HashSet<string> { Permissions.ManageUsers } };
+        var manager = new UserAccess { UserId = 3, RoleCode = "VIEWER", DisplayName = "Manager",
+            Permissions = new HashSet<string> { Permissions.ManageUsers, "VIEW_OWN_ASSET", "EDIT_OWN_ASSET" } }; // = what an Agent may, plus users
 
         await Assert.ThrowsAsync<ForbiddenException>(() => service.SetPasswordAsync(manager, 1, "taken over 123", false));
         await Assert.ThrowsAsync<ForbiddenException>(() => service.CreatePasswordLinkAsync(manager, 1));
@@ -183,8 +184,58 @@ public class AccessPolicyTests
         await Assert.ThrowsAsync<ForbiddenException>(() => service.UpdateAsync(manager, 3, new UserInput("manager@example.gr", null, null, 3, true, false))); // self
         await Assert.ThrowsAsync<ForbiddenException>(() => service.UpdateRoleAsync(manager, 2, "Viewer", null, true, new[] { "VIEW_ALL_ASSETS" }));
 
-        await service.SetPasswordAsync(manager, 2, "agent new pass 1", true); // an ordinary user: fine
+        await service.SetPasswordAsync(manager, 2, "agent new pass 1", true); // a user with no more rights than the manager: fine
         Assert.True(users.Get(2).HasPassword);
+    }
+
+    [Theory]
+    [InlineData(false)] // Google sign-in off: a passwordless Admin can't sign in - he doesn't count
+    [InlineData(true)]  // Google on: he can
+    public async Task An_Admin_without_a_password_only_counts_when_Google_sign_in_is_on(bool googleOn)
+    {
+        var users = new FakeUsers();
+        users.Add(User(1, "oferdig2@gmail.com", "admin password 1") with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
+        users.Add(User(5, "alon@example.gr", null) with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" }); // seeded, no password
+        var auth = new AuthService(users, new FakeRoles(), new FakeTokenStore(), new AuthSettings());
+        var service = new UserAdminService(users, new FakeRoles(), new FakeGrants(), auth, signIn: new SignIn(googleOn));
+        var me = new UserAccess { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Ofer" };
+
+        var demoteSelf = () => service.UpdateAsync(me, 1, new UserInput("oferdig2@gmail.com", null, null, 3, true, false));
+        var dropOwnPassword = () => service.RemovePasswordAsync(me, 1);
+        if (googleOn)
+        {
+            await dropOwnPassword();
+            await demoteSelf();
+        }
+        else
+        {
+            Assert.Equal("USER_LAST_ADMIN", (await Assert.ThrowsAsync<DomainValidationException>(demoteSelf)).Code);
+            Assert.Equal("USER_LAST_ADMIN", (await Assert.ThrowsAsync<DomainValidationException>(dropOwnPassword)).Code);
+            Assert.True(users.Get(1).HasPassword);
+        }
+    }
+
+    private sealed record SignIn(bool GoogleEnabled) : ISignInMethods;
+
+    [Fact]
+    public async Task A_user_manager_hands_out_nothing_they_dont_have_themselves()
+    {
+        var (service, users) = AdminService(); // 1 = Admin, 2 = Agent
+        users.Add(User(4, "viewer4@example.gr", null) with { SecurityRoleId = 2, RoleCode = "VIEWER", RoleName = "Viewer" });
+        var manager = new UserAccess { UserId = 3, RoleCode = "AGENT", DisplayName = "Manager",
+            Permissions = new HashSet<string> { Permissions.ManageUsers, "VIEW_OWN_ASSET", "EDIT_OWN_ASSET" } };
+
+        // The Viewer sees general files, the manager doesn't: taking over that account (password, link, token) would give them that.
+        Assert.Equal("USERS_ABOVE_YOU", (await Assert.ThrowsAsync<ForbiddenException>(() => service.SetPasswordAsync(manager, 4, "viewer takeover 1", false))).Code);
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.CreateApiTokenAsync(manager, 4, "steal", null));
+        // Nor give the Viewer role to someone of theirs.
+        Assert.Equal("USERS_ROLE_ABOVE_YOU", (await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.CreateAsync(manager, new UserInput("puppet@example.gr", null, null, 2, true, false), "puppet password 1"))).Code);
+        // Nor grant access to an object they don't hold themselves.
+        Assert.Equal("GRANT_ABOVE_YOU", (await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.GrantAsync(manager, 2, "Asset", 7, "VIEW_ASSET", null))).Code);
+        // An Agent, like themselves: fine.
+        await service.CreateAsync(manager, new UserInput("agent5@example.gr", null, null, 3, true, false), "agent password 11");
     }
 
     [Fact]

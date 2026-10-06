@@ -85,7 +85,7 @@ public static class InventoryParcelPlanner
             }
 
             var sqm = PickAttribute(rowsInOrder, chosen.Row, r => r.PlotSqm, ParseDecimal, "Plot SQM", warnings);
-            var buildFactor = PickAttribute(rowsInOrder, chosen.Row, r => r.BuildFactor, ParseDecimal, "Build factor", warnings);
+            var buildFactor = PickAttribute(rowsInOrder, chosen.Row, r => r.BuildFactor, ParseRatio, "Build factor", warnings);
             var inclination = PickAttribute(rowsInOrder, chosen.Row, r => r.Inclination, ParseInclination, "Inclination", warnings);
             if (inclination is > 100)
             {
@@ -157,8 +157,11 @@ public static class InventoryParcelPlanner
 
     private static decimal? ParseDecimal(string text) => TextNormalize.ParseDecimal(text);
 
+    // Build factors and percentages are small numbers with decimals: "1.125" is 1.125, not 1125.
+    private static decimal? ParseRatio(string text) => TextNormalize.ParseDecimal(text, ratio: true);
+
     private static decimal? ParseInclination(string text)
-        => ParseDecimal(text.Replace("%", "").Replace("~", "").Trim());
+        => ParseRatio(text.Replace("%", "").Replace("~", "").Trim());
 
     /// <summary>Geometry identity at ~1 cm precision so float noise doesn't hide equal polygons.</summary>
     private static string GeometryKey(GeoPolygon polygon)

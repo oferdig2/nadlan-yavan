@@ -54,15 +54,14 @@
         Nadlan.assetEditor.open({ parcel: parcel }).then(function (saved) {
           if (!saved) { return; }
           popups.refreshParcel(parcel.parcelId);
-          if (state.mode === "assets") { reload(); }
-          setStatus("Asset #" + saved.assetId + " created.");
+          reload("Asset #" + saved.assetId + " created."); // both views: in Parcels view its outline and the "Has Asset" filter change
         }).catch(function (err) { setStatus("Could not open the asset editor: " + err.message, true); });
       },
       onEditAsset: function (assetId, parcel) {
         Nadlan.assetEditor.open({ parcel: parcel, assetId: assetId }).then(function (saved) {
           if (!saved) { return; }
           popups.refreshParcel(parcel.parcelId);
-          if (state.mode === "assets") { reload(); }
+          reload(); // both views: price/status in Assets view, the "Has Asset" colour in Parcels view
         }).catch(function (err) { setStatus("Could not open the asset editor: " + err.message, true); });
       },
       onEditParcel: function (parcelId) { editParcel(parcelId); },
@@ -183,7 +182,8 @@
     }
 
     var requestSeq = 0;
-    function reload() {
+    // doneMessage: shown once the search finished (e.g. "Asset #12 created."), instead of clearing the status line.
+    function reload(doneMessage) {
       // Claim a sequence number first: any search still in flight (maybe for the other mode) is now stale,
       // even if this reload can't run a search of its own.
       var seq = ++requestSeq;
@@ -211,7 +211,7 @@
         (mode === "assets" ? assetOverlay : parcelOverlay).setItems(res.items);
         results.setItems(res.items, res.truncated);
         if (state.fitAfterLoad) { state.fitAfterLoad = false; fitItems(res.items); }
-        setStatus("");
+        setStatus(typeof doneMessage === "string" ? doneMessage : "");
         if (state.standingAt) { showWhereIStand(res.items); }
       }, function (err) {
         if (seq === requestSeq) { setStatus("Search failed: " + err.message, true); }
@@ -312,11 +312,23 @@
     function showWhereIStand(items) {
       var p = state.standingAt;
       state.standingAt = null;
-      if (p.accuracy > 150) { return; } // too rough to name a Parcel
-      var hit = items.filter(function (it) { return Nadlan.myLocation.containsPoint(it.geometry, p.lat, p.lng); })[0];
-      if (!hit) { setStatus("You're not on a Parcel in the results here."); return; }
-      if (state.mode === "assets") { assetOverlay.focus(hit.summary.parcelId); } else { parcelOverlay.select(hit.summary.parcelId); }
-      setStatus("You're standing on Parcel " + (hit.summary.registryId || "#" + hit.summary.parcelId) + (p.accuracy > 25 ? " (± " + Math.round(p.accuracy) + " m)" : "") + ".");
+      var found = Nadlan.myLocation.standingOn(p, items, function (it) { return [it.geometry]; });
+      if (found.rough) {
+        setStatus("Your location is ± " + Math.round(p.accuracy) + " m - too rough to tell which Parcel you're on (GPS outdoors is more exact).");
+        return;
+      }
+      // One row per Parcel (in Assets view several Assets can stand on the same one).
+      var parcels = [];
+      found.hits.forEach(function (it) { if (!parcels.some(function (x) { return x.parcelId === it.summary.parcelId; })) { parcels.push(it.summary); } });
+      if (!parcels.length) { setStatus("You're not on a Parcel in the results here."); return; }
+      var name = function (s) { return s.registryId || "#" + s.parcelId; };
+      if (parcels.length > 1) {
+        // Overlapping Parcels (e.g. a provisional one over a real KAEK): say so instead of picking one.
+        setStatus("You're where " + parcels.length + " Parcels overlap: " + parcels.map(name).join(", ") + ".");
+        return;
+      }
+      if (state.mode === "assets") { assetOverlay.focus(parcels[0].parcelId); } else { parcelOverlay.select(parcels[0].parcelId); }
+      setStatus("You're standing on Parcel " + name(parcels[0]) + (p.accuracy > 10 ? " (± " + Math.round(p.accuracy) + " m)" : "") + ".");
     }
 
     function fitItems(items) {

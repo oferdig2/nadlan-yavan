@@ -241,15 +241,23 @@ public class AuthTests
             return Task.FromResult(id);
         }
 
-        public Task<bool> UpdateAsync(AppUser user, bool requireAnotherActiveAdmin, CancellationToken ct = default)
+        public Task<bool> UpdateAsync(AppUser user, LastAdminCheck keepAdmin, CancellationToken ct = default)
         {
-            if (requireAnotherActiveAdmin && !OtherActiveAdmin(user.UserId)) { return Task.FromResult(false); }
+            if (!OtherAdmin(user.UserId, keepAdmin)) { return Task.FromResult(false); }
             var role = FakeRoles.Roles.First(r => r.SecurityRoleId == user.SecurityRoleId);
             _rows[user.UserId] = user with { RoleCode = role.Code, RoleName = role.Name };
             return Task.FromResult(true);
         }
 
-        private bool OtherActiveAdmin(long userId) => _rows.Values.Any(u => u.IsActive && u.RoleCode == SecurityRoles.Admin && u.UserId != userId);
+        private bool OtherAdmin(long userId, LastAdminCheck keep) => keep == LastAdminCheck.None ||
+            _rows.Values.Any(u => u.IsActive && u.RoleCode == SecurityRoles.Admin && u.UserId != userId && (keep == LastAdminCheck.AnyActiveAdmin || u.PasswordHash is not null));
+
+        public async Task<bool> RemovePasswordAsync(long userId, LastAdminCheck keepAdmin, CancellationToken ct = default)
+        {
+            if (!OtherAdmin(userId, keepAdmin)) { return false; }
+            await SetPasswordAsync(userId, null, false, ct);
+            return true;
+        }
 
         public Task SetPasswordAsync(long userId, string? passwordHash, bool mustChangePassword, CancellationToken ct = default)
         {
@@ -284,11 +292,11 @@ public class AuthTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> DeleteAsync(long userId, bool requireAnotherActiveAdmin, CancellationToken ct = default)
-            => Task.FromResult((!requireAnotherActiveAdmin || OtherActiveAdmin(userId)) && _rows.Remove(userId));
+        public Task<bool> DeleteAsync(long userId, LastAdminCheck keepAdmin, CancellationToken ct = default)
+            => Task.FromResult(OtherAdmin(userId, keepAdmin) && _rows.Remove(userId));
 
-        public Task<int> CountActiveAdminsAsync(long? exceptUserId, CancellationToken ct = default)
-            => Task.FromResult(_rows.Values.Count(u => u.IsActive && u.RoleCode == SecurityRoles.Admin && u.UserId != exceptUserId));
+        public Task<int> CountActiveAdminsAsync(long? exceptUserId, bool withPasswordOnly, CancellationToken ct = default)
+            => Task.FromResult(_rows.Values.Count(u => u.IsActive && u.RoleCode == SecurityRoles.Admin && u.UserId != exceptUserId && (!withPasswordOnly || u.PasswordHash is not null)));
     }
 
     internal sealed class FakeRoles : IRoleStore

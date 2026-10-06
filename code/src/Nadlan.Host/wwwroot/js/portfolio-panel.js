@@ -118,7 +118,7 @@
       });
 
       $form.on("click", "[data-act=map]", function () { options.onShowOnMap({ portfolioId: portfolioId, name: p.name }); });
-      $form.on("click", "[data-act=present]", function () { window.open("/present.html?portfolio=" + portfolioId, "_blank", "noopener"); });
+      $form.on("click", "[data-act=present]", function () { Nadlan.presentLink.open({ portfolioId: portfolioId }); });
       $form.on("click", "[data-act=files]", function () {
         Nadlan.filesDialog.open({ attachedToType: "Portfolio", attachedToId: portfolioId, title: "Portfolio \"" + p.name + "\" - files" });
       });

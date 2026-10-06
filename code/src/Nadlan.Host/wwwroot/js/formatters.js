@@ -11,17 +11,20 @@
 
   // English or Greek number input; same rules as TextNormalize.ParseDecimal on the server (see there).
   // Returns null when empty, NaN when unreadable.
-  function parseNumber(text) {
+  // kind "ratio" (build factor, percentages - small numbers with decimals): a lone "." or "," is always the decimal
+  // point, so 1.125 stays 1.125 and 33,333 is 33.333. Otherwise (prices, m²) groups of 3 are thousands: 250.000 = 250000.
+  function parseNumber(text, kind) {
     var t = String(text === null || text === undefined ? "" : text).replace(/\s/g, "");
     if (t === "") { return null; }
+    var ratio = kind === "ratio";
     var lastDot = t.lastIndexOf("."), lastComma = t.lastIndexOf(",");
     if (lastDot >= 0 && lastComma >= 0) {
       // Both present: the last one is the decimal separator ("1,234.5" / "1.234,5").
       t = lastComma > lastDot ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
     } else if (lastComma >= 0) {
-      if (/^-?[1-9]\d{0,2}(,\d{3})+$/.test(t)) { t = t.replace(/,/g, ""); }          // 120,000
+      if (!ratio && /^-?[1-9]\d{0,2}(,\d{3})+$/.test(t)) { t = t.replace(/,/g, ""); } // 120,000
       else if ((t.match(/,/g) || []).length === 1) { t = t.replace(",", "."); }      // 0,8 · 0,800 · 12,5
-    } else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) {
+    } else if (!ratio && /^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) {
       t = t.replace(/\./g, "");                                                       // 1.250.000 · 250.000 (Greek thousands)
     }
     return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;

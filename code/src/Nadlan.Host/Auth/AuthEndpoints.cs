@@ -163,8 +163,11 @@ public static class AuthEndpoints
             return "/";
         }
 
+        // Returned is the normalised path, checked again: "/.//evil.com" becomes "//evil.com", which a browser (or the
+        // login page's script) would read as a link to evil.com.
         var probe = new Uri(new Uri("http://nadlan.invalid"), returnUrl);
-        return probe.Host == "nadlan.invalid" ? returnUrl : "/";
+        var safe = probe.PathAndQuery + probe.Fragment;
+        return probe.Host == "nadlan.invalid" && safe.StartsWith('/') && !safe.StartsWith("//", StringComparison.Ordinal) ? safe : "/";
     }
 
     /// <summary>

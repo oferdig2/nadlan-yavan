@@ -25,12 +25,13 @@ public static class ContactEndpoints
             IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.RequireContactViewAsync(me, contactId, ct);
+            var version = await versions.GetAsync(EditTargets.Contact, contactId, ct); // before the data: a save in between = a 409, never a stale form
             var contact = await contacts.GetAsync(contactId, ct) ?? throw new EntityNotFoundException("Contact", contactId);
             return Results.Ok(new
             {
                 contact.ContactId, contact.ContactType, contact.DisplayName, contact.FirstName, contact.LastName, contact.CompanyName,
                 contact.Email, contact.Phone, contact.CellPhone, contact.Notes, contact.IsActive, contact.RoleIds,
-                version = await versions.GetAsync(EditTargets.Contact, contactId, ct), // sent back on save (edit check)
+                version, // sent back on save (edit check)
                 rights = new { rights.CanEdit },
             });
         });

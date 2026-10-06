@@ -140,6 +140,17 @@ public class ReviewRegressionTests
     }
 
     [Theory]
+    [InlineData("1.125", 1.125)]   // a build factor - would be 1125 as an amount
+    [InlineData("33.333", 33.333)] // a percentage
+    [InlineData("1,250", 1.25)]    // Greek decimal comma
+    [InlineData("0.8", 0.8)]
+    [InlineData("1.234,5", 1234.5)] // both separators: still unambiguous
+    public void Ratios_never_read_three_decimals_as_thousands(string text, double expected)
+    {
+        Assert.Equal((decimal)expected, Nadlan.Core.Text.TextNormalize.ParseDecimal(text, ratio: true));
+    }
+
+    [Theory]
     [InlineData("feed.atom", "application/atom+xml")]
     [InlineData("x.png", "application/rss+xml; charset=utf-8")]
     public void Any_xml_type_is_a_download(string name, string mime)

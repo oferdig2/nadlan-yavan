@@ -89,6 +89,7 @@ public static class AuthRegistration
         }
 
         services.AddSingleton(auth.Google);
+        services.AddSingleton<ISignInMethods>(new SignInMethods(auth.Google.IsConfigured)); // e.g. which Admins can still sign in
 
         // Every endpoint needs a signed-in user unless it says AllowAnonymous (only /api/auth/* does).
         services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
@@ -208,3 +209,6 @@ public static class AuthRegistration
         return response.WriteAsJsonAsync(new { error = code, message });
     }
 }
+
+/// <summary>Read once at startup, like the Google scheme itself (changing Google settings needs a restart anyway).</summary>
+internal sealed record SignInMethods(bool GoogleEnabled) : ISignInMethods;

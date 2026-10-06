@@ -18,6 +18,14 @@ public static class PresentationEndpoints
     private const int MaxAssets = 100;
     private const int MaxMediaPerAsset = 12;
 
+    // All rows of the Portfolio are read (one per Asset and Parcel), THEN put in the Portfolio's order and cut to
+    // MaxAssets - cutting first (by id) would drop the wrong ones. Same bound as the Portfolio panel.
+    private const int MaxRows = 10_000;
+
+    // Only marketing media go in front of a customer, whoever presents: the presenter may see title deeds, ID scans
+    // and engineering drawings (Legal, Engineering, Cadastral files), the customer must not.
+    private const string CustomerCategory = "Marketing";
+
     public static void MapPresentationEndpoints(this IEndpointRouteBuilder app)
     {
         // ?portfolioId=12  or  ?assetIds=5&assetIds=9 (in that order)
@@ -25,7 +33,6 @@ public static class PresentationEndpoints
             IPortfolioStore portfolios, IAssetStore assets, IParcelStore parcels, IFileAttachmentStore files, IFileUrlProvider urls,
             CancellationToken ct) =>
         {
-            string? title = null, description = null;
             List<long> order;
             AssetQuery query;
             if (portfolioId is long pid)
@@ -36,9 +43,8 @@ public static class PresentationEndpoints
                     throw new EntityNotFoundException("Portfolio", pid);
                 }
 
-                (title, description) = (portfolio.Name, portfolio.Description);
                 order = (await portfolios.ListAssetIdsAsync(pid, ct)).ToList();
-                query = new AssetQuery { PortfolioIds = new[] { pid }, Limit = MaxAssets * 4, Scope = me.Scope };
+                query = new AssetQuery { PortfolioIds = new[] { pid }, Limit = MaxRows, Scope = me.Scope };
             }
             else
             {
@@ -48,13 +54,14 @@ public static class PresentationEndpoints
                     throw new DomainValidationException("PRESENTATION_EMPTY", $"Give a portfolioId, or 1 to {MaxAssets} assetIds.");
                 }
 
-                query = new AssetQuery { AssetIds = order, Limit = MaxAssets * 4, Scope = me.Scope };
+                query = new AssetQuery { AssetIds = order, Limit = MaxRows, Scope = me.Scope };
             }
 
             // One row per Asset and Parcel: an Asset on two Parcels is one stop with both polygons.
             var rank = order.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
-            var groups = (await assets.QueryAsync(query, ct)).GroupBy(a => a.AssetId)
-                .OrderBy(g => rank.GetValueOrDefault(g.Key, int.MaxValue)).ThenBy(g => g.Key).Take(MaxAssets).ToList();
+            var all = (await assets.QueryAsync(query, ct)).GroupBy(a => a.AssetId)
+                .OrderBy(g => rank.GetValueOrDefault(g.Key, int.MaxValue)).ThenBy(g => g.Key).ToList();
+            var groups = all.Take(MaxAssets).ToList();
 
             var items = new List<object>();
             foreach (var g in groups)
@@ -87,11 +94,16 @@ public static class PresentationEndpoints
                 });
             }
 
-            return Results.Ok(new { title, description, items });
+            // No Portfolio name or notes: they are internal ("Deal with X"). The page shows the presenter's own title.
+            return Results.Ok(new { items, total = all.Count, truncated = all.Count > groups.Count });
         });
     }
 
-    /// <summary>Photos and videos of the Asset, then of its Parcels, in the categories the viewer may see.</summary>
+    /// <summary>
+    /// Marketing photos and videos of the Asset, then of its Parcels (and only if the viewer may see marketing files).
+    /// Captions are what someone wrote, else the file type ("Drone photo") - never the original file name
+    /// ("ID_scan_Papadopoulos.jpg").
+    /// </summary>
     private static async Task<List<object>> MediaAsync(UserAccess me, IFileAttachmentStore files, IFileUrlProvider urls, long assetId,
         IEnumerable<long> parcelIds, CancellationToken ct)
     {
@@ -101,7 +113,7 @@ public static class PresentationEndpoints
             all.AddRange(await files.ListReadyAsync(FileTargetTypes.Parcel, parcelId, ct));
         }
 
-        return all.Where(f => me.CanSeeFileCategory(f.Category)
+        return all.Where(f => string.Equals(f.Category, CustomerCategory, StringComparison.OrdinalIgnoreCase) && me.CanSeeFileCategory(f.Category)
                               && (f.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) || f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)))
             .Take(MaxMediaPerAsset)
             .Select(f => (object)new
@@ -109,7 +121,7 @@ public static class PresentationEndpoints
                 kind = f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ? "video" : "image",
                 url = urls.GetUrl(f.StorageKey),
                 thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null,
-                caption = f.Caption ?? f.OriginalFileName,
+                caption = string.IsNullOrWhiteSpace(f.Caption) ? f.FileTypeName : f.Caption,
             })
             .ToList();
     }

@@ -37,8 +37,8 @@
       "</div>" +
       "<div class=\"form-row\">" +
         "<label>Official area m²<input class=\"input\" name=\"officialAreaSqm\" data-type=\"number\" value=\"" + v(p.officialAreaSqm) + "\"></label>" +
-        "<label>Build factor<input class=\"input\" name=\"buildFactor\" data-type=\"number\" value=\"" + v(p.buildFactor) + "\"></label>" +
-        "<label>Inclination %<input class=\"input\" name=\"inclination\" data-type=\"number\" value=\"" + v(p.inclination) + "\"></label>" +
+        "<label>Build factor<input class=\"input\" name=\"buildFactor\" data-type=\"number\" data-number=\"ratio\" value=\"" + v(p.buildFactor) + "\"></label>" +
+        "<label>Inclination %<input class=\"input\" name=\"inclination\" data-type=\"number\" data-number=\"ratio\" value=\"" + v(p.inclination) + "\"></label>" +
       "</div>" +
       "<label>Notes<textarea class=\"input\" name=\"notes\" rows=\"2\">" + v(p.notes) + "</textarea></label>" +
       "<div class=\"overlap-box\" hidden></div>" +

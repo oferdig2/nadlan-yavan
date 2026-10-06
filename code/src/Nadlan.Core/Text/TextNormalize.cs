@@ -36,8 +36,10 @@ public static class TextNormalize
     /// - only dots: the same as commas - groups of exactly 3 after a non-zero lead = thousands ("250.000" and "1.250.000",
     ///   how Greek users write prices); otherwise one dot = decimal ("0.25", "0.800", "12.5", "1.2500")
     /// Same rules as Nadlan.format.parseNumber in the browser (formatters.js).
+    /// <paramref name="ratio"/> (build factor, percentages): a lone "." or "," is always the decimal point - "1.125" is
+    /// 1.125, not 1125; thousands groups only count when both separators are present ("1.234,5").
     /// </summary>
-    public static decimal? ParseDecimal(string? text)
+    public static decimal? ParseDecimal(string? text, bool ratio = false)
     {
         var t = text?.Trim().Replace(" ", "");
         if (string.IsNullOrEmpty(t))
@@ -53,11 +55,11 @@ public static class TextNormalize
         }
         else if (lastComma >= 0)
         {
-            t = Regex.IsMatch(t, @"^-?[1-9]\d{0,2}(,\d{3})+$") ? t.Replace(",", "")
+            t = !ratio && Regex.IsMatch(t, @"^-?[1-9]\d{0,2}(,\d{3})+$") ? t.Replace(",", "")
                 : t.Count(c => c == ',') == 1 ? t.Replace(',', '.')
                 : t; // "1,2,3": unreadable
         }
-        else if (Regex.IsMatch(t, @"^-?[1-9]\d{0,2}(\.\d{3})+$"))
+        else if (!ratio && Regex.IsMatch(t, @"^-?[1-9]\d{0,2}(\.\d{3})+$"))
         {
             t = t.Replace(".", "");
         }

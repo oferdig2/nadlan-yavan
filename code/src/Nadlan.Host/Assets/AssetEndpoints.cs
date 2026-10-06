@@ -67,6 +67,7 @@ public static class AssetEndpoints
             IContactStore contacts, IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.RequireAssetViewAsync(me, assetId, ct);
+            var version = await versions.GetAsync(EditTargets.Asset, assetId, ct); // before the data: a save in between = a 409, never a stale form
             var asset = await assets.GetAsync(assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId);
             if (!rights.CanSeePrice)
             {
@@ -87,7 +88,7 @@ public static class AssetEndpoints
             return Results.Ok(new
             {
                 asset,
-                version = await versions.GetAsync(EditTargets.Asset, assetId, ct), // sent back on save (edit check)
+                version, // sent back on save (edit check)
                 managingContact = contact is null ? null : new { contact.ContactId, contact.DisplayName, contact.Email, Phone = contact.CellPhone ?? contact.Phone },
                 portfolios,
                 rights = new

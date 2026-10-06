@@ -102,7 +102,7 @@
       }
       var raw = $.trim($f.val() || "");
       if ($f.data("type") === "number") {
-        data[name] = Nadlan.format.parseNumber(raw);
+        data[name] = Nadlan.format.parseNumber(raw, $f.data("number")); // data-number="ratio": no thousands groups
       } else if ($f.data("type") === "id") {
         data[name] = raw === "" ? null : Number(raw);
       } else {

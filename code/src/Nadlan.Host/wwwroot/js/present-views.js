@@ -113,8 +113,29 @@
     var me = null; // "you are here" pin
     var MePin = lib.Marker3DElement || lib.Marker3DInteractiveElement;
 
+    // Loading the 3D library is not enough: without graphics acceleration, with the Map Tiles API off on the key, or
+    // with its quota used up, the element stays black. It reports "steady" once it has drawn the view.
+    var steady = false, failed = false;
+    map.addEventListener("gmp-steadychange", function (e) {
+      if (e.isSteady || (e.detail && e.detail.isSteady)) { steady = true; }
+    });
+    map.addEventListener("gmp-error", function () { failed = true; });
+
     return {
       kind: "3d",
+      /** Resolves true once the 3D map has drawn, false on an error or when nothing came within ms. */
+      ready: function (ms) {
+        return new Promise(function (resolve) {
+          var start = Date.now();
+          (function poll() {
+            if (failed) { resolve(false); return; }
+            if (steady) { resolve(true); return; }
+            if (Date.now() - start > ms) { resolve(false); return; }
+            setTimeout(poll, 250);
+          })();
+        });
+      },
+      destroy: function () { map.remove(); },
       /** The viewer's own position (my-location.js); fly = also bring the camera there. */
       showMe: function (p, fly) {
         var position = { lat: p.lat, lng: p.lng, altitude: 3 };
@@ -179,24 +200,26 @@
     }
     fit(allBounds(items), 80);
 
-    var dot = null, ring = null;
+    var dot = null, accuracyRing = null; // not "ring": that name is the helper above (a var here would hide it)
 
     return {
       kind: "2d",
+      ready: function () { return Promise.resolve(true); },
+      destroy: function () { },
       showMe: function (p, fly) {
         var here = { lat: p.lat, lng: p.lng };
         if (!dot) {
-          ring = new google.maps.Circle({ map: map, center: here, radius: p.accuracy, clickable: false,
+          accuracyRing = new google.maps.Circle({ map: map, center: here, radius: p.accuracy, clickable: false,
             strokeColor: "#2563eb", strokeOpacity: 0.5, strokeWeight: 1, fillColor: "#3b82f6", fillOpacity: 0.15 });
           dot = new google.maps.Marker({ map: map, position: here, clickable: false, zIndex: 9999, title: "You are here",
             icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#2563eb", fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 3 } });
         } else {
           dot.setPosition(here);
-          ring.setCenter(here);
-          ring.setRadius(p.accuracy);
+          accuracyRing.setCenter(here);
+          accuracyRing.setRadius(p.accuracy);
         }
         if (!fly) { return Promise.resolve(); }
-        if (p.accuracy > 150) { map.fitBounds(ring.getBounds()); } else { map.panTo(here); if (map.getZoom() < 18) { map.setZoom(18); } }
+        if (p.accuracy > 150) { map.fitBounds(accuracyRing.getBounds()); } else { map.panTo(here); if (map.getZoom() < 18) { map.setZoom(18); } }
         return new Promise(function (r) { setTimeout(r, 1200); });
       },
       showAll: function () { return fit(allBounds(items), 80); },

@@ -35,6 +35,7 @@ public static class PortfolioEndpoints
             IAssetStore assets, IReferenceDataStore reference, IEditVersionStore versions, CancellationToken ct) =>
         {
             var rights = await policy.PortfolioAsync(me, portfolioId, ct);
+            var version = await versions.GetAsync(EditTargets.Portfolio, portfolioId, ct); // before the data: a save in between = a 409, never a stale form
             var portfolio = rights.CanView ? await portfolios.GetAsync(portfolioId, ct) : null;
             if (portfolio is null)
             {
@@ -53,7 +54,7 @@ public static class PortfolioEndpoints
                 portfolio.PortfolioTypeId,
                 typeName,
                 portfolio.Description,
-                version = await versions.GetAsync(EditTargets.Portfolio, portfolioId, ct), // sent back on save (edit check)
+                version, // sent back on save (edit check)
                 // One row per Asset (a multi-Parcel Asset would appear once per Parcel; Phase 1 has one Parcel each).
                 assets = items.OrderBy(a => rank.GetValueOrDefault(a.AssetId, int.MaxValue))
                     .Select(a => new { summary = AssetEndpoints.Summary(a), geometry = GeoJson.Polygon(a.Geometry) }),

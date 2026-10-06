@@ -3,6 +3,7 @@
 //   createLocator(onFix, onError)          - the geolocation part, shared by the map and the presentation
 //   createMyLocationControl(map, options)  - the round button on a google.maps.Map, with the dot and accuracy circle
 //   containsPoint(geometry, lat, lng)      - is the point inside a GeoJSON Polygon (holes excluded)
+//   standingOn(position, items, geometriesOf) - the items under the user, if the fix is good enough to say
 (function (window) {
   "use strict";
 
@@ -17,33 +18,74 @@
     }
   }
 
+  // GPS is a battery drain on a phone or iPad in a meeting: tracking ends this long after the last button press, and
+  // pauses while the page is in the background.
+  var TRACK_FOR_MS = 5 * 60 * 1000;
+
   /**
    * @param {function({ lat: number, lng: number, accuracy: number }): void} onFix  every new position
    * @param {function(string): void} onError  a message for the user (only while no position is known, or when blocked)
+   * @param {function(): void=} onStopped  tracking ended by itself (time up); the last position is now old
    */
-  function createLocator(onFix, onError) {
-    var watchId = null;
-    var last = null;
-    function stop() {
+  function createLocator(onFix, onError, onStopped) {
+    var watchId = null, last = null, stopTimer = null, active = false;
+
+    function watch() {
+      if (watchId !== null) { return; }
+      watchId = navigator.geolocation.watchPosition(function (pos) {
+        last = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy || 0 };
+        onFix(last);
+      }, function (err) {
+        if (err.code === 1) { stop(); last = null; onError(errorMessage(err)); return; }
+        if (!last) { onError(errorMessage(err)); } // a slow update once we have a position is not worth a message
+      }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+    }
+    function unwatch() {
       if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     }
+    function stop() {
+      active = false;
+      clearTimeout(stopTimer);
+      unwatch();
+    }
+
+    document.addEventListener("visibilitychange", function () {
+      if (!active) { return; }
+      if (document.hidden) { unwatch(); } else { watch(); }
+    });
+
     return {
+      /** Starts (or keeps) tracking for the next few minutes. False when location can't be used here at all. */
       start: function () {
         if (!window.isSecureContext) { onError("Your location needs the site's secure address (https://)."); return false; }
         if (!navigator.geolocation) { onError("This browser can't share its location."); return false; }
-        if (watchId === null) {
-          watchId = navigator.geolocation.watchPosition(function (pos) {
-            last = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy || 0 };
-            onFix(last);
-          }, function (err) {
-            if (err.code === 1) { stop(); last = null; onError(errorMessage(err)); return; }
-            if (!last) { onError(errorMessage(err)); } // a slow update once we have a position is not worth a message
-          }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
-        }
+        if (!active) { last = null; } // after a stop the old position is stale: wait for a fresh one
+        active = true;
+        clearTimeout(stopTimer);
+        stopTimer = setTimeout(function () { stop(); if (onStopped) { onStopped(); } }, TRACK_FOR_MS);
+        watch();
         return true;
       },
       stop: stop,
       last: function () { return last; }
+    };
+  }
+
+  // Naming the Parcel under the user needs a good fix: at ± 100 m a phone could be on any of a dozen neighbours.
+  var STANDING_MAX_ACCURACY = 30;
+
+  /**
+   * Which of the items the position falls in. { rough: true } when the fix is too uncertain to say; otherwise
+   * { hits: [items] } - none, one, or several where Parcels overlap (all named, not just the first).
+   * @param {function(object): Array} geometriesOf  an item's GeoJSON Polygons
+   */
+  function standingOn(p, items, geometriesOf) {
+    if (p.accuracy > STANDING_MAX_ACCURACY) { return { rough: true, hits: [] }; }
+    return {
+      rough: false,
+      hits: items.filter(function (it) {
+        return geometriesOf(it).some(function (g) { return containsPoint(g, p.lat, p.lng); });
+      })
     };
   }
 
@@ -72,15 +114,19 @@
       if (options.onLocated) { options.onLocated(p); }
     }
 
+    function dotIcon(live) {
+      return { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: live ? "#2563eb" : "#94a3b8", fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 3 };
+    }
+
     var locator = createLocator(function (p) {
       var here = { lat: p.lat, lng: p.lng };
       if (!dot) {
         ring = new google.maps.Circle({ map: map, center: here, radius: p.accuracy, clickable: false, zIndex: 50,
           strokeColor: "#2563eb", strokeOpacity: 0.5, strokeWeight: 1, fillColor: "#3b82f6", fillOpacity: 0.15 });
-        dot = new google.maps.Marker({ map: map, position: here, clickable: false, zIndex: 9999, title: "You are here",
-          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#2563eb", fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 3 } });
+        dot = new google.maps.Marker({ map: map, position: here, clickable: false, zIndex: 9999, title: "You are here", icon: dotIcon(true) });
       } else {
         dot.setPosition(here);
+        dot.setIcon(dotIcon(true));
         ring.setCenter(here);
         ring.setRadius(p.accuracy);
       }
@@ -91,13 +137,16 @@
       wantCenter = false;
       button.classList.remove("busy", "on");
       options.onError(message);
+    }, function () {
+      // Tracking ended (battery): the dot turns grey - where the user was, not where they are.
+      button.classList.remove("on");
+      if (dot) { dot.setIcon(dotIcon(false)); dot.setTitle("Your last known position - press the button to follow again"); }
     });
 
     button.addEventListener("click", function () {
+      if (!locator.start()) { return; } // (re)starts tracking; after a stop the old position is dropped
       var known = locator.last();
-      if (known && dot) { center(known); }
-      else { wantCenter = true; button.classList.add("busy"); }
-      if (!locator.start()) { wantCenter = false; button.classList.remove("busy"); }
+      if (known && dot) { center(known); } else { wantCenter = true; button.classList.add("busy"); }
     });
 
     return { button: button, last: locator.last };
@@ -120,5 +169,6 @@
     return true;
   }
 
-  Nadlan.myLocation = { createLocator: createLocator, createMyLocationControl: createMyLocationControl, containsPoint: containsPoint };
+  Nadlan.myLocation = { createLocator: createLocator, createMyLocationControl: createMyLocationControl, containsPoint: containsPoint,
+    standingOn: standingOn, STANDING_MAX_ACCURACY: STANDING_MAX_ACCURACY };
 })(window);

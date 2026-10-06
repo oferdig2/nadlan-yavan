@@ -65,7 +65,7 @@
     $root.on("click", "[data-role=portfolio]", function () { options.onAddToPortfolio(); });
     // The selected Assets as a customer presentation (present.html), in the order they were picked.
     $root.on("click", "[data-role=present]", function () {
-      window.open("/present.html?assets=" + options.selection.values().join(","), "_blank", "noopener");
+      Nadlan.presentLink.open({ assetIds: options.selection.values() });
     });
     $root.on("click", "[data-role=zoom]", function () { options.onZoomToResults(); });
     options.selection.onChange(renderSelection);

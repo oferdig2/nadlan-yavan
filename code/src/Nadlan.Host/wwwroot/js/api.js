@@ -55,7 +55,9 @@
     if (!url || url.charAt(0) !== "/" || url.charAt(1) === "/" || /[\x00-\x20\x7f\\]/.test(url)) { return "/"; }
     try {
       var u = new URL(url, window.location.origin);
-      return u.origin === window.location.origin ? u.pathname + u.search + u.hash : "/";
+      var safe = u.pathname + u.search + u.hash;
+      // Check what comes OUT too: "/.//evil.com" normalises to the path "//evil.com", which as a link means evil.com.
+      return u.origin === window.location.origin && safe.charAt(0) === "/" && safe.charAt(1) !== "/" && safe.indexOf("\\") < 0 ? safe : "/";
     } catch (e) { return "/"; }
   };
 

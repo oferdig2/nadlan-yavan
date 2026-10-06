@@ -14,7 +14,7 @@
           "<form class=\"form\">" +
             "<div class=\"relation-slot\"></div>" +
             "<div class=\"form-row\">" +
-              "<label>Ownership %<input class=\"input\" name=\"ownershipPercent\" data-type=\"number\" placeholder=\"optional\"></label>" +
+              "<label>Ownership %<input class=\"input\" name=\"ownershipPercent\" data-type=\"number\" data-number=\"ratio\" placeholder=\"optional\"></label>" +
             "</div>" +
             "<label>Notes<textarea class=\"input\" name=\"notes\" rows=\"2\"></textarea></label>" +
           "</form>");

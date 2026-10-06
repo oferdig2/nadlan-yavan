@@ -39,9 +39,12 @@ public interface IUserStore
     Task<long> InsertAsync(AppUser user, long? createdByUserId, CancellationToken ct = default);
 
     /// <summary>Profile fields: email, display name, contact, role, active, must-change-password.</summary>
-    /// <param name="requireAnotherActiveAdmin">The change removes an Admin: only done (true) if another active Admin remains,
-    /// checked under a lock on the Admin rows so two concurrent demotions can't both pass. False = refused.</param>
-    Task<bool> UpdateAsync(AppUser user, bool requireAnotherActiveAdmin, CancellationToken ct = default);
+    /// <param name="keepAdmin">When the change removes an Admin: which other Admin must remain - checked under a lock on the
+    /// Admin rows so two concurrent demotions can't both pass. False = refused.</param>
+    Task<bool> UpdateAsync(AppUser user, LastAdminCheck keepAdmin, CancellationToken ct = default);
+
+    /// <summary>Removes the password (Google sign-in only from now on), unless that leaves no Admin per <paramref name="keepAdmin"/>.</summary>
+    Task<bool> RemovePasswordAsync(long userId, LastAdminCheck keepAdmin, CancellationToken ct = default);
 
     /// <summary>Sets (or with null, removes) the password; clears lockout; signs the user out everywhere.</summary>
     Task SetPasswordAsync(long userId, string? passwordHash, bool mustChangePassword, CancellationToken ct = default);
@@ -56,11 +59,34 @@ public interface IUserStore
     Task RecordLoginAsync(long userId, string method, CancellationToken ct = default);
 
     Task UnlockAsync(long userId, CancellationToken ct = default);
-    /// <summary>False if the user didn't exist, or it was the last active Admin and <paramref name="requireAnotherActiveAdmin"/> is set.</summary>
-    Task<bool> DeleteAsync(long userId, bool requireAnotherActiveAdmin, CancellationToken ct = default);
+    /// <summary>False if the user didn't exist, or no other Admin per <paramref name="keepAdmin"/> would remain.</summary>
+    Task<bool> DeleteAsync(long userId, LastAdminCheck keepAdmin, CancellationToken ct = default);
 
-    /// <summary>Active users with the ADMIN role, optionally not counting one user.</summary>
-    Task<int> CountActiveAdminsAsync(long? exceptUserId, CancellationToken ct = default);
+    /// <summary>Active users with the ADMIN role (with a password, if <paramref name="withPasswordOnly"/>), optionally not counting one user.</summary>
+    Task<int> CountActiveAdminsAsync(long? exceptUserId, bool withPasswordOnly, CancellationToken ct = default);
+}
+
+/// <summary>
+/// When a change takes an Admin away (demote, deactivate, delete, remove the password): which other Admin must remain.
+/// Only one who can actually sign in counts - an Admin without a password can't while Google sign-in is off, so
+/// counting them would let the real Admin lock everyone out.
+/// </summary>
+public enum LastAdminCheck
+{
+    /// <summary>The change doesn't take an Admin away.</summary>
+    None,
+
+    /// <summary>Another active Admin (Google sign-in is on: anyone active can sign in).</summary>
+    AnyActiveAdmin,
+
+    /// <summary>Another active Admin with a password (Google sign-in is off).</summary>
+    AdminWithPassword,
+}
+
+/// <summary>Which sign-in methods this server offers (Host knows the configuration).</summary>
+public interface ISignInMethods
+{
+    bool GoogleEnabled { get; }
 }
 
 public sealed record SecurityRole(int SecurityRoleId, string Code, string Name, string? Description, bool IsSystem, bool IsActive,

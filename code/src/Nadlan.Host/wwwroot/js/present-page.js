@@ -38,19 +38,39 @@
     });
   }
 
-  // 3D when Google serves it for this key and browser; otherwise the satellite map, said once in a small notice.
+  // 3D needs WebGL (graphics acceleration); without it Google's element only shows black.
+  function hasWebGl() {
+    try {
+      var canvas = document.createElement("canvas");
+      return !!(window.WebGL2RenderingContext && canvas.getContext("webgl2")) || !!canvas.getContext("webgl");
+    } catch (e) { return false; }
+  }
+
+  // How long the 3D map may take to draw its first view before the satellite map takes over.
+  var READY_3D_MS = 15000;
+
+  // 3D when Google serves it for this key and browser AND it actually draws; otherwise the satellite map, said once in
+  // a small notice. "Draws" covers what loading alone doesn't: no graphics acceleration, the Map Tiles API off on the
+  // key, its quota used up.
   function createView(items, onPick) {
     var stage = document.getElementById("stage");
-    return google.maps.importLibrary("maps3d").then(function (lib) {
-      if (!lib || !lib.Map3DElement) { throw new Error("no 3D"); }
-      return Nadlan.presentViews.create3dView(lib, stage, items, { onPick: onPick });
-    }).catch(function () {
+    function satellite() {
       return Promise.all([google.maps.importLibrary("maps"), google.maps.importLibrary("marker")]).then(function () {
         notice("3D view isn't available here - showing the satellite map.");
         setTimeout(function () { notice(""); }, 6000);
         return Nadlan.presentViews.create2dView(stage, items, { onPick: onPick });
       });
-    });
+    }
+    if (!hasWebGl()) { return satellite(); }
+    return google.maps.importLibrary("maps3d").then(function (lib) {
+      if (!lib || !lib.Map3DElement) { throw new Error("no 3D"); }
+      var view = Nadlan.presentViews.create3dView(lib, stage, items, { onPick: onPick });
+      return view.ready(READY_3D_MS).then(function (ok) {
+        if (ok) { return view; }
+        view.destroy();
+        return satellite();
+      });
+    }, satellite);
   }
 
   function price(it) {
@@ -100,14 +120,28 @@
     }).join("");
   }
 
+  // What the customer reads at the top: the title the presenter chose (&title=, from the Present dialog), never the
+  // Portfolio's internal name or notes; else a plain "4 properties · Skroponeria, Kokkinis".
+  function titles(items) {
+    var chosen = $.trim(new URLSearchParams(window.location.search).get("title") || "").slice(0, 120);
+    var areas = [];
+    items.forEach(function (it) { if (it.area && areas.indexOf(it.area) < 0) { areas.push(it.area); } });
+    var count = items.length === 1 ? heading(items[0]) : items.length + " properties";
+    return { title: chosen || count, sub: chosen ? count + (areas.length ? " · " + areas.slice(0, 3).join(", ") : "") : areas.slice(0, 3).join(", ") };
+  }
+
   function start(data, config) {
     var items = data.items || [];
-    $title.text(data.title || (items.length === 1 ? heading(items[0]) : items.length + " properties"));
-    $sub.text(data.description || (items.length + (items.length === 1 ? " property" : " properties")));
-    document.title = (data.title || "Presentation") + " — GreekPlot";
+    var t = titles(items);
+    $title.text(t.title);
+    $sub.text(t.sub);
+    document.title = t.title + " — GreekPlot";
     if (!items.length) {
       notice("Nothing to show: these properties don't exist, or they were not shared with you.", true);
       return;
+    }
+    if (data.truncated) {
+      notice("Showing the first " + items.length + " of " + data.total + " properties. Present a smaller selection to see the rest.");
     }
 
     $strip.html(stripHtml(items));
@@ -158,11 +192,17 @@
 
     function arrive(p) {
       view.showMe(p, true);
-      var on = p.accuracy <= 150 ? items.findIndex(function (it) {
-        return it.polygons.some(function (g) { return Nadlan.myLocation.containsPoint(g, p.lat, p.lng); });
-      }) : -1;
-      if (on >= 0) { select(on, false); notice("You're standing on " + heading(items[on]) + "."); }
-      else { notice(p.accuracy > 150 ? "Your location is rough (± " + Math.round(p.accuracy) + " m)." : ""); }
+      var found = Nadlan.myLocation.standingOn(p, items, function (it) { return it.polygons; });
+      if (found.rough) {
+        notice("Your location is ± " + Math.round(p.accuracy) + " m - too rough to tell which property you're on.");
+      } else if (found.hits.length === 1) {
+        select(items.indexOf(found.hits[0]), false);
+        notice("You're standing on " + heading(found.hits[0]) + ".");
+      } else if (found.hits.length > 1) {
+        notice("You're where " + found.hits.length + " of these properties meet: " + found.hits.map(function (it) { return (items.indexOf(it) + 1) + ". " + heading(it); }).join(", ") + ".");
+      } else {
+        notice("");
+      }
       setTimeout(function () { notice(""); }, 6000);
     }
 
@@ -175,7 +215,7 @@
       $me.removeClass("busy on");
       notice(message, true);
       setTimeout(function () { notice(""); }, 8000);
-    });
+    }, function () { $me.removeClass("on"); }); // tracking ended by itself (battery); "Me" starts it again
 
     function showMe() {
       if (!view) { return; }
@@ -186,6 +226,12 @@
     }
     $me.on("click", showMe);
 
+    // Touching the map (finger, mouse, wheel, pinch) means the presenter wants to look around: the tour stops there
+    // instead of flying off under their hand.
+    ["pointerdown", "wheel", "touchstart"].forEach(function (type) {
+      document.getElementById("stage").addEventListener(type, function () { if (touring) { stopTour(); } }, { passive: true, capture: true });
+    });
+
     $strip.on("click", ".pres-chip", function () { pick(Number($(this).data("index"))); });
     $("[data-act=next]").on("click", function () { pick(current + 1); });
     $("[data-act=prev]").on("click", function () { pick(current < 0 ? items.length - 1 : current - 1); });
@@ -194,6 +240,7 @@
     $card.on("click", "[data-act=close-card]", function () { $card.prop("hidden", true); });
     $(document).on("keydown", function (e) {
       if ($(".media-viewer").length || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) { return; } // Ctrl+M, Cmd+O... belong to the browser
       if (e.key === "ArrowRight") { pick(current + 1); }
       else if (e.key === "ArrowLeft") { pick(current < 0 ? items.length - 1 : current - 1); }
       else if (e.key === " ") { e.preventDefault(); $tour.trigger("click"); }

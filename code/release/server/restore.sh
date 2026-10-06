@@ -7,7 +7,7 @@
 #   restore.sh <file.sql.gz> --yes --keep-server-identity   keep app_config AND this server's users, roles, grants,
 #                                                           API tokens, reset links and cookie-signing keys (used for a
 #                                                           copy of another database: its sign-in data must never come along)
-set -euo pipefail
+set -Eeuo pipefail  # -E: the ERR trap (rollback below) also fires inside functions such as run_dbtool
 SELF_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 . "$SELF_DIR/lib.sh"
 require_root
@@ -36,7 +36,7 @@ step "Stopping the app"
 systemctl stop "$SERVICE" || true
 
 step "Safety dump of the current data"
-SAFETY=$(bash "$SELF_DIR/backup.sh" before-restore | tail -n 1)
+SAFETY=$(bash "$SELF_DIR/backup.sh" before-restore | tail -n 1) || SAFETY="" # a failure must not exit here: the app is stopped
 [[ -f "$SAFETY" ]] || { systemctl start "$SERVICE" || true; die "Safety dump failed; nothing was changed."; }
 
 if [[ ${#KEEP_TABLES[@]} -gt 0 ]]; then
