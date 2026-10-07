@@ -258,6 +258,22 @@
         });
         tooltip.hide();
       },
+      /** After a save: new summaries of Parcels already drawn (colour, hover card) - no new search, typing goes on at once. */
+      updateSummaries: function (summaries) {
+        summaries.forEach(function (s) {
+          var f = layer.getFeatureById(s.parcelId);
+          if (f) { f.setProperty("summary", s); } // the style function runs again for this feature
+        });
+      },
+      /** Takes Parcels off the map (e.g. saved into a colour that is unticked in the legend). */
+      removeItems: function (parcelIds) {
+        parcelIds.forEach(function (id) {
+          var f = layer.getFeatureById(id);
+          if (f) { layer.remove(f); }
+          delete geometries[id];
+        });
+        tooltip.hide();
+      },
       /** @param {{ done: object, partial: object, todo: object }|null} geo  MultiPolygons from GET /api/parcels/coverage; null = none */
       setSurface: function (geo) {
         surface.forEach(function (f) { surface.remove(f); });

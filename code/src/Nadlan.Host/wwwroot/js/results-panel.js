@@ -79,6 +79,12 @@
         $list.html(list.map(rowHtml).join(""));
         renderSelection();
       },
+      /** The same list with changed rows (e.g. after a quick save): redrawn where the user had scrolled to. */
+      update: function (list, truncated) {
+        var top = $list.scrollTop();
+        this.setItems(list, truncated);
+        $list.scrollTop(top);
+      },
       setMessage: function (text) {
         items = [];
         $root.find(".results-count").text(text);

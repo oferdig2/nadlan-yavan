@@ -76,7 +76,9 @@
     parcelOverlay = Nadlan.createParcelMapOverlay(map, {
       onClick: function (p, domEvent) {
         if (!quickEntryOn()) { popups.showParcel(p); return; }
-        if (domEvent && (domEvent.ctrlKey || domEvent.metaKey)) { addToRow(p, domEvent); } else { openQuickEntry(p, domEvent); }
+        // While a row is open every click adds or removes (no lost row on a plain click, and it works by touch).
+        var rowClick = Nadlan.parcelQuickEntry.inRow() || (domEvent && (domEvent.ctrlKey || domEvent.metaKey));
+        if (rowClick) { addToRow(p); } else { openQuickEntry(p); }
       },
       // Zoom in where the surface was clicked: to the detail zoom, or further when already there ("too many" view).
       onSurfaceClick: function (latLng) { map.setCenter(latLng); map.setZoom(Math.min(20, Math.max(config.parcelDetailMinZoom || 15, map.getZoom() + 2))); },
@@ -109,7 +111,7 @@
     $quick.on("change", function () {
       $(".quick-digits").prop("hidden", !this.checked);
       if (!this.checked) { Nadlan.parcelQuickEntry.close(); }
-      setStatus(this.checked ? "Quick entry: click a parcel, type OT and plot, Enter saves. Ctrl+click several for a row." : "");
+      setStatus(this.checked ? "Quick entry: click a parcel, type OT and plot, Enter saves. Ctrl+click (or Row) for several in a row." : "");
     });
     $digits.on("input", function () {
       var v = String(this.value).replace(/\D/g, "").replace(/^0+/, "");
@@ -117,29 +119,60 @@
       Nadlan.parcelQuickEntry.setDigits(v ? Number(v) : null);
     });
 
-    function openQuickEntry(p, domEvent) {
-      Nadlan.parcelQuickEntry.open(p, domEvent, {
-        onSaved: function (parcelId, message) {
-          popups.refreshParcel(parcelId);
-          reload(message); // its colour follows (blue to do, amber half, green done)
-        },
+    function openQuickEntry(p) {
+      Nadlan.parcelQuickEntry.open(p, {
+        onSaved: function (parcelId, message, saved) { afterQuickSave([parcelId], message, saved); },
         onOpenCard: function (summary) { popups.showParcel(summary); },
+        onStartRow: function (summary) { addToRow(summary); }, // the Row button: a row starting with this parcel
         onError: function (message) { setStatus(message, true); },
         onClose: function () { parcelOverlay.clearSelection(); }
       });
     }
 
-    // Ctrl/⌘+click in quick entry: several Parcels (a row of plots), numbered in click order, saved together.
-    function addToRow(p, domEvent) {
-      Nadlan.parcelQuickEntry.toggleInRow(p, domEvent, {
+    // Ctrl/⌘+click (or the Row button) in quick entry: several Parcels, numbered in click order, saved together.
+    function addToRow(p) {
+      Nadlan.parcelQuickEntry.toggleInRow(p, {
         onPreview: function (list) { parcelOverlay.setGroup(list); },
         onError: function (message) { setStatus(message, true); },
-        onSaved: function (parcelIds, message) {
-          parcelIds.forEach(function (id) { popups.refreshParcel(id); });
-          reload(message);
-        },
+        onSaved: afterQuickSave,
         onClose: function () { parcelOverlay.clearSelection(); }
       });
+    }
+
+    // After a quick save the saved Parcels are recoloured where they are - no new search, so the next parcel can be
+    // clicked at once. The legend counts and the list follow; a Parcel saved into a colour that is unticked leaves the
+    // map (working through "to do" only, done ones disappear). The next pan or search reloads as usual.
+    // The legend counts of the last search, kept for the in-place update after a save.
+    function setCounts(counts) {
+      state.kindCounts = counts || null;
+      parcelOverlay.setCounts(counts || null);
+    }
+
+    function afterQuickSave(parcelIds, message, saved) {
+      parcelIds.forEach(function (id) { popups.refreshParcel(id); });
+      setStatus(message);
+      if (state.mode !== "parcels") { return; }
+      var shownKinds = parcelOverlay.getFilter().kinds; // undefined = every colour ticked
+      var counts = state.kindCounts ? $.extend({}, state.kindCounts) : null;
+      var gone = [], changed = [];
+      saved.forEach(function (s) {
+        var it = state.items.filter(function (x) { return x.summary.parcelId === s.parcelId; })[0];
+        if (!it) { return; }
+        var kind = s.ot && s.plot ? "done" : s.ot || s.plot ? "partial" : "todo"; // saved values passed the server's number rule
+        if (counts) {
+          counts[it.summary.kind] = Math.max(0, (counts[it.summary.kind] || 0) - 1);
+          counts[kind] = (counts[kind] || 0) + 1;
+        }
+        it.summary = $.extend({}, it.summary, { ot: s.ot || null, plot: s.plot || null, kind: kind });
+        if (shownKinds && shownKinds.indexOf(kind) < 0) { gone.push(s.parcelId); } else { changed.push(it.summary); }
+      });
+      if (gone.length) {
+        state.items = state.items.filter(function (x) { return gone.indexOf(x.summary.parcelId) < 0; });
+        parcelOverlay.removeItems(gone);
+      }
+      parcelOverlay.updateSummaries(changed);
+      if (counts) { setCounts(counts); }
+      results.update(state.items, state.truncated);
     }
 
     // While a drawing tool is active, polygons must not swallow the clicks.
@@ -251,8 +284,9 @@
       Nadlan.api.get(url, query).then(function (res) {
         if (seq !== requestSeq || mode !== state.mode) { return; } // superseded by a newer search / mode switch
         if (res.tooMany) { showTooMany(seq, res); return; }
-        if (mode === "parcels") { showSurface(null); parcelOverlay.setCounts(res.kindCounts); }
+        if (mode === "parcels") { showSurface(null); setCounts(res.kindCounts); }
         state.items = res.items;
+        state.truncated = res.truncated;
         (mode === "assets" ? assetOverlay : parcelOverlay).setItems(res.items);
         results.setItems(res.items, res.truncated);
         if (state.fitAfterLoad) { state.fitAfterLoad = false; fitItems(res.items); }
@@ -284,7 +318,7 @@
     function showTooMany(seq, res) {
       state.items = [];
       parcelOverlay.setItems([]);
-      parcelOverlay.setCounts(res.kindCounts);
+      setCounts(res.kindCounts);
       if (!res.surface) { // a filter or a partial view: no surface stands for this set, so ask to narrow it
         showSurface(null);
         results.setMessage(res.count.toLocaleString("en-US") + " parcels match - too many to draw. " +
@@ -314,7 +348,7 @@
         if (seq !== requestSeq || state.mode !== "parcels") { return; }
         state.items = [];
         parcelOverlay.setItems([]);
-        parcelOverlay.setCounts(res.kindCounts);
+        setCounts(res.kindCounts);
         results.setMessage(res.count.toLocaleString("en-US") + " parcel(s). Zoom in to see them one by one and to list them - or click the surface.");
         setStatus("");
         var cached = surfaces[level];
@@ -340,7 +374,7 @@
     // Nothing from another mode or an older filter may stay on screen (e.g. Parcels shown as Assets).
     function clearResults(message) {
       state.items = [];
-      parcelOverlay.setCounts(null);
+      setCounts(null);
       (state.mode === "assets" ? assetOverlay : parcelOverlay).setItems([]);
       results.setMessage(message);
       setStatus("");

@@ -2,7 +2,7 @@
 
 For the agent who deploys this release and then tells the customer what to look at.
 
-- **Code:** `main` at `6455eb3` or later.
+- **Code:** `main` with the commit "Quick entry for fast data entry" (after `f98e9b7`) or later.
 - **Tests:** builds clean, 233 automated tests pass, and the new features were checked on a test database (at production's
   connection limit of 20) and in a headless browser with Google Maps simulated.
 - **A separate review checked it too:** on a copy with 4,000 parcels, an OT search went from about 1.1 s to 16 ms, five
@@ -27,9 +27,9 @@ The customer's request is `AI/Remarks/ChangeRequest#1.pdf`. §3 maps each of his
 | **New map colours = OT / plot status** | Map legend, "OT / plot entry" | **Green** = OT and plot entered. **Amber** = only one of them. **Blue** = still to do. Each row shows **how many** parcels match the current search, even when unticked. Ticking or unticking a row filters the map and the list. The **purple outline** still means "has an Asset". |
 | **Real / provisional KAEK filter** | Side panel, "KAEK" boxes (Parcels view) | This was a colour until today and is now a filter. Tick one box to see only real or only provisional (TMP-) KAEKs. Both or neither ticked shows all parcels. |
 | **Hover card** | Mouse over any parcel | A dark card next to the cursor: OT / Plot in large type (or "No OT / plot yet"), then the KAEK, area, size and "Has Asset". |
-| **Quick OT/plot entry** | Header checkbox **Quick OT/plot entry** (Parcels view; Admin and Data person) | Click a parcel and a small form opens next to it with the cursor in OT, so the user can type at once. **Enter** in OT moves to Plot, **Enter** in Plot saves, **Esc** closes, **Card** opens the normal card. The status line confirms each save, and the colour updates. |
-| **OT digits** | Box next to the checkbox (appears when the mode is on) | Optional, remembered per browser. If every OT has, say, 3 digits, the cursor jumps to Plot after the 3rd digit, so a whole sheet can be typed on the numeric keypad. It only jumps when the OT is typed from empty, never while correcting one. Leave it empty to switch the jump off. |
-| **Group entry (a row of plots)** | In quick entry: **Ctrl+click** (⌘+click on Mac) | Pick the plots of a row one by one; the click order is the numbering order. One form: "OT for all of them" plus each row's plot, counting up from the first (1, 2, 3...). Type over a row to skip a number (4 → 6) or to split (4a, 4b); the next rows continue from it. The planned "OT / plot" shows **inside each polygon** before saving. Plots that already have different numbers are flagged in amber. **Enter** or **Save all** saves everything at once (up to 50 parcels). Ctrl+click a plot again, or press ×, to take it out. |
+| **Quick OT/plot entry** | Header checkbox **Quick OT/plot entry** (Parcels view; Admin and Data person) | Click a parcel and a small form opens with the cursor in OT, so the user can type at once. **Enter** in OT moves to Plot, **Enter** in Plot saves, **Esc** closes, **Card** opens the normal card. The form sits over the side panel, so it never covers the parcels; if the user drags it elsewhere, it opens there from then on (per browser). After a save the parcel changes colour **in place**: no map reload, so the next parcel can be clicked at once. The legend counts and the list follow. |
+| **OT digits** | Box next to the checkbox (appears when the mode is on) | Optional, remembered per browser. If every OT has, say, 3 digits, the cursor jumps to Plot after the 3rd digit, so a whole sheet can be typed on the numeric keypad. It only jumps when the OT is typed from empty, never while correcting one. A letter typed right after the jump still goes to the OT (171, a → 171a); the first digit starts the plot. Leave it empty to switch the jump off. |
+| **Group entry (a row of plots)** | In quick entry: **Ctrl+click** (⌘+click on Mac), or the **Row** button in the quick form (also on tablets) | While a row is open, **every click** (or tap) on a parcel adds it, and clicking it again takes it out; there is no need to keep holding Ctrl. The click order is the numbering order. One form: "OT for all of them" plus each row's plot, counting up from the first (1, 2, 3...). Type over a row to skip a number (4 → 6) or to split (4a, 4b); the next rows continue from it. A row whose plot is cleared keeps its plot as it is, and the counting goes on past it. The planned "OT / plot" shows **inside each polygon** before saving. Plots that already have different numbers are flagged in amber. **Enter** or **Save all** saves everything at once (up to 50 parcels); **Esc** or **Cancel** ends the row. |
 | **Who entered OT / plot** | Parcel card, under "OT / Plot": "by *name*, *date*" | Stored on each parcel and updated by every save (quick entry, group entry, edit form, new parcel). The parcel's History shows old → new values, e.g. "OT/plot set to 171a / 3 (was 12A / 5C)". Re-saving the same number (e.g. an old "47A" saved as 47 + A) credits nobody. |
 | **Per-person history (Admins)** | API only for now: `GET /api/activity/by-user?userId=<id>&entityType=Parcel&from=2026-10-07&to=2026-10-08` | Everything one user did in a period, newest first, with each parcel's KAEK. There is no screen for it yet (see §5). |
 | **Number rule** | Every save of OT / plot | A new or changed OT or plot must be a number (up to 12 digits) with at most 3 letters: 47, 47A, 171α. Typing "47A" in one field is stored as 47 + A. Keypad slips such as "47+", "47.", "47/3" or a lone "-" are refused with a clear message, so nothing half-typed turns a parcel green. Odd values already in the data don't block other edits. |
@@ -71,10 +71,12 @@ tabs). Use what is committed on `main`. Those changes are not part of these note
 - [ ] Side panel: type an OT you know (e.g. one from the customer's screenshot, 171) → **Apply** → only those parcels are
   listed. Try "0171" too: the same result.
 - [ ] Tick **Quick OT/plot entry**, click a blue parcel, type an OT, **Enter**, a plot, **Enter**:
+  - [ ] the form opened over the side panel, not over the map;
   - [ ] the status line says "... saved";
-  - [ ] the parcel turns green;
+  - [ ] the parcel turns green at once, without the map reloading;
   - [ ] its card shows "by <your name>, <date>".
-- [ ] Ctrl+click three neighbouring parcels → type an OT, **Enter**, "1":
+- [ ] Ctrl+click one parcel, then plain-click two neighbours (or click one, press **Row**, then click two more) → type an
+  OT, **Enter**, "1":
   - [ ] each polygon shows its position (1, 2, 3) and the planned "<OT> / 1", "<OT> / 2", "<OT> / 3";
   - [ ] **Enter** saves all three.
   - Then put back the real values, or use test parcels.
@@ -91,15 +93,19 @@ typed on a numeric keypad."**
 Done: the **Quick OT/plot entry** checkbox at the top of the map.
 - Click a parcel, type the OT, **Enter**, the plot, **Enter**: all on the keypad, no mouse between parcels. The keypad's
   Enter key works too.
-- If all OTs on a sheet have the same length, put that number in **OT digits** and the cursor jumps to Plot by itself.
+- The parcel turns green right away and the map stays where it is, so he can click the next one immediately.
+- The small form sits at the side, so it never hides the parcels. He can drag it anywhere he prefers, and it stays there.
+- If all OTs on a sheet have the same length, put that number in **OT digits** and the cursor jumps to Plot by itself. An
+  OT letter typed right after the jump (171, a) still lands in the OT.
 - We used a normal click inside the mode instead of a right-click; it does the same job.
 
 **3. "Hovering over a plot can give a shortened display of OT/Plot."**
 Done, for every parcel: a small card next to the mouse with OT / Plot in large type, plus the KAEK, area and size.
 
 **4. "Click two plots at the ends of a line, enter the first and last numbers, the system fills the middle (+1 each)."**
-We built this a bit differently, and more safely. In the quick mode, hold **Ctrl** (⌘ on a Mac) and click the plots of
-the line in order.
+We built this a bit differently, and more safely. In the quick mode, **Ctrl+click** (⌘ on a Mac) the first plot of the
+line, or press **Row** in the small form; then simply click the other plots in order. On a tablet the Row button and taps
+do the same.
 - He chooses exactly which plots are in the line, so the system never guesses wrongly around bends, missing plots or
   merged plots.
 - He types the OT once and the first plot number; the others count up by themselves.
@@ -135,15 +141,15 @@ Done, exactly so.
 ### Set expectations
 - **Who can use it:** quick entry and group entry are for users who may edit all parcels (Admin and **Data person**). Give
   data-entry people the Data person role (Admin → Users).
-- **Mouse and keyboard:** group entry needs Ctrl / ⌘, so it doesn't work on phones or tablets. Single quick entry works
-  everywhere.
-- **Letters with OT digits:** with **OT digits** set, an OT with a letter (171a) jumps to Plot before the letter can be
-  typed. Press Shift+Tab to go back, or leave OT digits empty for sheets with letters.
+- **Tablets:** both quick entry and rows work by touch (rows via the **Row** button). Typing is easiest with a keyboard or
+  keypad.
+- **While a row is open,** every click adds or removes a parcel. To go back to single parcels, save the row or press
+  **Esc** / **Cancel**.
 - **What a valid number is:** a number with up to 3 letters (47, 47A). Entries like "47/3" or "Α12" are refused. Tell us
   if real OTs ever look like that.
 - **"By whom" starts with this release:** OT / plot entered earlier, or imported, shows no name.
-- **Clicking outside a row:** a plain click while a row is being picked starts a new single form, and the picked row is
-  dropped.
+- **After saving,** the map is updated in place. A parcel saved while a search filter is active (e.g. OT 10) stays on the
+  map until the next search or pan, even if it no longer matches.
 
 ---
 
@@ -165,11 +171,6 @@ Done, exactly so.
 
 ## 5. Still open (not for the customer, for planning)
 - **A screen for the per-person history:** the API exists, there is no page yet.
-- **Data-entry comfort:**
-  - the map refreshes after every save;
-  - the quick form can cover neighbouring parcels;
-  - clearing a row number refills it;
-  - no group entry on touch screens.
 - **The full edit form under heavy load:** the reviewer saw a ~20 s stall with 20 map loads plus 10 edit-form saves at
   once (an older issue). Quick entry no longer uses that path. It could not be reproduced on our test copy.
 - **Small:** "0" counts as an entered number.
