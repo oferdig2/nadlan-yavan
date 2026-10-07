@@ -23,6 +23,8 @@ public static class AssetEndpoints
         [FromQuery] public decimal? PriceMin { get; set; }
         [FromQuery] public decimal? PriceMax { get; set; }
         [FromQuery] public string? RegistryId { get; set; }
+        [FromQuery] public string? Ot { get; set; }
+        [FromQuery] public string? Plot { get; set; }
         [FromQuery] public long[]? ContactIds { get; set; }
         [FromQuery] public long[]? PortfolioIds { get; set; }
         [FromQuery] public int[]? AreaIds { get; set; }
@@ -48,6 +50,8 @@ public static class AssetEndpoints
                 PriceMin = q.PriceMin,
                 PriceMax = q.PriceMax,
                 RegistryId = q.RegistryId,
+                Ot = q.Ot,
+                Plot = q.Plot,
                 ManagingContactIds = q.ContactIds ?? Array.Empty<long>(),
                 PortfolioIds = q.PortfolioIds ?? Array.Empty<long>(),
                 GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),

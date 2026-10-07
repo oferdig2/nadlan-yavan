@@ -142,6 +142,8 @@ public sealed class MySqlParcelStore : IParcelStore
             args.Add("registryLike", $"%{SqlLike.Escape(query.RegistryId.Trim())}%");
         }
 
+        ParcelNumberSql.Add(where, args, query.Ot, query.Plot);
+
         if (query.GeographicAreaIds.Count > 0)
         {
             where.Add("p.geographic_area_id IN @areaIds");

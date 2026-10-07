@@ -126,6 +126,8 @@ public sealed class MySqlAssetStore : IAssetStore
             args.Add("registryLike", $"%{SqlLike.Escape(query.RegistryId.Trim())}%");
         }
 
+        ParcelNumberSql.Add(where, args, query.Ot, query.Plot);
+
         AddIn(where, args, "a.managing_contact_id", "contactIds", query.ManagingContactIds);
         AddIn(where, args, "p.geographic_area_id", "areaIds", query.GeographicAreaIds);
         AddIn(where, args, "a.asset_status_id", "statusIds", query.StatusIds);

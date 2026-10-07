@@ -29,6 +29,10 @@
           "<button type=\"button\" class=\"btn\" data-role=\"clear-rect\" hidden>Clear rectangle</button>" +
         "</div>" +
         "<label>KAEK<input class=\"input\" data-filter=\"registryId\" placeholder=\"contains…\"></label>" +
+        "<div class=\"form-row\">" +
+          "<label>OT<input class=\"input\" data-filter=\"ot\" placeholder=\"e.g. 47\" title=\"Exact OT (block) number, with or without its letter\"></label>" +
+          "<label>Plot<input class=\"input\" data-filter=\"plot\" placeholder=\"e.g. 22\" title=\"Exact plot number, with or without its letter\"></label>" +
+        "</div>" +
         "<fieldset class=\"checks\"><legend>Geographic area</legend>" + checks("areaIds", Nadlan.reference.active(ref.geographicAreas)) + "</fieldset>" +
         "<div data-assets-only>" +
           "<div class=\"form-row\">" +
@@ -82,6 +86,8 @@
         $error.prop("hidden", true);
         var f = {
           registryId: $.trim($root.find("[data-filter=registryId]").val()) || null,
+          ot: $.trim($root.find("[data-filter=ot]").val()) || null,
+          plot: $.trim($root.find("[data-filter=plot]").val()) || null,
           areaIds: checkedIds("areaIds")
         };
         if (mode === "assets") {

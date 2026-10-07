@@ -26,6 +26,8 @@ public static class ParcelEndpoints
         [FromQuery] public double? East { get; set; }
         [FromQuery] public double? North { get; set; }
         [FromQuery] public string? RegistryId { get; set; }
+        [FromQuery] public string? Ot { get; set; }
+        [FromQuery] public string? Plot { get; set; }
         [FromQuery] public int[]? AreaIds { get; set; }
 
         /// <summary>Map colours to show (ParcelKinds: kaek, ot, noid); none = all.</summary>
@@ -47,6 +49,8 @@ public static class ParcelEndpoints
         {
             Area = GeoJson.Bounds(q.West, q.South, q.East, q.North),
             RegistryId = q.RegistryId,
+            Ot = q.Ot,
+            Plot = q.Plot,
             GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),
             Kinds = kinds.Count == ParcelKinds.All.Count ? Array.Empty<string>() : kinds,
             HasAssets = q.HasAssets,

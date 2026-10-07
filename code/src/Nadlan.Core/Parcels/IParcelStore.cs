@@ -46,6 +46,12 @@ public sealed record ParcelQuery
     /// <summary>KAEK / registry id, matched as "contains".</summary>
     public string? RegistryId { get; init; }
 
+    /// <summary>OT (building block) number, exact: "47", or with its extension "47A". Spaces and case ignored.</summary>
+    public string? Ot { get; init; }
+
+    /// <summary>Plot number, exact, the same way ("22" or "22B").</summary>
+    public string? Plot { get; init; }
+
     public IReadOnlyList<int> GeographicAreaIds { get; init; } = Array.Empty<int>();
 
     /// <summary>Only these <see cref="ParcelKinds"/>; empty = all.</summary>

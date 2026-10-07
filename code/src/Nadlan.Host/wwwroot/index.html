@@ -19,6 +19,10 @@
       <button type="button" data-view="assets">Assets</button>
     </nav>
     <button type="button" class="btn" data-tool="new-parcel" data-requires="EDIT_ALL_PARCELS" hidden>+ New parcel</button>
+    <span class="quick-entry-setting" data-requires="EDIT_ALL_PARCELS" hidden>
+      <label class="check" title="Click a parcel to type its OT and plot straight away (Enter saves)"><input type="checkbox" data-role="quick-entry"> Quick OT/plot entry</label>
+      <label class="quick-digits" title="If every OT has this many digits, the cursor jumps to Plot once they are typed. Empty = off." hidden>OT digits <input class="input" data-role="ot-digits" inputmode="numeric" maxlength="1"></label>
+    </span>
     <button type="button" class="btn" data-tool="portfolios">Portfolios</button>
     <a class="btn" href="/admin.html" data-requires="MANAGE_USERS MANAGE_METADATA MANAGE_CONTACTS VIEW_ALL_CONTACTS" hidden>Admin</a>
     <span id="map-status" class="map-status"></span>
@@ -65,6 +69,7 @@
   <script src="/js/map-rectangle-selector.js"></script>
   <script src="/js/parcel-draw-tool.js"></script>
   <script src="/js/parcel-editor.js"></script>
+  <script src="/js/parcel-quick-entry.js"></script>
   <script src="/js/map-filter-panel.js"></script>
   <script src="/js/results-panel.js"></script>
   <script src="/js/map-entity-popup.js"></script>

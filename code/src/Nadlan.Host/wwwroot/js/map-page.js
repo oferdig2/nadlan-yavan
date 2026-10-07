@@ -74,7 +74,7 @@
     });
 
     parcelOverlay = Nadlan.createParcelMapOverlay(map, {
-      onClick: function (p) { popups.showParcel(p); },
+      onClick: function (p, domEvent) { if (quickEntryOn()) { openQuickEntry(p, domEvent); } else { popups.showParcel(p); } },
       // Zoom in where the surface was clicked: to the detail zoom, or further when already there ("too many" view).
       onSurfaceClick: function (latLng) { map.setCenter(latLng); map.setZoom(Math.min(20, Math.max(config.parcelDetailMinZoom || 15, map.getZoom() + 2))); },
       // Legend checkboxes (colour filter): search again with them.
@@ -98,6 +98,32 @@
         setTimeout(function () { if (state.standingAt === p && requestSeq === seqAtFix) { showWhereIStand(state.items); } }, 1500);
       }
     });
+
+    // Quick OT/plot entry (Parcels view, Parcel editors): a click opens the small OT/plot form instead of the card.
+    var $quick = $("[data-role=quick-entry]");
+    var $digits = $("[data-role=ot-digits]").val(Nadlan.parcelQuickEntry.getDigits() || "");
+    function quickEntryOn() { return $quick.prop("checked") && !$quick.closest("[hidden]").length; }
+    $quick.on("change", function () {
+      $(".quick-digits").prop("hidden", !this.checked);
+      if (!this.checked) { Nadlan.parcelQuickEntry.close(); }
+      setStatus(this.checked ? "Quick entry: click a parcel, type OT and plot, Enter saves." : "");
+    });
+    $digits.on("input", function () {
+      var v = String(this.value).replace(/\D/g, "").replace(/^0+/, "");
+      this.value = v;
+      Nadlan.parcelQuickEntry.setDigits(v ? Number(v) : null);
+    });
+
+    function openQuickEntry(p, domEvent) {
+      Nadlan.parcelQuickEntry.open(p, domEvent, {
+        onSaved: function (parcelId, message) {
+          popups.refreshParcel(parcelId);
+          reload(message); // its colour can change (an OT turns a red provisional parcel orange)
+        },
+        onOpenCard: function (summary) { popups.showParcel(summary); },
+        onClose: function () { parcelOverlay.clearSelection(); }
+      });
+    }
 
     // While a drawing tool is active, polygons must not swallow the clicks.
     function setDrawing(active) {
@@ -167,6 +193,8 @@
     function setMode(mode) {
       state.mode = mode;
       $("[data-view]").removeClass("active").filter("[data-view=" + mode + "]").addClass("active");
+      $(".quick-entry-setting").toggleClass("off-view", mode !== "parcels"); // Parcels view only
+      if (mode !== "parcels") { Nadlan.parcelQuickEntry.close(); }
       parcelOverlay.setVisible(mode === "parcels");
       assetOverlay.setVisible(mode === "assets");
       filters.setMode(mode);
@@ -228,7 +256,7 @@
     // who see only some Parcels: they get their own polygons at any zoom. A colour (kind) filter is fine: the surface
     // has one layer per colour and hides the unticked ones.
     function surfaceAllowed(filter) {
-      return seesAllParcels && !filter.registryId && !filter.areaIds.length && filter.hasAssets === undefined;
+      return seesAllParcels && !filter.registryId && !filter.ot && !filter.plot && !filter.areaIds.length && filter.hasAssets === undefined;
     }
 
     function overview(mode, filter) {

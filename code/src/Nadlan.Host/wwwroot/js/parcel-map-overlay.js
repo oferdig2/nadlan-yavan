@@ -39,9 +39,9 @@
 
   /**
    * @param {google.maps.Map} map
-   * @param {{ onClick: function(object): void, onSurfaceClick?: function(google.maps.LatLng): void,
+   * @param {{ onClick: function(object, Event): void, onSurfaceClick?: function(google.maps.LatLng): void,
    *           onFilterChange?: function(): void }} options
-   *        onClick receives the Parcel summary; onSurfaceClick the point clicked on the zoomed-out surface;
+   *        onClick receives the Parcel summary and the click; onSurfaceClick the point clicked on the zoomed-out surface;
    *        onFilterChange fires when a legend checkbox changes (the page reloads with getFilter()).
    */
   function createParcelMapOverlay(map, options) {
@@ -85,7 +85,7 @@
     layer.addListener("click", function (e) {
       selectedId = e.feature.getId();
       refresh();
-      options.onClick(e.feature.getProperty("summary"));
+      options.onClick(e.feature.getProperty("summary"), e.domEvent);
     });
 
     function refresh() {

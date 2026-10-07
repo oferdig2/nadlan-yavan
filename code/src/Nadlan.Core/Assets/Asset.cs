@@ -35,6 +35,11 @@ public sealed record AssetQuery
     /// <summary>KAEK / registry id, matched as "contains".</summary>
     public string? RegistryId { get; init; }
 
+    /// <summary>OT / plot number of the Asset's Parcel, exact ("47" or "47A"), as <see cref="Parcels.ParcelQuery.Ot"/>.</summary>
+    public string? Ot { get; init; }
+
+    public string? Plot { get; init; }
+
     public IReadOnlyList<long> ManagingContactIds { get; init; } = Array.Empty<long>();
     public IReadOnlyList<long> PortfolioIds { get; init; } = Array.Empty<long>();
     public IReadOnlyList<int> GeographicAreaIds { get; init; } = Array.Empty<int>();

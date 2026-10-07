@@ -26,6 +26,15 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .map-status { margin-left: auto; font-size: 13px; color: var(--muted); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-status.error { color: var(--error); }
 
+/* Quick OT/plot entry: header switch (Parcels view only) and the small form opened next to the clicked parcel. */
+.quick-entry-setting { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; white-space: nowrap; }
+.quick-entry-setting[hidden], .quick-entry-setting.off-view { display: none; }
+.quick-entry-setting label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.quick-entry-setting label[hidden] { display: none; }
+.quick-entry-setting .input { width: 2.6em; padding: 3px 4px; text-align: center; }
+.quick-entry-form .input { font-size: 16px; }
+.quick-entry-hint { font-size: 12px; }
+
 /* Results list */
 .results-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 12px 4px; font-size: 13px; font-weight: 600; }
 .results-actions { display: flex; gap: 4px; padding: 0 12px 6px; flex-wrap: wrap; }
