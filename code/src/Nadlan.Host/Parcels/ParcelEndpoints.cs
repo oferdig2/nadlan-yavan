@@ -84,8 +84,8 @@ public static class ParcelEndpoints
         {
             var query = ToQuery(q, me) with { Limit = int.MaxValue };
 
-            var count = await parcels.CountAsync(query, ct);
             var kindCounts = await parcels.CountByKindAsync(query, ct); // legend: each colour's count, even while unticked
+            var count = CountOf(query, kindCounts);
             if (count > options.Value.Maps.MaxParcelPolygons)
             {
                 var surface = allowSurface == true && me.Scope.AllParcels;
@@ -132,10 +132,11 @@ public static class ParcelEndpoints
         group.MapGet("/count", async ([AsParameters] ParcelQueryParams q, UserAccess me, IParcelStore parcels, ParcelCoverageService coverage, CancellationToken ct) =>
         {
             var query = ToQuery(q, me);
+            var kindCounts = await parcels.CountByKindAsync(query, ct);
             return Results.Ok(new
             {
-                count = await parcels.CountAsync(query, ct),
-                kindCounts = await parcels.CountByKindAsync(query, ct),
+                count = CountOf(query, kindCounts),
+                kindCounts,
                 coverageVersion = coverage.Current?.Version,
             });
         });
@@ -197,6 +198,13 @@ public static class ParcelEndpoints
                 parcel.CreatedUtc,
                 geometry = GeoJson.Polygon(parcel.Geometry),
                 version, // sent back on save (edit check)
+                // Who last entered or changed OT / plot, and when (customer change request #1: checking data entry).
+                otPlotBy = parcel.OtPlotByUserId is null && parcel.OtPlotUpdatedUtc is null ? null : new
+                {
+                    userId = parcel.OtPlotByUserId,
+                    name = parcel.OtPlotByName ?? (parcel.OtPlotByUserId is long uid ? $"user #{uid}" : "import"),
+                    utc = parcel.OtPlotUpdatedUtc,
+                },
                 // Raw values for the edit form (the summary joins OT/plot with their extensions).
                 fields = new
                 {
@@ -273,13 +281,15 @@ public static class ParcelEndpoints
                 BuildFactor = dto.BuildFactor,
                 Notes = dto.Notes,
                 AcceptOverlaps = dto.AcceptOverlaps,
+                EditedByUserId = me.UserId,
             }, ct), me, policy, ct);
         });
 
         // Quick data entry: OT / plot of several Parcels in one save (a row of plots). Rights and edit versions of all of
-        // them are checked before anything is written; a Parcel saved by someone else meanwhile refuses the whole call.
+        // them are checked before anything is written; a Parcel saved by someone else meanwhile refuses the whole call,
+        // and a failure part-way leaves nothing saved.
         group.MapPost("/numbers", async (ParcelNumbersDto dto, UserAccess me, AccessPolicy policy, ParcelService service,
-            ParcelCoverageService coverage, IEditVersionStore versions, CancellationToken ct) =>
+            ParcelCoverageService coverage, CancellationToken ct) =>
         {
             var items = dto.Items ?? Array.Empty<ParcelNumbersItemDto>();
             if (items.Count == 0 || items.Count > ParcelService.MaxNumbersBatch)
@@ -287,31 +297,17 @@ public static class ParcelEndpoints
                 throw new DomainValidationException("PARCEL_NUMBERS_COUNT", $"Send 1 to {ParcelService.MaxNumbersBatch} Parcels at a time.");
             }
 
-            var ordered = items.OrderBy(i => i.ParcelId).ToList(); // locks always in the same order: two such saves can't deadlock
-            foreach (var item in ordered)
+            // Users who may edit every Parcel pass without a query each (AccessPolicy); the others are checked one by one.
+            foreach (var id in items.Select(i => i.ParcelId).Distinct())
             {
-                await policy.RequireParcelEditAsync(me, item.ParcelId, ct);
+                await policy.RequireParcelEditAsync(me, id, ct);
             }
 
-            var leases = new List<IAsyncDisposable>();
-            try
-            {
-                foreach (var item in ordered.DistinctBy(i => i.ParcelId))
-                {
-                    leases.Add(await versions.BeginEditAsync(EditTargets.Parcel, item.ParcelId, item.Version, ct));
-                }
-
-                var changed = await service.SetNumbersAsync(items.Select(i => new ParcelNumbers(i.ParcelId, i.OT, i.OTExt, i.PlotNumber, i.PlotExt)).ToList(), ct);
-                coverage.MarkDirty();
-                return Results.Ok(new { changed });
-            }
-            finally
-            {
-                foreach (var lease in leases)
-                {
-                    await lease.DisposeAsync();
-                }
-            }
+            // One connection, one transaction, with the history rows: all or nothing (IParcelStore.SetNumbersAsync).
+            var result = await service.SetNumbersAsync(items.Select(i => new ParcelNumbersWrite(
+                new ParcelNumbers(i.ParcelId, i.OT, i.OTExt, i.PlotNumber, i.PlotExt), i.Version)).ToList(), me.UserId, ct);
+            coverage.MarkDirty();
+            return Results.Ok(new { changed = result.Changed.Count, versions = result.Versions }); // versions: a next save from the same form
         });
 
         // Legal Owners: visible only with VIEW_LEGAL_OWNERS or edit rights (spec §3.4 "Legal Owners if permitted").
@@ -344,6 +340,10 @@ public static class ParcelEndpoints
     }
 
     public sealed record LegalOwnerDto(decimal? OwnershipPercent, string? Notes);
+
+    /// <summary>The total is the sum of the colours that are shown (one query fewer per map reload).</summary>
+    private static long CountOf(ParcelQuery query, IReadOnlyDictionary<string, long> kindCounts)
+        => (query.Kinds.Count == 0 ? ParcelKinds.All : query.Kinds).Sum(k => kindCounts.GetValueOrDefault(k));
 
     private static void RequireAdmin(UserAccess me)
     {

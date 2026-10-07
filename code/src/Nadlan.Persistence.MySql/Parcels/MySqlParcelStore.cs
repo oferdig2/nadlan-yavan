@@ -1,8 +1,12 @@
 using Dapper;
 using MySqlConnector;
+using Nadlan.Core.Activity;
+using Nadlan.Core.Editing;
 using Nadlan.Core.Geo;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Validation;
+using Nadlan.Persistence.MySql.Activity;
+using Nadlan.Persistence.MySql.Editing;
 using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Persistence.MySql.Parcels;
@@ -19,9 +23,10 @@ public sealed class MySqlParcelStore : IParcelStore
     private const string SelectColumns = """
         SELECT p.parcel_id, p.country_id, p.registry_id, p.registry_id_is_provisional, p.geographic_area_id,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt, p.official_area_sqm, p.ot, p.ot_ext,
-               p.plot_number, p.plot_ext, p.inclination, p.build_factor, p.notes, p.created_by_user_id,
-               p.created_utc, p.updated_utc
+               p.plot_number, p.plot_ext, p.ot_plot_by_user_id, p.ot_plot_updated_utc, ou.display_name AS ot_plot_by_name,
+               p.inclination, p.build_factor, p.notes, p.created_by_user_id, p.created_utc, p.updated_utc
         FROM parcel p
+        LEFT JOIN app_user ou ON ou.user_id = p.ot_plot_by_user_id
         """;
 
     private readonly MySqlDatabase _db;
@@ -72,25 +77,26 @@ public sealed class MySqlParcelStore : IParcelStore
         await using var conn = await _db.OpenAsync(ct);
         return await conn.ExecuteScalarAsync<long>(new CommandDefinition($"""
             INSERT INTO parcel (country_id, registry_id, registry_id_is_provisional, geographic_area_id, geometry,
-                                official_area_sqm, ot, ot_ext, plot_number, plot_ext, inclination, build_factor,
-                                notes, created_by_user_id)
+                                official_area_sqm, ot, ot_ext, plot_number, plot_ext, ot_plot_by_user_id, ot_plot_updated_utc,
+                                inclination, build_factor, notes, created_by_user_id)
             VALUES (@CountryId, @RegistryId, @RegistryIdIsProvisional, @GeographicAreaId, {FromWkt},
-                    @OfficialAreaSqm, @OT, @OTExt, @PlotNumber, @PlotExt, @Inclination, @BuildFactor,
-                    @Notes, @CreatedByUserId);
+                    @OfficialAreaSqm, @OT, @OTExt, @PlotNumber, @PlotExt, @OtPlotByUserId, @OtPlotUpdatedUtc,
+                    @Inclination, @BuildFactor, @Notes, @CreatedByUserId);
             SELECT LAST_INSERT_ID();
             """,
             new
             {
                 parcel.CountryId, parcel.RegistryId, parcel.RegistryIdIsProvisional, parcel.GeographicAreaId,
                 Wkt = parcel.Geometry.ToWkt(), parcel.OfficialAreaSqm, parcel.OT, parcel.OTExt, parcel.PlotNumber,
-                parcel.PlotExt, parcel.Inclination, parcel.BuildFactor, parcel.Notes, parcel.CreatedByUserId,
+                parcel.PlotExt, parcel.OtPlotByUserId, parcel.OtPlotUpdatedUtc, parcel.Inclination, parcel.BuildFactor, parcel.Notes,
+                parcel.CreatedByUserId,
             },
             cancellationToken: ct));
     }
 
-    // ParcelKinds in SQL: same rule as ParcelKinds.Of (OT and plot number entered, one of them, neither).
+    // ParcelKinds in SQL: same rule as ParcelKinds.Of (OT and plot entered, one of them, neither - by search key, migration 012).
     private const string KindSql = """
-        CASE (TRIM(COALESCE(p.ot, '')) <> '') + (TRIM(COALESCE(p.plot_number, '')) <> '')
+        CASE (p.ot_key IS NOT NULL) + (p.plot_key IS NOT NULL)
             WHEN 2 THEN 'done' WHEN 1 THEN 'partial' ELSE 'todo' END
         """;
 
@@ -315,19 +321,112 @@ public sealed class MySqlParcelStore : IParcelStore
                 SET registry_id = @RegistryId, registry_id_is_provisional = @RegistryIdIsProvisional,
                     geographic_area_id = @GeographicAreaId, geometry = {FromWkt}, official_area_sqm = @OfficialAreaSqm,
                     ot = @OT, ot_ext = @OTExt, plot_number = @PlotNumber, plot_ext = @PlotExt,
+                    ot_plot_by_user_id = @OtPlotByUserId, ot_plot_updated_utc = @OtPlotUpdatedUtc,
                     inclination = @Inclination, build_factor = @BuildFactor, notes = @Notes, updated_utc = UTC_TIMESTAMP(3)
                 WHERE parcel_id = @ParcelId
                 """, new
                 {
                     parcel.ParcelId, parcel.RegistryId, parcel.RegistryIdIsProvisional, parcel.GeographicAreaId,
                     Wkt = parcel.Geometry.ToWkt(), parcel.OfficialAreaSqm, parcel.OT, parcel.OTExt, parcel.PlotNumber,
-                    parcel.PlotExt, parcel.Inclination, parcel.BuildFactor, parcel.Notes,
+                    parcel.PlotExt, parcel.OtPlotByUserId, parcel.OtPlotUpdatedUtc, parcel.Inclination, parcel.BuildFactor, parcel.Notes,
                 }, cancellationToken: ct));
         }
         catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
         {
             throw new DuplicateKeyException($"KAEK {parcel.RegistryId} already exists.", ex);
         }
+    }
+
+    public async Task<ParcelNumbersResult> SetNumbersAsync(IReadOnlyList<ParcelNumbersWrite> writes, long? userId,
+        Func<ParcelNumbers, ParcelNumbers, ActivityEntry> describe, CancellationToken ct = default)
+    {
+        var ordered = writes.OrderBy(w => w.Numbers.ParcelId).ToList(); // locks always in the same order: no deadlock
+        var ids = ordered.Select(w => w.Numbers.ParcelId).ToList();
+
+        // ONE connection for the whole row (a lock per Parcel on a connection each would run the pool dry).
+        await using var conn = await _db.OpenAsync(ct);
+        try
+        {
+            // The same per-Parcel edit locks as the edit form (MySqlEditVersionStore): an edit of one of these Parcels
+            // waits for this save, and the other way round, so neither overwrites the other's numbers.
+            foreach (var id in ids)
+            {
+                if (await conn.ExecuteScalarAsync<long?>(new CommandDefinition("SELECT GET_LOCK(@name, 20)",
+                        new { name = MySqlEditVersionStore.LockName(EditTargets.Parcel, id) }, cancellationToken: ct)) != 1)
+                {
+                    throw new DomainValidationException("EDIT_BUSY", "One of these Parcels is being saved by someone else right now. Try again in a moment.");
+                }
+            }
+
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            var current = (await conn.QueryAsync<NumbersRow>(new CommandDefinition($"""
+                SELECT parcel_id, ot, ot_ext, plot_number, plot_ext, {MySqlEditVersionStore.VersionSql} AS version
+                FROM parcel WHERE parcel_id IN @ids FOR UPDATE
+                """, new { ids }, tx, cancellationToken: ct))).ToDictionary(r => r.ParcelId);
+
+            // Everything is checked before the first write.
+            foreach (var w in ordered)
+            {
+                if (!current.TryGetValue(w.Numbers.ParcelId, out var row))
+                {
+                    throw new EntityNotFoundException("Parcel", w.Numbers.ParcelId);
+                }
+
+                if (!string.IsNullOrEmpty(w.ExpectedVersion) && row.Version != w.ExpectedVersion)
+                {
+                    throw new EditConflictException("One of these Parcels");
+                }
+            }
+
+            var changed = new List<long>();
+            foreach (var w in ordered)
+            {
+                var row = current[w.Numbers.ParcelId];
+                var before = new ParcelNumbers(row.ParcelId, row.Ot, row.OtExt, row.PlotNumber, row.PlotExt);
+                var after = w.Numbers;
+                if (before == after)
+                {
+                    continue;
+                }
+
+                // Only the numbers and who / when: no polygon rewrite, no global parcel write lock.
+                await conn.ExecuteAsync(new CommandDefinition("""
+                    UPDATE parcel
+                    SET ot = @OT, ot_ext = @OTExt, plot_number = @PlotNumber, plot_ext = @PlotExt,
+                        ot_plot_by_user_id = @userId, ot_plot_updated_utc = UTC_TIMESTAMP(3), updated_utc = UTC_TIMESTAMP(3)
+                    WHERE parcel_id = @ParcelId
+                    """, new { after.ParcelId, after.OT, after.OTExt, after.PlotNumber, after.PlotExt, userId }, tx, cancellationToken: ct));
+                await MySqlActivityLog.InsertAsync(conn, tx, describe(before, after) with { UserId = userId }, ct);
+                changed.Add(after.ParcelId);
+            }
+
+            var versions = (await conn.QueryAsync<(long ParcelId, string Version)>(new CommandDefinition(
+                $"SELECT parcel_id, {MySqlEditVersionStore.VersionSql} FROM parcel WHERE parcel_id IN @ids", new { ids }, tx, cancellationToken: ct)))
+                .ToDictionary(r => r.ParcelId, r => r.Version);
+            await tx.CommitAsync(ct);
+            return new ParcelNumbersResult(changed, versions);
+        }
+        finally
+        {
+            try
+            {
+                await conn.ExecuteAsync("DO RELEASE_ALL_LOCKS()");
+            }
+            catch (MySqlException)
+            {
+                // The pool resets the connection on return, which releases them too.
+            }
+        }
+    }
+
+    private sealed class NumbersRow
+    {
+        public long ParcelId { get; init; }
+        public string? Ot { get; init; }
+        public string? OtExt { get; init; }
+        public string? PlotNumber { get; init; }
+        public string? PlotExt { get; init; }
+        public string Version { get; init; } = "";
     }
 
     public async Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double minOverlapSqm, CancellationToken ct = default)
@@ -373,6 +472,9 @@ public sealed class MySqlParcelStore : IParcelStore
         public string? OtExt { get; init; }
         public string? PlotNumber { get; init; }
         public string? PlotExt { get; init; }
+        public long? OtPlotByUserId { get; init; }
+        public DateTime? OtPlotUpdatedUtc { get; init; }
+        public string? OtPlotByName { get; init; }
         public decimal? Inclination { get; init; }
         public decimal? BuildFactor { get; init; }
         public string? Notes { get; init; }
@@ -394,6 +496,9 @@ public sealed class MySqlParcelStore : IParcelStore
             OTExt = OtExt,
             PlotNumber = PlotNumber,
             PlotExt = PlotExt,
+            OtPlotByUserId = OtPlotByUserId,
+            OtPlotUpdatedUtc = OtPlotUpdatedUtc is DateTime t ? DateTime.SpecifyKind(t, DateTimeKind.Utc) : null,
+            OtPlotByName = OtPlotByName,
             Inclination = Inclination,
             BuildFactor = BuildFactor,
             Notes = Notes,

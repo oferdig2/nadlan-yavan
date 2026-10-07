@@ -61,6 +61,9 @@ public sealed record UpdateParcelRequest
     public decimal? BuildFactor { get; init; }
     public string? Notes { get; init; }
     public bool AcceptOverlaps { get; init; }
+
+    /// <summary>The signed-in user who saves it: recorded as who entered OT / plot when those change.</summary>
+    public long? EditedByUserId { get; init; }
 }
 
 /// <summary>A Parcel's new OT / plot number, for <see cref="ParcelService.SetNumbersAsync"/>. Null or blank = none.</summary>
@@ -101,6 +104,10 @@ public sealed class ParcelService
         var countryId = await _countries.GetIdByCodeAsync("GR", ct) ?? throw new InvalidOperationException("Country GR is missing.");
 
         EnsureMeasures(request.OfficialAreaSqm, request.BuildFactor, request.Inclination);
+        var (ot, otExt) = ParcelNumberKey.Split(request.OT, request.OTExt);
+        var (plot, plotExt) = ParcelNumberKey.Split(request.PlotNumber, request.PlotExt);
+        request = request with { OT = ot, OTExt = otExt, PlotNumber = plot, PlotExt = plotExt };
+        var hasNumbers = ParcelNumberKey.Key(ot, otExt) is not null || ParcelNumberKey.Key(plot, plotExt) is not null;
         var area = await ResolveAreaAsync(request.GeographicAreaId, currentAreaId: null, ct);
         var (registryId, provisional) = ResolveRegistryId(request, area);
         await using var writeLock = await _parcels.LockParcelWritesAsync(ct); // checks below and the insert: one at a time
@@ -136,10 +143,12 @@ public sealed class ParcelService
                 GeographicAreaId = area?.GeographicAreaId,
                 Geometry = request.Geometry,
                 OfficialAreaSqm = request.OfficialAreaSqm,
-                OT = TextNormalize.NullIfBlank(request.OT),
-                OTExt = TextNormalize.NullIfBlank(request.OTExt),
-                PlotNumber = TextNormalize.NullIfBlank(request.PlotNumber),
-                PlotExt = TextNormalize.NullIfBlank(request.PlotExt),
+                OT = ot,
+                OTExt = otExt,
+                PlotNumber = plot,
+                PlotExt = plotExt,
+                OtPlotByUserId = hasNumbers ? request.CreatedByUserId : null,
+                OtPlotUpdatedUtc = hasNumbers ? DateTime.UtcNow : null,
                 Inclination = request.Inclination,
                 BuildFactor = request.BuildFactor,
                 Notes = TextNormalize.NullIfBlank(request.Notes),
@@ -155,6 +164,11 @@ public sealed class ParcelService
         await _activity.RecordAsync(new ActivityEntry("Parcel", id, ActivityActions.ParcelCreated,
             $"Parcel {registryId} created{(provisional ? " (provisional KAEK)" : "")}{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}{(checkError is null ? "" : " - overlap check failed")}.",
             overlaps.Count > 0 || checkError is not null ? new { overlaps, overlapCheckError = checkError } : null), ct);
+        if (hasNumbers)
+        {
+            await _activity.RecordAsync(DescribeNumbers(new ParcelNumbers(id, null, null, null, null), new ParcelNumbers(id, ot, otExt, plot, plotExt)), ct);
+        }
+
         return new CreateParcelResult(CreateParcelOutcome.Created, id, registryId, provisional, null, overlaps,
             checkError is null ? null : OverlapCheckFailedWarning);
     }
@@ -203,6 +217,9 @@ public sealed class ParcelService
             }
         }
 
+        var (ot, otExt) = ParcelNumberKey.Split(request.OT, request.OTExt);
+        var (plot, plotExt) = ParcelNumberKey.Split(request.PlotNumber, request.PlotExt);
+        var numbersChanged = !SameNumbers(existing, new ParcelNumbers(existing.ParcelId, ot, otExt, plot, plotExt));
         var updated = existing with
         {
             RegistryId = registryId,
@@ -210,10 +227,13 @@ public sealed class ParcelService
             GeographicAreaId = area?.GeographicAreaId,
             Geometry = request.Geometry ?? existing.Geometry,
             OfficialAreaSqm = request.OfficialAreaSqm,
-            OT = TextNormalize.NullIfBlank(request.OT),
-            OTExt = TextNormalize.NullIfBlank(request.OTExt),
-            PlotNumber = TextNormalize.NullIfBlank(request.PlotNumber),
-            PlotExt = TextNormalize.NullIfBlank(request.PlotExt),
+            OT = ot,
+            OTExt = otExt,
+            PlotNumber = plot,
+            PlotExt = plotExt,
+            // Who / when, in the same UPDATE as the numbers (the history row is best-effort, these are not).
+            OtPlotByUserId = numbersChanged ? request.EditedByUserId : existing.OtPlotByUserId,
+            OtPlotUpdatedUtc = numbersChanged ? DateTime.UtcNow : existing.OtPlotUpdatedUtc,
             Inclination = request.Inclination,
             BuildFactor = request.BuildFactor,
             Notes = TextNormalize.NullIfBlank(request.Notes),
@@ -234,77 +254,67 @@ public sealed class ParcelService
             checkError is null ? null : OverlapCheckFailedWarning);
     }
 
-    /// <summary>Most Parcels in one <see cref="SetNumbersAsync"/> call (each holds an edit lock while it runs).</summary>
+    /// <summary>Most Parcels in one <see cref="SetNumbersAsync"/> call.</summary>
     public const int MaxNumbersBatch = 50;
 
     private const int MaxNumberLength = 32; // parcel.ot / ot_ext / plot_number / plot_ext are VARCHAR(32)
 
     /// <summary>
     /// Sets the OT / plot number of several Parcels at once (quick data entry: a row of plots typed in one go). Nothing
-    /// else changes. Every Parcel is checked first (exists, values fit), so a bad one stops the call before anything is
-    /// written. The caller checks rights and edit versions. Returns how many actually changed.
+    /// else changes. All or nothing: the values are checked here, then the store checks every Parcel's existence and
+    /// version and writes the numbers, who / when and the history rows in one transaction. The caller checks rights.
     /// </summary>
-    public async Task<int> SetNumbersAsync(IReadOnlyList<ParcelNumbers> changes, CancellationToken ct = default)
+    public async Task<ParcelNumbersResult> SetNumbersAsync(IReadOnlyList<ParcelNumbersWrite> writes, long? userId, CancellationToken ct = default)
     {
-        if (changes.Count == 0 || changes.Count > MaxNumbersBatch)
+        if (writes.Count == 0 || writes.Count > MaxNumbersBatch)
         {
             throw new DomainValidationException("PARCEL_NUMBERS_COUNT", $"Send 1 to {MaxNumbersBatch} Parcels at a time.");
         }
 
-        if (changes.Select(c => c.ParcelId).Distinct().Count() != changes.Count)
+        if (writes.Select(w => w.Numbers.ParcelId).Distinct().Count() != writes.Count)
         {
             throw new DomainValidationException("PARCEL_NUMBERS_DUPLICATE", "The same Parcel is in the list twice.");
         }
 
-        if (changes.SelectMany(c => new[] { c.OT, c.OTExt, c.PlotNumber, c.PlotExt }).Any(v => v?.Trim().Length > MaxNumberLength))
+        var normalized = writes.Select(w =>
+        {
+            var (ot, otExt) = ParcelNumberKey.Split(w.Numbers.OT, w.Numbers.OTExt);
+            var (plot, plotExt) = ParcelNumberKey.Split(w.Numbers.PlotNumber, w.Numbers.PlotExt);
+            return w with { Numbers = new ParcelNumbers(w.Numbers.ParcelId, ot, otExt, plot, plotExt) };
+        }).ToList();
+        if (normalized.SelectMany(w => new[] { w.Numbers.OT, w.Numbers.OTExt, w.Numbers.PlotNumber, w.Numbers.PlotExt }).Any(v => v?.Length > MaxNumberLength))
         {
             throw new DomainValidationException("PARCEL_NUMBERS_TOO_LONG", $"OT, plot and their extensions are at most {MaxNumberLength} characters.");
         }
 
-        await using var writeLock = await _parcels.LockParcelWritesAsync(ct);
-        var pairs = new List<(Parcel Before, Parcel After)>();
-        foreach (var c in changes)
-        {
-            var existing = await _parcels.GetAsync(c.ParcelId, ct) ?? throw new EntityNotFoundException("Parcel", c.ParcelId);
-            pairs.Add((existing, existing with
-            {
-                OT = TextNormalize.NullIfBlank(c.OT),
-                OTExt = TextNormalize.NullIfBlank(c.OTExt),
-                PlotNumber = TextNormalize.NullIfBlank(c.PlotNumber),
-                PlotExt = TextNormalize.NullIfBlank(c.PlotExt),
-            }));
-        }
-
-        var changed = 0;
-        foreach (var (before, after) in pairs.Where(p => !SameNumbers(p.Before, p.After)))
-        {
-            await _parcels.UpdateAsync(after, ct);
-            await RecordNumbersAsync(before, after, ct);
-            changed++;
-        }
-
-        return changed;
+        return await _parcels.SetNumbersAsync(normalized, userId, DescribeNumbers, ct);
     }
 
-    private static bool SameNumbers(Parcel a, Parcel b)
+    private static bool SameNumbers(Parcel a, ParcelNumbers b)
         => a.OT == b.OT && a.OTExt == b.OTExt && a.PlotNumber == b.PlotNumber && a.PlotExt == b.PlotExt;
 
-    /// <summary>OT/plot changes are their own history entry with the old and new values: data entry is checked per person.</summary>
-    private async Task RecordNumbersAsync(Parcel before, Parcel after, CancellationToken ct)
+    /// <summary>The history row of an OT / plot change, with the old and new values: data entry is checked per person.</summary>
+    public static ActivityEntry DescribeNumbers(ParcelNumbers before, ParcelNumbers after)
     {
-        if (SameNumbers(before, after))
-        {
-            return;
-        }
-
-        static string Show(string? value, string? ext) => value is null ? "—" : value + ext;
-        await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelEdited,
+        static string Show(string? value, string? ext) => value is null && ext is null ? "—" : value + ext;
+        return new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelEdited,
             $"OT/plot set to {Show(after.OT, after.OTExt)} / {Show(after.PlotNumber, after.PlotExt)} (was {Show(before.OT, before.OTExt)} / {Show(before.PlotNumber, before.PlotExt)}).",
             new
             {
                 old = new { ot = before.OT, otExt = before.OTExt, plot = before.PlotNumber, plotExt = before.PlotExt },
                 @new = new { ot = after.OT, otExt = after.OTExt, plot = after.PlotNumber, plotExt = after.PlotExt },
-            }), ct);
+            });
+    }
+
+    private async Task RecordNumbersAsync(Parcel before, Parcel after, CancellationToken ct)
+    {
+        if (SameNumbers(before, new ParcelNumbers(after.ParcelId, after.OT, after.OTExt, after.PlotNumber, after.PlotExt)))
+        {
+            return;
+        }
+
+        await _activity.RecordAsync(DescribeNumbers(new ParcelNumbers(before.ParcelId, before.OT, before.OTExt, before.PlotNumber, before.PlotExt),
+            new ParcelNumbers(after.ParcelId, after.OT, after.OTExt, after.PlotNumber, after.PlotExt)), ct);
     }
 
     private async Task RecordParcelChangesAsync(Parcel before, Parcel after, IReadOnlyList<ParcelOverlapHit> overlaps, string? overlapCheckError,

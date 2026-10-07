@@ -94,6 +94,12 @@ public sealed class AccessPolicy
         }
 
         var scope = u.Scope;
+        if (scope.AllParcels && u.Has(Permissions.EditAllParcels))
+        {
+            // Sees and edits every Parcel: a grant can't add anything, so no query (a row save checks up to 50 at once).
+            return new ParcelRights(true, true, true, CanCreateAsset(u));
+        }
+
         if (!scope.AllParcels && !await _access.IsParcelVisibleAsync(scope, parcelId, ct))
         {
             return ParcelRights.None;

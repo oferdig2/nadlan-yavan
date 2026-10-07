@@ -61,6 +61,32 @@ public static class ActivityEndpoints
 
             return Results.Ok(shown);
         });
+
+        // What one user did, newest first (customer change request #1: "check the data-entry people and their work"), e.g.
+        // ?userId=7&entityType=Parcel&from=2026-10-07&to=2026-10-08 (UTC, "to" excluded). Admin only: it spans every entity,
+        // so the per-entity visibility rules above can't be applied one by one.
+        app.MapGet("/api/activity/by-user", async (long userId, string? entityType, DateTime? from, DateTime? to, int? limit, UserAccess me,
+            IActivityLog activity, CancellationToken ct) =>
+        {
+            if (!me.IsAdmin)
+            {
+                throw new ForbiddenException("ACTIVITY_BY_USER_FORBIDDEN", "Only an administrator can list what a user did.");
+            }
+
+            string? type = null;
+            if (!string.IsNullOrWhiteSpace(entityType))
+            {
+                type = EntityTypes.FirstOrDefault(t => string.Equals(t, entityType, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new DomainValidationException("ACTIVITY_TYPE_INVALID", "entityType must be Parcel, Asset, Portfolio, Contact, User or Role.");
+            }
+
+            static DateTime? Utc(DateTime? d) => d is DateTime v ? (v.Kind == DateTimeKind.Local ? v.ToUniversalTime() : DateTime.SpecifyKind(v, DateTimeKind.Utc)) : null;
+            var items = await activity.ListByUserAsync(userId, type, Utc(from), Utc(to), Math.Clamp(limit ?? 200, 1, 1000), ct);
+            return Results.Ok(items.Select(a => new
+            {
+                a.ActivityId, a.EntityType, a.EntityId, entityLabel = a.EntityLabel, a.ActionType, a.Summary, a.CreatedUtc, a.UserId, a.UserName,
+            }));
+        });
     }
 
     /// <summary>File entries record their category; older ones without it only show to users who see every category.</summary>

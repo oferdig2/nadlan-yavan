@@ -126,6 +126,7 @@ public class ReviewGapTests
         public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<ParcelNumbersResult> SetNumbersAsync(IReadOnlyList<ParcelNumbersWrite> w, long? u, Func<ParcelNumbers, ParcelNumbers, Nadlan.Core.Activity.ActivityEntry> d, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default) => throw new NotSupportedException();

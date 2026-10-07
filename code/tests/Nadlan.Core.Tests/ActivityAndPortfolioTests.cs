@@ -68,6 +68,7 @@ public class ActivityAndPortfolioTests
         public List<ActivityEntry> Entries { get; } = new();
         public Task RecordAsync(ActivityEntry entry, CancellationToken ct = default) { Entries.Add(entry); return Task.CompletedTask; }
         public Task<IReadOnlyList<ActivityItem>> ListAsync(string t, long id, int limit, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ActivityItem>> ListByUserAsync(long u, string? t, DateTime? f, DateTime? to, int l, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private sealed class OneAsset : IAssetStore
@@ -95,6 +96,7 @@ public class ActivityAndPortfolioTests
         public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<ParcelNumbersResult> SetNumbersAsync(IReadOnlyList<ParcelNumbersWrite> w, long? u, Func<ParcelNumbers, ParcelNumbers, ActivityEntry> d, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default) => throw new NotSupportedException();

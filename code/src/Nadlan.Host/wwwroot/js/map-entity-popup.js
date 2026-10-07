@@ -21,10 +21,12 @@
       return "<div class=\"card-row\"><span class=\"card-label\">" + label + "</span><span class=\"card-value\">" + valueHtml + "</span></div>";
     }
 
-    function parcelHtml(p) {
+    // by: who last entered or changed OT / plot ({ name, utc } from GET /api/parcels/{id}), shown under the numbers.
+    function parcelHtml(p, by) {
       return row("KAEK", f.registryId(p.registryId, p.registryIdIsProvisional)) +
         row("Area", f.text(p.geographicArea)) +
-        row("OT / Plot", f.text(p.ot) + " / " + f.text(p.plot)) +
+        row("OT / Plot", f.text(p.ot) + " / " + f.text(p.plot) + (by ? "<div class=\"muted card-by\">by " + f.escapeHtml(by.name) +
+          (by.utc ? ", " + f.escapeHtml(new Date(by.utc).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })) : "") + "</div>" : "")) +
         row("Official area", f.sqm(p.officialAreaSqm));
     }
 
@@ -85,7 +87,7 @@
         Nadlan.api.get("/api/parcels/" + state.parcelId).then(function (d) {
           state.parcel = d.summary;
           state.details = d;
-          $card.find(".card-body").html(parcelHtml(d.summary));
+          $card.find(".card-body").html(parcelHtml(d.summary, d.otPlotBy));
           chipText();
           // What this user may do here (the server decides; buttons only follow).
           var rights = d.rights || {};

@@ -30,6 +30,7 @@ public class ParcelCoverageTests
     [InlineData(false, " ", "22", ParcelKinds.Partial)]
     [InlineData(false, null, null, ParcelKinds.Todo)]    // blue: still to be entered, even with a real KAEK
     [InlineData(true, "  ", "", ParcelKinds.Todo)]
+    [InlineData(false, "-", " / ", ParcelKinds.Todo)]    // placeholder dashes are no numbers
     public void A_parcels_map_colour_follows_its_OT_plot_entry(bool provisional, string? ot, string? plot, string kind)
     {
         Assert.Equal(kind, new Parcel { RegistryIdIsProvisional = provisional, OT = ot, PlotNumber = plot, Geometry = Square(0, 0) }.Kind);
@@ -149,6 +150,7 @@ public class ParcelCoverageTests
         public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<ParcelNumbersResult> SetNumbersAsync(IReadOnlyList<ParcelNumbersWrite> w, long? u, Func<ParcelNumbers, ParcelNumbers, ActivityEntry> d, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
     }
@@ -182,5 +184,6 @@ public class ParcelCoverageTests
         public List<ActivityEntry> Entries { get; } = new();
         public Task RecordAsync(ActivityEntry entry, CancellationToken ct = default) { Entries.Add(entry); return Task.CompletedTask; }
         public Task<IReadOnlyList<ActivityItem>> ListAsync(string t, long id, int limit, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ActivityItem>> ListByUserAsync(long u, string? t, DateTime? f, DateTime? to, int l, CancellationToken ct = default) => throw new NotSupportedException();
     }
 }

@@ -124,6 +124,7 @@
           reload(message); // its colour follows (blue to do, amber half, green done)
         },
         onOpenCard: function (summary) { popups.showParcel(summary); },
+        onError: function (message) { setStatus(message, true); },
         onClose: function () { parcelOverlay.clearSelection(); }
       });
     }
@@ -132,6 +133,7 @@
     function addToRow(p, domEvent) {
       Nadlan.parcelQuickEntry.toggleInRow(p, domEvent, {
         onPreview: function (list) { parcelOverlay.setGroup(list); },
+        onError: function (message) { setStatus(message, true); },
         onSaved: function (parcelIds, message) {
           parcelIds.forEach(function (id) { popups.refreshParcel(id); });
           reload(message);

@@ -32,7 +32,7 @@ public sealed class MySqlEditVersionStore : IEditVersionStore
     public async Task<IAsyncDisposable> BeginEditAsync(string target, long id, string? expectedVersion, CancellationToken ct = default)
     {
         var conn = await _db.OpenAsync(ct);
-        var name = $"nadlan.edit.{target}.{id}";
+        var name = LockName(target, id);
         try
         {
             if (await conn.ExecuteScalarAsync<long?>(new CommandDefinition("SELECT GET_LOCK(@name, 20)", new { name }, cancellationToken: ct)) != 1)
@@ -56,11 +56,17 @@ public sealed class MySqlEditVersionStore : IEditVersionStore
         }
     }
 
+    /// <summary>The named lock of one object's edits (also taken by <see cref="Parcels.MySqlParcelStore.SetNumbersAsync"/>).</summary>
+    internal static string LockName(string target, long id) => $"nadlan.edit.{target}.{id}";
+
+    /// <summary>The version as this store reports it: updated_utc to the microsecond, as digits.</summary>
+    internal const string VersionSql = "DATE_FORMAT(updated_utc, '%Y%m%d%H%i%s%f')";
+
     private static Task<string?> ReadAsync(MySqlConnection conn, string target, long id, CancellationToken ct)
     {
         var (table, key) = Tables.TryGetValue(target, out var t) ? t : throw new ArgumentOutOfRangeException(nameof(target), target, null);
         return conn.ExecuteScalarAsync<string?>(new CommandDefinition(
-            $"SELECT DATE_FORMAT(updated_utc, '%Y%m%d%H%i%s%f') FROM {table} WHERE {key} = @id", new { id }, cancellationToken: ct));
+            $"SELECT {VersionSql} FROM {table} WHERE {key} = @id", new { id }, cancellationToken: ct));
     }
 
     private sealed class Lease : IAsyncDisposable

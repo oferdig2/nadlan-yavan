@@ -127,65 +127,116 @@ public class ParcelEditTests
     }
 
     [Fact]
-    public async Task A_row_of_plots_gets_its_OT_plot_in_one_call_and_nothing_else_changes()
-    {
-        var store = new Store();
-        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", RegistryIdIsProvisional = true, Notes = "keep", Geometry = Square });
-        store.Parcels.Add(new Parcel { ParcelId = 2, CountryId = 1, RegistryId = "050123456789", OT = "9", PlotNumber = "9", Geometry = Square });
-        store.Parcels.Add(new Parcel { ParcelId = 3, CountryId = 1, RegistryId = "TMP-C", RegistryIdIsProvisional = true, OT = "171", OTExt = "a", PlotNumber = "3", Geometry = Square });
-        var log = new Activity();
-
-        var changed = await new ParcelService(store, new NoAreas(), new Greece(), log).SetNumbersAsync(new[]
-        {
-            new ParcelNumbers(1, "171", "a", "1", null),
-            new ParcelNumbers(2, "171", "a", " 2 ", ""),
-            new ParcelNumbers(3, "171", "a", "3", null), // already so: not saved again, no history
-        });
-
-        Assert.Equal(2, changed);
-        Assert.Equal(new long[] { 1, 2 }, store.Updated.Select(p => p.ParcelId));
-        var first = store.Updated[0];
-        Assert.Equal(("171", "a", "1", (string?)null), (first.OT, first.OTExt, first.PlotNumber, first.PlotExt));
-        Assert.Equal(("TMP-A", true, "keep"), (first.RegistryId, first.RegistryIdIsProvisional, first.Notes));
-        Assert.Equal(("2", (string?)null), (store.Updated[1].PlotNumber, store.Updated[1].PlotExt));
-        Assert.Equal(new[] { "OT/plot set to 171a / 1 (was — / —).", "OT/plot set to 171a / 2 (was 9 / 9)." }, log.Entries.Select(e => e.Summary));
-    }
-
-    [Fact]
-    public async Task A_missing_parcel_stops_the_row_before_anything_is_saved()
+    public async Task A_row_save_hands_the_store_cleaned_numbers_with_versions_and_the_user()
     {
         var store = new Store();
         store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", Geometry = Square });
+        store.Parcels.Add(new Parcel { ParcelId = 2, CountryId = 1, RegistryId = "TMP-B", OT = "9", PlotNumber = "9", Geometry = Square });
 
-        await Assert.ThrowsAsync<EntityNotFoundException>(() => NewService(store).SetNumbersAsync(new[]
+        var result = await NewService(store).SetNumbersAsync(new[]
         {
-            new ParcelNumbers(1, "5", null, "1", null),
-            new ParcelNumbers(99, "5", null, "2", null),
-        }));
-        Assert.Empty(store.Updated);
+            new ParcelNumbersWrite(new ParcelNumbers(1, "171a", null, " 1 ", ""), "v1"), // "171a" typed whole -> 171 + a
+            new ParcelNumbersWrite(new ParcelNumbers(2, "171", "a", "2", null), "v2"),
+        }, userId: 7);
+
+        Assert.Equal(new long[] { 1, 2 }, result.Changed);
+        var call = store.NumberCalls.Single();
+        Assert.Equal(7, call.UserId);
+        Assert.Equal(new[] { "v1", "v2" }, call.Writes.Select(w => w.ExpectedVersion));
+        Assert.Equal(new ParcelNumbers(1, "171", "a", "1", null), call.Writes[0].Numbers);
+        Assert.Equal(new[] { "OT/plot set to 171a / 1 (was — / —).", "OT/plot set to 171a / 2 (was 9 / 9)." }, store.NumberHistory.Select(e => e.Summary));
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(ParcelService.MaxNumbersBatch + 1)]
-    public async Task A_row_is_1_to_50_parcels(int count)
+    [InlineData(0, "PARCEL_NUMBERS_COUNT")]
+    [InlineData(ParcelService.MaxNumbersBatch + 1, "PARCEL_NUMBERS_COUNT")]
+    [InlineData(-1, "PARCEL_NUMBERS_DUPLICATE")]
+    [InlineData(-2, "PARCEL_NUMBERS_TOO_LONG")]
+    public async Task A_bad_row_is_refused_before_the_database_is_touched(int count, string code)
     {
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => NewService(new Store()).SetNumbersAsync(
-            Enumerable.Range(1, count).Select(i => new ParcelNumbers(i, "5", null, i.ToString(), null)).ToList()));
-        Assert.Equal("PARCEL_NUMBERS_COUNT", ex.Code);
+        var writes = count switch
+        {
+            -1 => new[] { 1, 1 }.Select(i => new ParcelNumbers(i, "5", null, "1", null)),
+            -2 => new[] { new ParcelNumbers(1, new string('x', 33), null, "1", null) },
+            _ => Enumerable.Range(1, count).Select(i => new ParcelNumbers(i, "5", null, i.ToString(), null)),
+        };
+        var store = new Store();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => NewService(store).SetNumbersAsync(
+            writes.Select(n => new ParcelNumbersWrite(n, null)).ToList(), userId: 7));
+
+        Assert.Equal(code, ex.Code);
+        Assert.Empty(store.NumberCalls);
     }
 
     [Fact]
-    public async Task Editing_a_parcel_records_its_old_and_new_OT_plot()
+    public async Task Editing_a_parcel_records_its_old_and_new_OT_plot_and_who_did_it()
     {
         var store = new Store();
-        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", RegistryIdIsProvisional = true, OT = "10", PlotNumber = "3", PlotExt = "A", Geometry = Square });
+        var before = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", RegistryIdIsProvisional = true, OT = "10", PlotNumber = "3", PlotExt = "A",
+            OtPlotByUserId = 3, OtPlotUpdatedUtc = before, Geometry = Square });
         var log = new Activity();
+        var service = new ParcelService(store, new NoAreas(), new Greece(), log);
 
-        await new ParcelService(store, new NoAreas(), new Greece(), log).UpdateAsync(new UpdateParcelRequest { ParcelId = 1, OT = "31", PlotNumber = "7", Notes = "x" });
+        await service.UpdateAsync(new UpdateParcelRequest { ParcelId = 1, OT = "31", PlotNumber = "7", PlotExt = "", Notes = "x", EditedByUserId = 7 });
 
         Assert.Equal(new[] { "OT/plot set to 31 / 7 (was 10 / 3A).", "Parcel details edited: notes." }, log.Entries.Select(e => e.Summary));
+        Assert.Equal(7, store.Updated[0].OtPlotByUserId);
+        Assert.True(store.Updated[0].OtPlotUpdatedUtc > before);
+
+        store.Parcels[0] = store.Updated[0];
+        await service.UpdateAsync(new UpdateParcelRequest { ParcelId = 1, OT = "31", PlotNumber = "7", Notes = "only notes", EditedByUserId = 9 });
+        Assert.Equal(7, store.Updated[1].OtPlotByUserId); // numbers unchanged: still the one who entered them
     }
+
+    [Fact]
+    public async Task A_new_parcel_with_OT_plot_records_who_entered_them()
+    {
+        var store = new Store();
+        var log = new Activity();
+
+        await new ParcelService(store, new NoAreas(), new Greece(), log).CreateAsync(new CreateParcelRequest
+        {
+            RegistryId = "050123456789", Geometry = Square, OT = "47Α", PlotNumber = "2", CreatedByUserId = 7,
+        });
+
+        var saved = store.Parcels.Single();
+        Assert.Equal(("47", "Α", 7L), (saved.OT, saved.OTExt, saved.OtPlotByUserId!.Value)); // split, the letter kept as typed
+        Assert.Contains("OT/plot set to 47Α / 2 (was — / —).", log.Entries.Select(e => e.Summary));
+    }
+
+    [Theory]
+    [InlineData("47", null, "47", "47")]
+    [InlineData("47", "A", "47A", "47")]
+    [InlineData("47A", null, "47A", "47")]
+    [InlineData("047", " α", "47A", "47")]   // leading zero, space, Greek lower case
+    [InlineData("47-A", null, "47A", "47")]
+    [InlineData("47Α", null, "47A", "47")]   // Greek capital alpha
+    [InlineData("171a / 3", null, "171A3", "171")]
+    [InlineData("Α12", null, "A12", "A12")]  // no leading number: the whole key
+    [InlineData("0", null, "0", "0")]
+    [InlineData(" - ", null, null, null)]   // a placeholder dash is no number
+    [InlineData(null, null, null, null)]
+    public void The_search_key_matches_however_the_number_was_typed(string? value, string? ext, string? key, string? @base)
+    {
+        Assert.Equal(key, ParcelNumberKey.Key(value, ext));
+        Assert.Equal(@base, ParcelNumberKey.Base(ParcelNumberKey.Key(value, ext)));
+    }
+
+    [Theory]
+    [InlineData("47A", null, "47", "A")]
+    [InlineData("47 a", null, "47", "a")]
+    [InlineData("47-Α", null, "47", "Α")]
+    [InlineData("47", "B", "47", "B")]       // has an ext already: as typed
+    [InlineData("47A", "B", "47A", "B")]
+    [InlineData("12-3", null, "12-3", null)] // not number + letters: as typed
+    [InlineData("  ", " ", null, null)]
+    public void A_number_typed_with_its_letter_is_stored_split(string? value, string? ext, string? storedValue, string? storedExt)
+    {
+        Assert.Equal((storedValue, storedExt), ParcelNumberKey.Split(value, ext));
+    }
+
 
     private static ParcelService NewService(Store store) => new(store, new NoAreas(), new Greece());
 
@@ -214,6 +265,27 @@ public class ParcelEditTests
         public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+        public List<(IReadOnlyList<ParcelNumbersWrite> Writes, long? UserId)> NumberCalls { get; } = new();
+        public List<ActivityEntry> NumberHistory { get; } = new();
+
+        // The real one is all-or-nothing in one MySQL transaction (tested live); this one only records what it was given.
+        public Task<ParcelNumbersResult> SetNumbersAsync(IReadOnlyList<ParcelNumbersWrite> writes, long? userId,
+            Func<ParcelNumbers, ParcelNumbers, ActivityEntry> describe, CancellationToken ct = default)
+        {
+            NumberCalls.Add((writes, userId));
+            var changed = new List<long>();
+            foreach (var w in writes)
+            {
+                var p = Parcels.First(x => x.ParcelId == w.Numbers.ParcelId);
+                var before = new ParcelNumbers(p.ParcelId, p.OT, p.OTExt, p.PlotNumber, p.PlotExt);
+                if (before == w.Numbers) { continue; }
+                NumberHistory.Add(describe(before, w.Numbers) with { UserId = userId });
+                changed.Add(p.ParcelId);
+            }
+
+            return Task.FromResult(new ParcelNumbersResult(changed, writes.ToDictionary(w => w.Numbers.ParcelId, _ => "new")));
+        }
+
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default) => throw new NotSupportedException();
@@ -224,6 +296,7 @@ public class ParcelEditTests
         public List<ActivityEntry> Entries { get; } = new();
         public Task RecordAsync(ActivityEntry entry, CancellationToken ct = default) { Entries.Add(entry); return Task.CompletedTask; }
         public Task<IReadOnlyList<ActivityItem>> ListAsync(string t, long id, int l, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ActivityItem>> ListByUserAsync(long u, string? t, DateTime? f, DateTime? to, int l, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private sealed class Owners : IParcelLegalOwnerStore

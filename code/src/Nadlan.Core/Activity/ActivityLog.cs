@@ -49,12 +49,21 @@ public sealed record ActivityItem(long ActivityId, string EntityType, long Entit
 {
     public long? UserId { get; init; }
     public string? UserName { get; init; }
+
+    /// <summary>A readable name of the entity, where the list provides one (the KAEK of a Parcel).</summary>
+    public string? EntityLabel { get; init; }
 }
 
 public interface IActivityLog
 {
     Task RecordAsync(ActivityEntry entry, CancellationToken ct = default);
     Task<IReadOnlyList<ActivityItem>> ListAsync(string entityType, long entityId, int limit, CancellationToken ct = default);
+
+    /// <summary>
+    /// What one user did, newest first, optionally of one entity type and between two times (customer change request #1:
+    /// checking a data-entry person's work). Parcel entries carry the Parcel's KAEK as <see cref="ActivityItem.EntityLabel"/>.
+    /// </summary>
+    Task<IReadOnlyList<ActivityItem>> ListByUserAsync(long userId, string? entityType, DateTime? fromUtc, DateTime? toUtc, int limit, CancellationToken ct = default);
 }
 
 /// <summary>For tests and tools that don't audit.</summary>
@@ -65,5 +74,8 @@ public sealed class NullActivityLog : IActivityLog
     public Task RecordAsync(ActivityEntry entry, CancellationToken ct = default) => Task.CompletedTask;
 
     public Task<IReadOnlyList<ActivityItem>> ListAsync(string entityType, long entityId, int limit, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ActivityItem>>(Array.Empty<ActivityItem>());
+
+    public Task<IReadOnlyList<ActivityItem>> ListByUserAsync(long userId, string? entityType, DateTime? fromUtc, DateTime? toUtc, int limit, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<ActivityItem>>(Array.Empty<ActivityItem>());
 }

@@ -94,6 +94,7 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .card-row { display: flex; gap: 8px; padding: 3px 0; }
 .card-label { width: 100px; flex-shrink: 0; color: var(--muted); }
 .card-value { flex: 1; word-break: break-word; }
+.card-value .card-by { font-size: 11px; }
 
 .card-section { border-top: 1px solid var(--border); padding: 6px 10px 8px; }
 .card-section-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin-bottom: 4px; }

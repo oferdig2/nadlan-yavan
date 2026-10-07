@@ -27,6 +27,14 @@ public sealed record Parcel
     public string? PlotNumber { get; init; }
     public string? PlotExt { get; init; }
 
+    /// <summary>Who last entered or changed OT / plot (customer change request #1: data entry is checked per person), and when.</summary>
+    public long? OtPlotByUserId { get; init; }
+
+    public DateTime? OtPlotUpdatedUtc { get; init; }
+
+    /// <summary>That user's display name (read only, filled by the store; null if unknown or deleted).</summary>
+    public string? OtPlotByName { get; init; }
+
     /// <summary>Approximate slope, in percent.</summary>
     public decimal? Inclination { get; init; }
 
@@ -43,7 +51,7 @@ public sealed record Parcel
     public bool HasAssets { get; init; }
 
     /// <summary>Whether its OT / plot number is entered - its colour on the map (<see cref="ParcelKinds"/>).</summary>
-    public string Kind => ParcelKinds.Of(OT, PlotNumber);
+    public string Kind => ParcelKinds.Of(OT, OTExt, PlotNumber, PlotExt);
 }
 
 /// <summary>
@@ -59,7 +67,8 @@ public static class ParcelKinds
 
     public static readonly IReadOnlyList<string> All = new[] { Done, Partial, Todo };
 
-    public static string Of(string? ot, string? plot) => (string.IsNullOrWhiteSpace(ot), string.IsNullOrWhiteSpace(plot)) switch
+    /// <summary>Entered = has a search key (<see cref="ParcelNumberKey"/>): blanks and lone separators such as "-" are not a number.</summary>
+    public static string Of(string? ot, string? otExt, string? plot, string? plotExt) => (ParcelNumberKey.Key(ot, otExt) is null, ParcelNumberKey.Key(plot, plotExt) is null) switch
     {
         (false, false) => Done,
         (true, true) => Todo,

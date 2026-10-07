@@ -16,11 +16,12 @@
   function join(value, ext) { return value ? value + (ext || "") : ""; }
 
   // "47A" -> 47 + A, "47 A" too. Anything not starting with digits (e.g. "Α12") stays whole, without an ext.
+  // Keypad keys are no extension: "47/3", "47+", "47." stay whole. Same rule as the server (ParcelNumberKey.Split).
   function split(text) {
     var t = $.trim(text);
     if (!t) { return { value: null, ext: null }; }
-    var m = /^(\d+)\s*(\S.*)?$/.exec(t);
-    return m ? { value: m[1], ext: m[2] || null } : { value: t, ext: null };
+    var m = /^([0-9]+)\s*[-.]?\s*(\p{L}{1,3})$/u.exec(t);
+    return m ? { value: m[1], ext: m[2] } : { value: t, ext: null };
   }
 
   /** 1-9, or null (auto-advance off). Browser storage can be missing or refused (private mode): then off. */
@@ -97,14 +98,14 @@
     $ot.trigger("focus").trigger("select");
 
     // The edit form's values and version. Not allowed to edit this one: the normal card instead.
+    // A save pressed before this arrives still goes through, even when the user has clicked the next parcel meanwhile.
     var loaded = Nadlan.api.get("/api/parcels/" + summary.parcelId).then(function (res) {
-      if (current !== me) { return null; }
       if (!res.rights || !res.rights.canEdit) {
-        d.close();
-        options.onOpenCard(summary);
+        if (current === me) { d.close(); options.onOpenCard(summary); }
         return null;
       }
       detail = res;
+      if (current !== me) { return res; }
       var f = res.fields;
       // Someone changed it since the map was drawn: show the latest - unless the user already typed over it.
       var latest = { ot: join(f.ot, f.otExt), plot: join(f.plotNumber, f.plotExt) };
@@ -113,9 +114,14 @@
       shown = latest;
       return res;
     }, function (err) {
-      if (current === me) { d.showError("Could not load the parcel: " + err.message); }
+      report("Could not load parcel " + name + ": " + err.message);
       return null;
     });
+
+    // An error goes into the form while it is open, else to the page's status line (the user is on the next parcel).
+    function report(message) {
+      if (current === me) { d.showError(message); } else if (options.onError) { options.onError(message); }
+    }
 
     // Auto-advance: only while the OT is being typed from empty (or over all of it), never while editing part of it.
     var fromScratch = false;
@@ -145,10 +151,10 @@
       saving = true;
       d.busy(true);
       d.showError("");
+      var otText = $.trim($ot.val()); // as typed now: the form may be gone by the time the parcel has loaded
+      var plotText = $.trim($plot.val());
       loaded.then(function (res) {
-        if (!res) { saving = false; d.busy(false); return; } // closed, or the load failed (its error is shown)
-        var otText = $.trim($ot.val());
-        var plotText = $.trim($plot.val());
+        if (!res) { saving = false; d.busy(false); return; } // no edit rights (the card opened instead), or the load failed (reported)
         if (otText === shown.ot && plotText === shown.plot) { d.close(); return; } // nothing changed
         var f = res.fields;
         // An untouched field keeps its stored value and ext as they are (e.g. OT 12 with ext "3" must not become 123).
@@ -172,7 +178,7 @@
       }).catch(function (err) {
         saving = false;
         d.busy(false);
-        d.showError(err.message);
+        report("Parcel " + name + " not saved: " + err.message);
       });
     }
   }
@@ -299,14 +305,12 @@
       if (rows.length >= MAX_ROW) { d.showError("At most " + MAX_ROW + " parcels in one row - save these first."); return; }
       var r = { summary: summary, detail: null, plot: "", fixed: rows.length === 0 };
       r.loaded = Nadlan.api.get("/api/parcels/" + summary.parcelId).then(function (res) {
-        if (row !== me) { return null; }
         if (!res.rights || !res.rights.canEdit) {
-          d.showError("You may not edit parcel " + name(r) + ", so it was left out.");
-          remove(r);
+          if (row === me) { d.showError("You may not edit parcel " + name(r) + ", so it was left out."); remove(r); }
           return null;
         }
-        r.detail = res;
-        showPlan();
+        r.detail = res; // also once the form is gone: a Save pressed before still needs it
+        if (row === me) { showPlan(); }
         return res;
       }, function (err) {
         if (row === me) { d.showError("Could not load parcel " + name(r) + ": " + err.message); remove(r); }
@@ -342,11 +346,12 @@
       saving = true;
       d.busy(true);
       d.showError("");
-      Promise.all(rows.map(function (r) { return r.loaded; })).then(function () {
-        if (row !== me) { return; }
-        if (!rows.length) { d.close(); return; }
-        var otText = $.trim($ot.val());
-        var items = rows.map(function (r) {
+      // What is in the form now: a save pressed goes through even if the user moves on before the parcels have loaded.
+      var otText = $.trim($ot.val());
+      var list = rows.slice();
+      Promise.all(list.map(function (r) { return r.loaded; })).then(function () {
+        if (!list.length) { d.close(); return; }
+        var items = list.map(function (r) {
           if (!r.detail) { throw new Error("Parcel " + name(r) + " could not be loaded. Take it out (×) or try again."); }
           var f = r.detail.fields, plotText = $.trim(r.plot);
           var ot = otText ? split(otText) : { value: f.ot, ext: f.otExt };
@@ -354,17 +359,21 @@
           return { parcelId: r.summary.parcelId, ot: ot.value, otExt: ot.ext, plotNumber: plot.value, plotExt: plot.ext, version: r.detail.version };
         });
         return Nadlan.api.post("/api/parcels/numbers", { items: items }).then(function (res) {
-          var first = planned(rows[0]), last = planned(rows[rows.length - 1]);
-          var ids = rows.map(function (r) { return r.summary.parcelId; });
-          var message = res.changed === 0 ? "Nothing to change in those " + rows.length + " parcels."
+          var first = planned(list[0]), last = planned(list[list.length - 1]);
+          var ids = list.map(function (r) { return r.summary.parcelId; });
+          var message = res.changed === 0 ? "Nothing to change in those " + list.length + " parcels."
             : res.changed + " parcel" + (res.changed === 1 ? "" : "s") + " saved: OT " + (otText || "kept") +
-              (rows.length > 1 ? ", plots " + (first.plot || "—") + " to " + (last.plot || "—") : ", plot " + (first.plot || "—")) + ".";
+              (list.length > 1 ? ", plots " + (first.plot || "—") + " to " + (last.plot || "—") : ", plot " + (first.plot || "—")) + ".";
           d.close();
           options.onSaved(ids, message);
         });
       }).catch(function (err) {
         saving = false;
         d.busy(false);
+        if (row !== me) { // the form is gone (the user moved on): say it on the page
+          if (options.onError) { options.onError("Row of " + list.length + " parcels not saved: " + err.message); }
+          return;
+        }
         if (err.code === "EDITED_ELSEWHERE") {
           // Someone saved one of them meanwhile: reload all (values and versions), show it, let the user save again.
           rows.forEach(function (r) {

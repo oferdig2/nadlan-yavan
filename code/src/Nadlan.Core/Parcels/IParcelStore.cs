@@ -89,6 +89,16 @@ public interface IParcelStore
     /// <summary>Saves every field, including Geometry and the registry id / provisional flag.</summary>
     Task UpdateAsync(Parcel parcel, CancellationToken ct = default);
 
+    /// <summary>
+    /// Writes the OT / plot of several Parcels with their history rows: one connection, one transaction, all or nothing.
+    /// Takes each Parcel's edit lock (the same named locks as <see cref="Editing.IEditVersionStore"/>, in id order), then
+    /// checks every Parcel exists (<see cref="Validation.EntityNotFoundException"/>) and is still at its expected version
+    /// (<see cref="Validation.EditConflictException"/>) before writing anything. Only the four number columns and who/when
+    /// change. <paramref name="describe"/>(before, after) makes the history row of each Parcel that changed.
+    /// </summary>
+    Task<ParcelNumbersResult> SetNumbersAsync(IReadOnlyList<ParcelNumbersWrite> writes, long? userId,
+        Func<ParcelNumbers, ParcelNumbers, Activity.ActivityEntry> describe, CancellationToken ct = default);
+
     Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double minOverlapSqm, CancellationToken ct = default);
 
     /// <summary>Changes whenever a Parcel is added, edited or deleted (cheap: count, max id, last update).</summary>
@@ -122,6 +132,12 @@ public interface IParcelStore
     /// </summary>
     Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default);
 }
+
+/// <summary>One Parcel of <see cref="IParcelStore.SetNumbersAsync"/>: its new numbers and the version its form was loaded at (null = no check).</summary>
+public sealed record ParcelNumbersWrite(ParcelNumbers Numbers, string? ExpectedVersion);
+
+/// <summary>The Parcels that actually changed, and every written Parcel's version after the save.</summary>
+public sealed record ParcelNumbersResult(IReadOnlyList<long> Changed, IReadOnlyDictionary<long, string> Versions);
 
 public readonly record struct ParcelFingerprint(long Count, long MaxId, DateTime? LastUpdatedUtc);
 

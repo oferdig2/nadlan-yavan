@@ -36,4 +36,7 @@ internal sealed class BestEffortActivityLog : IActivityLog
 
     public Task<IReadOnlyList<ActivityItem>> ListAsync(string entityType, long entityId, int limit, CancellationToken ct = default)
         => _inner.ListAsync(entityType, entityId, limit, ct);
+
+    public Task<IReadOnlyList<ActivityItem>> ListByUserAsync(long userId, string? entityType, DateTime? fromUtc, DateTime? toUtc, int limit, CancellationToken ct = default)
+        => _inner.ListByUserAsync(userId, entityType, fromUtc, toUtc, limit, ct);
 }
