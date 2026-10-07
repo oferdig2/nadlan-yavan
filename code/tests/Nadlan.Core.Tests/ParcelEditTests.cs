@@ -151,7 +151,7 @@ public class ParcelEditTests
     [InlineData(0, "PARCEL_NUMBERS_COUNT")]
     [InlineData(ParcelService.MaxNumbersBatch + 1, "PARCEL_NUMBERS_COUNT")]
     [InlineData(-1, "PARCEL_NUMBERS_DUPLICATE")]
-    [InlineData(-2, "PARCEL_NUMBERS_TOO_LONG")]
+    [InlineData(-2, "PARCEL_NUMBER_INVALID")]
     public async Task A_bad_row_is_refused_before_the_database_is_touched(int count, string code)
     {
         var writes = count switch
@@ -214,6 +214,10 @@ public class ParcelEditTests
     [InlineData("47-A", null, "47A", "47")]
     [InlineData("47Α", null, "47A", "47")]   // Greek capital alpha
     [InlineData("171a / 3", null, "171A3", "171")]
+    [InlineData("47/3", null, "47#3", "47")]  // a separator between digits stays: 47/3 is not 473 ...
+    [InlineData("47 - 3", null, "47#3", "47")]
+    [InlineData("4-7", null, "4#7", "4")]     // ... and the typo 4-7 is not 47
+    [InlineData("473", null, "473", "473")]
     [InlineData("Α12", null, "A12", "A12")]  // no leading number: the whole key
     [InlineData("0", null, "0", "0")]
     [InlineData(" - ", null, null, null)]   // a placeholder dash is no number
@@ -235,6 +239,59 @@ public class ParcelEditTests
     public void A_number_typed_with_its_letter_is_stored_split(string? value, string? ext, string? storedValue, string? storedExt)
     {
         Assert.Equal((storedValue, storedExt), ParcelNumberKey.Split(value, ext));
+    }
+
+    [Theory]
+    [InlineData("47", null, true)]
+    [InlineData("47", "A", true)]
+    [InlineData("171", "α", true)]
+    [InlineData("47", "abc", true)]
+    [InlineData(null, null, true)]      // no number at all: fine (to do)
+    [InlineData("47+", null, false)]    // keypad keys
+    [InlineData("47.", null, false)]
+    [InlineData("47/3", null, false)]
+    [InlineData("-", null, false)]
+    [InlineData("Α12", null, false)]    // a letter first
+    [InlineData(null, "A", false)]      // an extension without a number
+    [InlineData("47", "abcd", false)]
+    [InlineData("47", "1", false)]
+    [InlineData("1234567890123", null, false)]
+    public void A_new_OT_or_plot_is_a_number_with_up_to_3_letters(string? value, string? ext, bool valid)
+    {
+        var ex = Record.Exception(() => ParcelNumberKey.Ensure("OT", value, ext));
+        Assert.Equal(valid, ex is null);
+        if (!valid) { Assert.Equal("PARCEL_NUMBER_INVALID", Assert.IsType<DomainValidationException>(ex).Code); }
+    }
+
+    [Fact]
+    public async Task Re_saving_an_old_combined_OT_changes_nothing_and_credits_nobody()
+    {
+        var store = new Store();
+        var when = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", OT = "47A", PlotNumber = "3", OtPlotByUserId = 3, OtPlotUpdatedUtc = when, Geometry = Square });
+        var log = new Activity();
+
+        // The edit form sends the stored "47A" back unchanged; only the notes changed.
+        await new ParcelService(store, new NoAreas(), new Greece(), log).UpdateAsync(new UpdateParcelRequest { ParcelId = 1, OT = "47A", PlotNumber = "3", Notes = "x", EditedByUserId = 7 });
+
+        var saved = store.Updated.Single();
+        Assert.Equal(("47A", (string?)null, 3L, when), (saved.OT, saved.OTExt, saved.OtPlotByUserId!.Value, saved.OtPlotUpdatedUtc!.Value));
+        Assert.Equal(new[] { "Parcel details edited: notes." }, log.Entries.Select(e => e.Summary));
+        Assert.True(new ParcelNumbers(1, "47A", null, "3", null).SameAs(new ParcelNumbers(1, "47", "A", "3", null))); // the row save's test too
+    }
+
+    [Fact]
+    public async Task Keypad_junk_in_a_changed_number_is_refused()
+    {
+        var store = new Store();
+        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", OT = "47", Geometry = Square });
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => NewService(store).UpdateAsync(new UpdateParcelRequest { ParcelId = 1, OT = "47", PlotNumber = "3+" }));
+        Assert.Equal("PARCEL_NUMBER_INVALID", ex.Code);
+        await Assert.ThrowsAsync<DomainValidationException>(() => NewService(store).SetNumbersAsync(
+            new[] { new ParcelNumbersWrite(new ParcelNumbers(1, "47.", null, "1", null), null) }, userId: 7));
+        Assert.Empty(store.Updated);
+        Assert.Empty(store.NumberCalls);
     }
 
 

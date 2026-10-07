@@ -67,7 +67,11 @@ public sealed record UpdateParcelRequest
 }
 
 /// <summary>A Parcel's new OT / plot number, for <see cref="ParcelService.SetNumbersAsync"/>. Null or blank = none.</summary>
-public sealed record ParcelNumbers(long ParcelId, string? OT, string? OTExt, string? PlotNumber, string? PlotExt);
+public sealed record ParcelNumbers(long ParcelId, string? OT, string? OTExt, string? PlotNumber, string? PlotExt)
+{
+    /// <summary>The same OT and plot by search key (<see cref="ParcelNumberKey.Same"/>): "47A" and 47 + A are no change.</summary>
+    public bool SameAs(ParcelNumbers other) => ParcelNumberKey.Same(OT, OTExt, PlotNumber, PlotExt, other.OT, other.OTExt, other.PlotNumber, other.PlotExt);
+}
 
 public sealed record CreateParcelResult(
     CreateParcelOutcome Outcome,
@@ -106,6 +110,8 @@ public sealed class ParcelService
         EnsureMeasures(request.OfficialAreaSqm, request.BuildFactor, request.Inclination);
         var (ot, otExt) = ParcelNumberKey.Split(request.OT, request.OTExt);
         var (plot, plotExt) = ParcelNumberKey.Split(request.PlotNumber, request.PlotExt);
+        ParcelNumberKey.Ensure("OT", ot, otExt);
+        ParcelNumberKey.Ensure("Plot", plot, plotExt);
         request = request with { OT = ot, OTExt = otExt, PlotNumber = plot, PlotExt = plotExt };
         var hasNumbers = ParcelNumberKey.Key(ot, otExt) is not null || ParcelNumberKey.Key(plot, plotExt) is not null;
         var area = await ResolveAreaAsync(request.GeographicAreaId, currentAreaId: null, ct);
@@ -219,7 +225,13 @@ public sealed class ParcelService
 
         var (ot, otExt) = ParcelNumberKey.Split(request.OT, request.OTExt);
         var (plot, plotExt) = ParcelNumberKey.Split(request.PlotNumber, request.PlotExt);
-        var numbersChanged = !SameNumbers(existing, new ParcelNumbers(existing.ParcelId, ot, otExt, plot, plotExt));
+        // By key: an old "47A" stored whole and 47 + A are the same OT - re-saving it (a notes-only edit) changes nothing,
+        // keeps the stored text, and doesn't credit this editor with entering it.
+        var otChanged = ParcelNumberKey.Key(existing.OT, existing.OTExt) != ParcelNumberKey.Key(ot, otExt);
+        var plotChanged = ParcelNumberKey.Key(existing.PlotNumber, existing.PlotExt) != ParcelNumberKey.Key(plot, plotExt);
+        if (otChanged) { ParcelNumberKey.Ensure("OT", ot, otExt); } else { (ot, otExt) = (existing.OT, existing.OTExt); }
+        if (plotChanged) { ParcelNumberKey.Ensure("Plot", plot, plotExt); } else { (plot, plotExt) = (existing.PlotNumber, existing.PlotExt); }
+        var numbersChanged = otChanged || plotChanged;
         var updated = existing with
         {
             RegistryId = registryId,
@@ -257,8 +269,6 @@ public sealed class ParcelService
     /// <summary>Most Parcels in one <see cref="SetNumbersAsync"/> call.</summary>
     public const int MaxNumbersBatch = 50;
 
-    private const int MaxNumberLength = 32; // parcel.ot / ot_ext / plot_number / plot_ext are VARCHAR(32)
-
     /// <summary>
     /// Sets the OT / plot number of several Parcels at once (quick data entry: a row of plots typed in one go). Nothing
     /// else changes. All or nothing: the values are checked here, then the store checks every Parcel's existence and
@@ -280,18 +290,14 @@ public sealed class ParcelService
         {
             var (ot, otExt) = ParcelNumberKey.Split(w.Numbers.OT, w.Numbers.OTExt);
             var (plot, plotExt) = ParcelNumberKey.Split(w.Numbers.PlotNumber, w.Numbers.PlotExt);
+            ParcelNumberKey.Ensure("OT", ot, otExt);
+            ParcelNumberKey.Ensure("Plot", plot, plotExt);
             return w with { Numbers = new ParcelNumbers(w.Numbers.ParcelId, ot, otExt, plot, plotExt) };
         }).ToList();
-        if (normalized.SelectMany(w => new[] { w.Numbers.OT, w.Numbers.OTExt, w.Numbers.PlotNumber, w.Numbers.PlotExt }).Any(v => v?.Length > MaxNumberLength))
-        {
-            throw new DomainValidationException("PARCEL_NUMBERS_TOO_LONG", $"OT, plot and their extensions are at most {MaxNumberLength} characters.");
-        }
-
         return await _parcels.SetNumbersAsync(normalized, userId, DescribeNumbers, ct);
     }
 
-    private static bool SameNumbers(Parcel a, ParcelNumbers b)
-        => a.OT == b.OT && a.OTExt == b.OTExt && a.PlotNumber == b.PlotNumber && a.PlotExt == b.PlotExt;
+    private static bool SameNumbers(Parcel a, ParcelNumbers b) => b.SameAs(new ParcelNumbers(a.ParcelId, a.OT, a.OTExt, a.PlotNumber, a.PlotExt));
 
     /// <summary>The history row of an OT / plot change, with the old and new values: data entry is checked per person.</summary>
     public static ActivityEntry DescribeNumbers(ParcelNumbers before, ParcelNumbers after)

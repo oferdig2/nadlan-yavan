@@ -1,7 +1,7 @@
 // ParcelQuickEntry: "Quick OT/plot entry" mode. A click on a polygon opens a small form next to it with OT focused, so
 // OT and plot can be typed straight away: Enter in OT goes to Plot, Enter in Plot saves, Esc closes.
 // "OT digits" (per browser): when the OT is typed from empty and reaches that many digits, the cursor jumps to Plot.
-// OT "47A" is saved as OT 47 + ext A (the same for plot). Only these four fields change; the rest is sent back as loaded.
+// OT "47A" is saved as OT 47 + ext A (the same for plot). Saves go through POST /api/parcels/numbers: only these change.
 // Row entry: Ctrl/⌘+click several Parcels; one form gives them one OT and plots counting up in click order, previewed
 // inside the polygons, and saves them together (POST /api/parcels/numbers).
 (function (window, $) {
@@ -160,17 +160,9 @@
         // An untouched field keeps its stored value and ext as they are (e.g. OT 12 with ext "3" must not become 123).
         var ot = otText === shown.ot ? { value: f.ot, ext: f.otExt } : split(otText);
         var plot = plotText === shown.plot ? { value: f.plotNumber, ext: f.plotExt } : split(plotText);
-        var body = {
-          registryId: null, // empty = keep the KAEK (real or provisional)
-          geographicAreaId: f.geographicAreaId,
-          coordinates: null, // polygon unchanged
-          officialAreaSqm: f.officialAreaSqm,
-          ot: ot.value, otExt: ot.ext, plotNumber: plot.value, plotExt: plot.ext,
-          inclination: f.inclination, buildFactor: f.buildFactor, notes: f.notes,
-          acceptOverlaps: false,
-          version: res.version
-        };
-        return Nadlan.api.put("/api/parcels/" + summary.parcelId, body).then(function () {
+        // The row save with one parcel: only the numbers change, on one database connection (no edit-form locks).
+        var item = { parcelId: summary.parcelId, ot: ot.value, otExt: ot.ext, plotNumber: plot.value, plotExt: plot.ext, version: res.version };
+        return Nadlan.api.post("/api/parcels/numbers", { items: [item] }).then(function () {
           d.close();
           options.onSaved(summary.parcelId, "Parcel " + name + ": OT " + (join(ot.value, ot.ext) || "—") +
             ", plot " + (join(plot.value, plot.ext) || "—") + " saved.");

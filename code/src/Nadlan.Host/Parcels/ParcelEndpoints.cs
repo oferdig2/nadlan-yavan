@@ -292,6 +292,11 @@ public static class ParcelEndpoints
             ParcelCoverageService coverage, CancellationToken ct) =>
         {
             var items = dto.Items ?? Array.Empty<ParcelNumbersItemDto>();
+            if (items.Any(i => i is null))
+            {
+                throw new DomainValidationException("PARCEL_NUMBERS_ITEM_MISSING", "Every item needs a parcelId.");
+            }
+
             if (items.Count == 0 || items.Count > ParcelService.MaxNumbersBatch)
             {
                 throw new DomainValidationException("PARCEL_NUMBERS_COUNT", $"Send 1 to {ParcelService.MaxNumbersBatch} Parcels at a time.");

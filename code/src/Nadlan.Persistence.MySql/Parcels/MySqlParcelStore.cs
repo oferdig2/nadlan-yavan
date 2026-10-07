@@ -374,7 +374,7 @@ public sealed class MySqlParcelStore : IParcelStore
 
                 if (!string.IsNullOrEmpty(w.ExpectedVersion) && row.Version != w.ExpectedVersion)
                 {
-                    throw new EditConflictException("One of these Parcels");
+                    throw new EditConflictException(ordered.Count == 1 ? "This Parcel" : "One of these Parcels");
                 }
             }
 
@@ -384,7 +384,7 @@ public sealed class MySqlParcelStore : IParcelStore
                 var row = current[w.Numbers.ParcelId];
                 var before = new ParcelNumbers(row.ParcelId, row.Ot, row.OtExt, row.PlotNumber, row.PlotExt);
                 var after = w.Numbers;
-                if (before == after)
+                if (before.SameAs(after)) // by key: an old "47A" re-saved as 47 + A is no change (no write, no history)
                 {
                     continue;
                 }
