@@ -42,21 +42,27 @@ public sealed record Parcel
     /// </summary>
     public bool HasAssets { get; init; }
 
-    /// <summary>How it is identified - its colour on the map (<see cref="ParcelKinds"/>).</summary>
-    public string Kind => ParcelKinds.Of(RegistryIdIsProvisional, OT);
+    /// <summary>Whether its OT / plot number is entered - its colour on the map (<see cref="ParcelKinds"/>).</summary>
+    public string Kind => ParcelKinds.Of(OT, PlotNumber);
 }
 
 /// <summary>
-/// How a Parcel is identified, which is its colour on the map and a map filter: a real KAEK; a provisional (TMP-) KAEK
-/// whose OT (building block, with or without the plot number) is known; or a provisional one with no OT at all.
+/// How far a Parcel's OT / plot data entry is, which is its colour on the map and a map filter (customer change
+/// request #1: green = entered, blue = still to do): both OT and plot number; only one of them; neither.
+/// Real vs provisional KAEK is a separate filter (<see cref="ParcelQuery.Provisional"/>), not a colour.
 /// </summary>
 public static class ParcelKinds
 {
-    public const string Kaek = "kaek";
-    public const string Ot = "ot";
-    public const string NoId = "noid";
+    public const string Done = "done";
+    public const string Partial = "partial";
+    public const string Todo = "todo";
 
-    public static readonly IReadOnlyList<string> All = new[] { Kaek, Ot, NoId };
+    public static readonly IReadOnlyList<string> All = new[] { Done, Partial, Todo };
 
-    public static string Of(bool provisional, string? ot) => !provisional ? Kaek : string.IsNullOrWhiteSpace(ot) ? NoId : Ot;
+    public static string Of(string? ot, string? plot) => (string.IsNullOrWhiteSpace(ot), string.IsNullOrWhiteSpace(plot)) switch
+    {
+        (false, false) => Done,
+        (true, true) => Todo,
+        _ => Partial,
+    };
 }

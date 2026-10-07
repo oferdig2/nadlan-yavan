@@ -147,12 +147,47 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .map-legend .legend-check-gap { display: inline-block; width: 14px; }
 .map-legend .legend-sep { border-top: 1px solid var(--border, #e5e7eb); margin: 4px 0; }
 .map-legend .legend-row .pct { width: 30px; text-align: right; color: var(--muted); }
+.map-legend .legend-title { font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+.map-legend .legend-row .legend-count { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* Hover card over a Parcel (parcel-map-overlay.js): follows the cursor, never catches the mouse. */
+.parcel-tip { position: fixed; z-index: 2000; pointer-events: none; max-width: 320px; padding: 7px 10px 7px 9px; border-radius: 8px;
+  background: rgba(15, 23, 42, 0.92); color: #f8fafc; border-left: 4px solid #3b82f6; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  font-size: 12px; line-height: 1.45; }
+.parcel-tip[hidden] { display: none; }
+.parcel-tip .tip-numbers { font-size: 15px; white-space: nowrap; }
+.parcel-tip .tip-numbers b { font-weight: 700; letter-spacing: 0.01em; }
+.parcel-tip .tip-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; }
+.parcel-tip .tip-sep { color: #64748b; margin: 0 2px; }
+.parcel-tip .tip-missing { color: #93c5fd; font-weight: 600; }
+.parcel-tip .tip-facts { color: #cbd5e1; margin-top: 2px; }
+.parcel-tip .tip-tag { display: inline-block; margin-top: 4px; padding: 0 6px; border-radius: 4px; background: #7c3aed; color: #fff; font-size: 11px; font-weight: 600; }
+
+/* Planned "OT / plot" inside each Parcel picked for a row entry (Ctrl+click in quick entry). */
+.parcel-labels { position: absolute; left: 0; top: 0; pointer-events: none; }
+.parcel-label { position: absolute; transform: translate(-50%, -50%); padding: 2px 7px; border-radius: 6px; background: #0f172a; color: #fff;
+  font-size: 13px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+.parcel-label.empty { background: #475569; }
+.parcel-label.warn { background: #b45309; }
+.parcel-label-badge { display: inline-block; margin-right: 5px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.2); font-size: 10px; font-weight: 600; }
+
+/* Row entry form (quick entry, several Parcels). */
+.quick-group-list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; border-top: 1px solid var(--border); }
+.quick-group-list li { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+.quick-group-list .qg-n { width: 20px; text-align: right; color: var(--muted); font-size: 12px; }
+.quick-group-list .qg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.quick-group-list .qg-now { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.quick-group-list .qg-now.replaces { color: #b45309; font-weight: 600; }
+.quick-group-list .input { width: 64px; flex: 0 0 64px; padding: 3px 5px; font-size: 14px; }
+.quick-group-list .input.fixed { border-color: #0f172a; }
+.quick-group-list button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 14px; }
+.quick-group-warn { color: #b45309; font-size: 12px; }
 
 /* Parcel colour code in the results list (same as the map legend). */
 .kind-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 2px solid; box-sizing: content-box; }
-.kind-dot.kind-kaek { background: #3b82f6; border-color: #1d4ed8; }
-.kind-dot.kind-ot { background: #fb923c; border-color: #ea580c; }
-.kind-dot.kind-noid { background: #f43f5e; border-color: #be123c; }
+.kind-dot.kind-done { background: #22c55e; border-color: #15803d; }
+.kind-dot.kind-partial { background: #f59e0b; border-color: #b45309; }
+.kind-dot.kind-todo { background: #3b82f6; border-color: #1d4ed8; }
 .kind-dot.has-assets { box-shadow: 0 0 0 2px #7c3aed; }
 
 /* "Show where I am" (my-location.js): round button above Google's zoom buttons. */

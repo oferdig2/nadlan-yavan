@@ -30,11 +30,14 @@ public static class ParcelEndpoints
         [FromQuery] public string? Plot { get; set; }
         [FromQuery] public int[]? AreaIds { get; set; }
 
-        /// <summary>Map colours to show (ParcelKinds: kaek, ot, noid); none = all.</summary>
+        /// <summary>Map colours to show (ParcelKinds: done, partial, todo - the OT/plot entry); none = all.</summary>
         [FromQuery] public string[]? Kinds { get; set; }
 
         /// <summary>true = only Parcels with an Asset (that the caller may see), false = only without.</summary>
         [FromQuery] public bool? HasAssets { get; set; }
+
+        /// <summary>true = only provisional (TMP-) KAEKs, false = only real ones.</summary>
+        [FromQuery] public bool? Provisional { get; set; }
     }
 
     private static ParcelQuery ToQuery(ParcelQueryParams q, UserAccess me)
@@ -54,6 +57,7 @@ public static class ParcelEndpoints
             GeographicAreaIds = q.AreaIds ?? Array.Empty<int>(),
             Kinds = kinds.Count == ParcelKinds.All.Count ? Array.Empty<string>() : kinds,
             HasAssets = q.HasAssets,
+            Provisional = q.Provisional,
             Scope = me.Scope,
         };
     }
@@ -62,6 +66,10 @@ public static class ParcelEndpoints
         string? RegistryId, int? GeographicAreaId, double[][][]? Coordinates, decimal? OfficialAreaSqm,
         string? OT, string? OTExt, string? PlotNumber, string? PlotExt, decimal? Inclination, decimal? BuildFactor,
         string? Notes, bool AcceptOverlaps, string? Version = null);
+
+    public sealed record ParcelNumbersItemDto(long ParcelId, string? OT, string? OTExt, string? PlotNumber, string? PlotExt, string? Version);
+
+    public sealed record ParcelNumbersDto(IReadOnlyList<ParcelNumbersItemDto>? Items);
 
     public static void MapParcelEndpoints(this IEndpointRouteBuilder app)
     {
@@ -77,10 +85,11 @@ public static class ParcelEndpoints
             var query = ToQuery(q, me) with { Limit = int.MaxValue };
 
             var count = await parcels.CountAsync(query, ct);
+            var kindCounts = await parcels.CountByKindAsync(query, ct); // legend: each colour's count, even while unticked
             if (count > options.Value.Maps.MaxParcelPolygons)
             {
                 var surface = allowSurface == true && me.Scope.AllParcels;
-                return Results.Ok(new { tooMany = true, surface, count, coverageVersion = surface ? coverage.Current?.Version : null, items = Array.Empty<object>() });
+                return Results.Ok(new { tooMany = true, surface, count, kindCounts, coverageVersion = surface ? coverage.Current?.Version : null, items = Array.Empty<object>() });
             }
 
             var found = await parcels.QueryAsync(query, ct);
@@ -89,6 +98,7 @@ public static class ParcelEndpoints
             {
                 tooMany = false,
                 count = found.Count,
+                kindCounts,
                 items = found.Select(p => new { summary = Summary(p, areaNames), geometry = GeoJson.Polygon(p.Geometry) }),
             });
         });
@@ -120,11 +130,15 @@ public static class ParcelEndpoints
 
         // Zoomed out, the map shows the coverage surface instead of polygons; the list then shows only this count.
         group.MapGet("/count", async ([AsParameters] ParcelQueryParams q, UserAccess me, IParcelStore parcels, ParcelCoverageService coverage, CancellationToken ct) =>
-            Results.Ok(new
+        {
+            var query = ToQuery(q, me);
+            return Results.Ok(new
             {
-                count = await parcels.CountAsync(ToQuery(q, me), ct),
+                count = await parcels.CountAsync(query, ct),
+                kindCounts = await parcels.CountByKindAsync(query, ct),
                 coverageVersion = coverage.Current?.Version,
-            }));
+            });
+        });
 
         // All Parcels united into one surface (per kind), for zoomed-out views. It shows where every Parcel lies,
         // so only for users who may see all Parcels; the others see few and get their polygons at any zoom.
@@ -262,6 +276,44 @@ public static class ParcelEndpoints
             }, ct), me, policy, ct);
         });
 
+        // Quick data entry: OT / plot of several Parcels in one save (a row of plots). Rights and edit versions of all of
+        // them are checked before anything is written; a Parcel saved by someone else meanwhile refuses the whole call.
+        group.MapPost("/numbers", async (ParcelNumbersDto dto, UserAccess me, AccessPolicy policy, ParcelService service,
+            ParcelCoverageService coverage, IEditVersionStore versions, CancellationToken ct) =>
+        {
+            var items = dto.Items ?? Array.Empty<ParcelNumbersItemDto>();
+            if (items.Count == 0 || items.Count > ParcelService.MaxNumbersBatch)
+            {
+                throw new DomainValidationException("PARCEL_NUMBERS_COUNT", $"Send 1 to {ParcelService.MaxNumbersBatch} Parcels at a time.");
+            }
+
+            var ordered = items.OrderBy(i => i.ParcelId).ToList(); // locks always in the same order: two such saves can't deadlock
+            foreach (var item in ordered)
+            {
+                await policy.RequireParcelEditAsync(me, item.ParcelId, ct);
+            }
+
+            var leases = new List<IAsyncDisposable>();
+            try
+            {
+                foreach (var item in ordered.DistinctBy(i => i.ParcelId))
+                {
+                    leases.Add(await versions.BeginEditAsync(EditTargets.Parcel, item.ParcelId, item.Version, ct));
+                }
+
+                var changed = await service.SetNumbersAsync(items.Select(i => new ParcelNumbers(i.ParcelId, i.OT, i.OTExt, i.PlotNumber, i.PlotExt)).ToList(), ct);
+                coverage.MarkDirty();
+                return Results.Ok(new { changed });
+            }
+            finally
+            {
+                foreach (var lease in leases)
+                {
+                    await lease.DisposeAsync();
+                }
+            }
+        });
+
         // Legal Owners: visible only with VIEW_LEGAL_OWNERS or edit rights (spec §3.4 "Legal Owners if permitted").
         group.MapGet("/{parcelId:long}/legal-owners", async (long parcelId, UserAccess me, AccessPolicy policy, IParcelLegalOwnerStore owners, CancellationToken ct) =>
         {
@@ -343,7 +395,7 @@ public static class ParcelEndpoints
         parcelId = p.ParcelId,
         registryId = p.RegistryId,
         registryIdIsProvisional = p.RegistryIdIsProvisional,
-        kind = p.Kind,              // map colour: kaek | ot | noid
+        kind = p.Kind,              // map colour = OT/plot entry: done | partial | todo
         hasAssets = p.HasAssets,    // only Assets the caller may see; false outside the list query
         geographicArea =p.GeographicAreaId is int id && areaNames.TryGetValue(id, out var name) ? name : null,
         ot = Join(p.OT, p.OTExt),

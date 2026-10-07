@@ -24,14 +24,15 @@ public class ParcelCoverageTests
     }
 
     [Theory]
-    [InlineData(false, null, ParcelKinds.Kaek)]   // a real KAEK wins, OT or not
-    [InlineData(false, "47", ParcelKinds.Kaek)]
-    [InlineData(true, "47", ParcelKinds.Ot)]      // provisional, but the block is known
-    [InlineData(true, "  ", ParcelKinds.NoId)]
-    [InlineData(true, null, ParcelKinds.NoId)]
-    public void A_parcels_map_colour_follows_how_it_is_identified(bool provisional, string? ot, string kind)
+    [InlineData(false, "47", "22", ParcelKinds.Done)]   // green: OT and plot entered, real KAEK or not
+    [InlineData(true, "47", "22", ParcelKinds.Done)]
+    [InlineData(true, "47", null, ParcelKinds.Partial)]  // only one of them
+    [InlineData(false, " ", "22", ParcelKinds.Partial)]
+    [InlineData(false, null, null, ParcelKinds.Todo)]    // blue: still to be entered, even with a real KAEK
+    [InlineData(true, "  ", "", ParcelKinds.Todo)]
+    public void A_parcels_map_colour_follows_its_OT_plot_entry(bool provisional, string? ot, string? plot, string kind)
     {
-        Assert.Equal(kind, new Parcel { RegistryIdIsProvisional = provisional, OT = ot, Geometry = Square(0, 0) }.Kind);
+        Assert.Equal(kind, new Parcel { RegistryIdIsProvisional = provisional, OT = ot, PlotNumber = plot, Geometry = Square(0, 0) }.Kind);
     }
 
     [Fact]
@@ -147,6 +148,7 @@ public class ParcelCoverageTests
         public Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double m, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
     }

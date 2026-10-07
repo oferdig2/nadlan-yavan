@@ -63,6 +63,9 @@ public sealed record UpdateParcelRequest
     public bool AcceptOverlaps { get; init; }
 }
 
+/// <summary>A Parcel's new OT / plot number, for <see cref="ParcelService.SetNumbersAsync"/>. Null or blank = none.</summary>
+public sealed record ParcelNumbers(long ParcelId, string? OT, string? OTExt, string? PlotNumber, string? PlotExt);
+
 public sealed record CreateParcelResult(
     CreateParcelOutcome Outcome,
     long? ParcelId,
@@ -231,6 +234,79 @@ public sealed class ParcelService
             checkError is null ? null : OverlapCheckFailedWarning);
     }
 
+    /// <summary>Most Parcels in one <see cref="SetNumbersAsync"/> call (each holds an edit lock while it runs).</summary>
+    public const int MaxNumbersBatch = 50;
+
+    private const int MaxNumberLength = 32; // parcel.ot / ot_ext / plot_number / plot_ext are VARCHAR(32)
+
+    /// <summary>
+    /// Sets the OT / plot number of several Parcels at once (quick data entry: a row of plots typed in one go). Nothing
+    /// else changes. Every Parcel is checked first (exists, values fit), so a bad one stops the call before anything is
+    /// written. The caller checks rights and edit versions. Returns how many actually changed.
+    /// </summary>
+    public async Task<int> SetNumbersAsync(IReadOnlyList<ParcelNumbers> changes, CancellationToken ct = default)
+    {
+        if (changes.Count == 0 || changes.Count > MaxNumbersBatch)
+        {
+            throw new DomainValidationException("PARCEL_NUMBERS_COUNT", $"Send 1 to {MaxNumbersBatch} Parcels at a time.");
+        }
+
+        if (changes.Select(c => c.ParcelId).Distinct().Count() != changes.Count)
+        {
+            throw new DomainValidationException("PARCEL_NUMBERS_DUPLICATE", "The same Parcel is in the list twice.");
+        }
+
+        if (changes.SelectMany(c => new[] { c.OT, c.OTExt, c.PlotNumber, c.PlotExt }).Any(v => v?.Trim().Length > MaxNumberLength))
+        {
+            throw new DomainValidationException("PARCEL_NUMBERS_TOO_LONG", $"OT, plot and their extensions are at most {MaxNumberLength} characters.");
+        }
+
+        await using var writeLock = await _parcels.LockParcelWritesAsync(ct);
+        var pairs = new List<(Parcel Before, Parcel After)>();
+        foreach (var c in changes)
+        {
+            var existing = await _parcels.GetAsync(c.ParcelId, ct) ?? throw new EntityNotFoundException("Parcel", c.ParcelId);
+            pairs.Add((existing, existing with
+            {
+                OT = TextNormalize.NullIfBlank(c.OT),
+                OTExt = TextNormalize.NullIfBlank(c.OTExt),
+                PlotNumber = TextNormalize.NullIfBlank(c.PlotNumber),
+                PlotExt = TextNormalize.NullIfBlank(c.PlotExt),
+            }));
+        }
+
+        var changed = 0;
+        foreach (var (before, after) in pairs.Where(p => !SameNumbers(p.Before, p.After)))
+        {
+            await _parcels.UpdateAsync(after, ct);
+            await RecordNumbersAsync(before, after, ct);
+            changed++;
+        }
+
+        return changed;
+    }
+
+    private static bool SameNumbers(Parcel a, Parcel b)
+        => a.OT == b.OT && a.OTExt == b.OTExt && a.PlotNumber == b.PlotNumber && a.PlotExt == b.PlotExt;
+
+    /// <summary>OT/plot changes are their own history entry with the old and new values: data entry is checked per person.</summary>
+    private async Task RecordNumbersAsync(Parcel before, Parcel after, CancellationToken ct)
+    {
+        if (SameNumbers(before, after))
+        {
+            return;
+        }
+
+        static string Show(string? value, string? ext) => value is null ? "—" : value + ext;
+        await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelEdited,
+            $"OT/plot set to {Show(after.OT, after.OTExt)} / {Show(after.PlotNumber, after.PlotExt)} (was {Show(before.OT, before.OTExt)} / {Show(before.PlotNumber, before.PlotExt)}).",
+            new
+            {
+                old = new { ot = before.OT, otExt = before.OTExt, plot = before.PlotNumber, plotExt = before.PlotExt },
+                @new = new { ot = after.OT, otExt = after.OTExt, plot = after.PlotNumber, plotExt = after.PlotExt },
+            }), ct);
+    }
+
     private async Task RecordParcelChangesAsync(Parcel before, Parcel after, IReadOnlyList<ParcelOverlapHit> overlaps, string? overlapCheckError,
         CancellationToken ct)
     {
@@ -248,9 +324,10 @@ public sealed class ParcelService
                 new { oldWkt = before.Geometry.ToWkt(), overlapCheckError }), ct); // keep the old shape: no geometry versioning in Phase 1
         }
 
+        await RecordNumbersAsync(before, after, ct);
+
         var fields = new List<string>();
         if (before.GeographicAreaId != after.GeographicAreaId) { fields.Add("area"); }
-        if (before.OT != after.OT || before.OTExt != after.OTExt || before.PlotNumber != after.PlotNumber || before.PlotExt != after.PlotExt) { fields.Add("OT/plot"); }
         if (before.OfficialAreaSqm != after.OfficialAreaSqm) { fields.Add("official area"); }
         if (before.BuildFactor != after.BuildFactor) { fields.Add("build factor"); }
         if (before.Inclination != after.Inclination) { fields.Add("inclination"); }

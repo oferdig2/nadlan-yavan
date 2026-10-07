@@ -88,8 +88,11 @@ public sealed class MySqlParcelStore : IParcelStore
             cancellationToken: ct));
     }
 
-    // ParcelKinds in SQL: same rule as ParcelKinds.Of.
-    private const string KindSql = "CASE WHEN p.registry_id_is_provisional = 0 THEN 'kaek' WHEN TRIM(COALESCE(p.ot, '')) <> '' THEN 'ot' ELSE 'noid' END";
+    // ParcelKinds in SQL: same rule as ParcelKinds.Of (OT and plot number entered, one of them, neither).
+    private const string KindSql = """
+        CASE (TRIM(COALESCE(p.ot, '')) <> '') + (TRIM(COALESCE(p.plot_number, '')) <> '')
+            WHEN 2 THEN 'done' WHEN 1 THEN 'partial' ELSE 'todo' END
+        """;
 
     /// <summary>The Parcel carries an Asset the caller may see (competing Assets they can't see don't count).</summary>
     private static string HasVisibleAssetSql(ParcelQuery query, DynamicParameters args)
@@ -121,6 +124,15 @@ public sealed class MySqlParcelStore : IParcelStore
         var (where, args) = Filter(query);
         await using var conn = await _db.OpenAsync(ct);
         return await conn.ExecuteScalarAsync<long>(new CommandDefinition($"SELECT COUNT(*) FROM parcel p WHERE {where}", args, cancellationToken: ct));
+    }
+
+    public async Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default)
+    {
+        var (where, args) = Filter(query with { Kinds = Array.Empty<string>() });
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<(string Kind, long Count)>(new CommandDefinition(
+            $"SELECT {KindSql} AS kind, COUNT(*) FROM parcel p WHERE {where} GROUP BY kind", args, cancellationToken: ct));
+        return rows.ToDictionary(r => r.Kind, r => r.Count);
     }
 
     /// <summary>The WHERE clause shared by the list and the count: access rules first, then the filters.</summary>
@@ -159,6 +171,12 @@ public sealed class MySqlParcelStore : IParcelStore
         if (query.HasAssets is bool hasAssets)
         {
             where.Add((hasAssets ? "" : "NOT ") + HasVisibleAssetSql(query, args));
+        }
+
+        if (query.Provisional is bool provisional)
+        {
+            where.Add("p.registry_id_is_provisional = @provisional");
+            args.Add("provisional", provisional);
         }
 
         return (string.Join(" AND ", where), args);

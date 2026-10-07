@@ -126,6 +126,67 @@ public class ParcelEditTests
         await service.SetAsync(1, 20, 40, null); // already listed: fine
     }
 
+    [Fact]
+    public async Task A_row_of_plots_gets_its_OT_plot_in_one_call_and_nothing_else_changes()
+    {
+        var store = new Store();
+        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", RegistryIdIsProvisional = true, Notes = "keep", Geometry = Square });
+        store.Parcels.Add(new Parcel { ParcelId = 2, CountryId = 1, RegistryId = "050123456789", OT = "9", PlotNumber = "9", Geometry = Square });
+        store.Parcels.Add(new Parcel { ParcelId = 3, CountryId = 1, RegistryId = "TMP-C", RegistryIdIsProvisional = true, OT = "171", OTExt = "a", PlotNumber = "3", Geometry = Square });
+        var log = new Activity();
+
+        var changed = await new ParcelService(store, new NoAreas(), new Greece(), log).SetNumbersAsync(new[]
+        {
+            new ParcelNumbers(1, "171", "a", "1", null),
+            new ParcelNumbers(2, "171", "a", " 2 ", ""),
+            new ParcelNumbers(3, "171", "a", "3", null), // already so: not saved again, no history
+        });
+
+        Assert.Equal(2, changed);
+        Assert.Equal(new long[] { 1, 2 }, store.Updated.Select(p => p.ParcelId));
+        var first = store.Updated[0];
+        Assert.Equal(("171", "a", "1", (string?)null), (first.OT, first.OTExt, first.PlotNumber, first.PlotExt));
+        Assert.Equal(("TMP-A", true, "keep"), (first.RegistryId, first.RegistryIdIsProvisional, first.Notes));
+        Assert.Equal(("2", (string?)null), (store.Updated[1].PlotNumber, store.Updated[1].PlotExt));
+        Assert.Equal(new[] { "OT/plot set to 171a / 1 (was — / —).", "OT/plot set to 171a / 2 (was 9 / 9)." }, log.Entries.Select(e => e.Summary));
+    }
+
+    [Fact]
+    public async Task A_missing_parcel_stops_the_row_before_anything_is_saved()
+    {
+        var store = new Store();
+        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", Geometry = Square });
+
+        await Assert.ThrowsAsync<EntityNotFoundException>(() => NewService(store).SetNumbersAsync(new[]
+        {
+            new ParcelNumbers(1, "5", null, "1", null),
+            new ParcelNumbers(99, "5", null, "2", null),
+        }));
+        Assert.Empty(store.Updated);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(ParcelService.MaxNumbersBatch + 1)]
+    public async Task A_row_is_1_to_50_parcels(int count)
+    {
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => NewService(new Store()).SetNumbersAsync(
+            Enumerable.Range(1, count).Select(i => new ParcelNumbers(i, "5", null, i.ToString(), null)).ToList()));
+        Assert.Equal("PARCEL_NUMBERS_COUNT", ex.Code);
+    }
+
+    [Fact]
+    public async Task Editing_a_parcel_records_its_old_and_new_OT_plot()
+    {
+        var store = new Store();
+        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", RegistryIdIsProvisional = true, OT = "10", PlotNumber = "3", PlotExt = "A", Geometry = Square });
+        var log = new Activity();
+
+        await new ParcelService(store, new NoAreas(), new Greece(), log).UpdateAsync(new UpdateParcelRequest { ParcelId = 1, OT = "31", PlotNumber = "7", Notes = "x" });
+
+        Assert.Equal(new[] { "OT/plot set to 31 / 7 (was 10 / 3A).", "Parcel details edited: notes." }, log.Entries.Select(e => e.Summary));
+    }
+
     private static ParcelService NewService(Store store) => new(store, new NoAreas(), new Greece());
 
     private sealed class Store : IParcelStore
@@ -152,6 +213,7 @@ public class ParcelEditTests
         public Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double m, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<long> CountAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<ParcelDeleteOutcome> DeleteAsync(long parcelId, CancellationToken ct = default) => throw new NotSupportedException();

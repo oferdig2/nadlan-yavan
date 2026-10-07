@@ -60,6 +60,9 @@ public sealed record ParcelQuery
     /// <summary>True = only Parcels carrying an Asset the caller may see, false = only those without; null = both.</summary>
     public bool? HasAssets { get; init; }
 
+    /// <summary>True = only provisional (TMP-) KAEKs, false = only real ones; null = both.</summary>
+    public bool? Provisional { get; init; }
+
     public int Limit { get; init; } = 2000;
 
     /// <summary>What the caller may see. Required: the store refuses to run a query without it.</summary>
@@ -99,6 +102,12 @@ public interface IParcelStore
 
     /// <summary>How many Parcels match (same filters and access rules as <see cref="QueryAsync"/>, no limit).</summary>
     Task<long> CountAsync(ParcelQuery query, CancellationToken ct = default);
+
+    /// <summary>
+    /// How many match per <see cref="ParcelKinds"/> value, with every filter except <see cref="ParcelQuery.Kinds"/>
+    /// (the legend shows the count of a colour even while it is unticked). Kinds with none are left out.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default);
 
     /// <summary>
     /// Serialises Parcel saves (across app instances too) from the KAEK/overlap checks to the write, so two saves of

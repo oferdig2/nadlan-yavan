@@ -2,12 +2,16 @@
 // OT and plot can be typed straight away: Enter in OT goes to Plot, Enter in Plot saves, Esc closes.
 // "OT digits" (per browser): when the OT is typed from empty and reaches that many digits, the cursor jumps to Plot.
 // OT "47A" is saved as OT 47 + ext A (the same for plot). Only these four fields change; the rest is sent back as loaded.
+// Row entry: Ctrl/⌘+click several Parcels; one form gives them one OT and plots counting up in click order, previewed
+// inside the polygons, and saves them together (POST /api/parcels/numbers).
 (function (window, $) {
   "use strict";
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
   var DIGITS_KEY = "nadlan.quickEntry.otDigits";
-  var current = null; // the open form: { dialog, replaced }
+  var current = null; // the open single form: { dialog, replaced, summary }
+  var row = null;     // the open row entry (several Parcels): { dialog, toggle, add }
+  var MAX_ROW = 50;   // server: ParcelService.MaxNumbersBatch
 
   function join(value, ext) { return value ? value + (ext || "") : ""; }
 
@@ -38,6 +42,13 @@
 
   function close() {
     if (current) { current.dialog.close(); }
+    if (row) { row.dialog.close(); }
+  }
+
+  function position(domEvent) {
+    return domEvent && domEvent.pageX !== undefined
+      ? { my: "left+18 top+18", at: "left top", of: domEvent, collision: "fit" }
+      : { my: "center", at: "center", of: window };
   }
 
   /**
@@ -48,6 +59,7 @@
    */
   function open(summary, domEvent, options) {
     if (current) { current.replaced = true; current.dialog.close(); } // the next parcel: no onClose for the old one
+    if (row) { row.dialog.close(); } // a plain click leaves the row entry
     var esc = Nadlan.format.escapeHtml;
     var name = summary.registryId || "#" + summary.parcelId;
     var $form = $("<form class=\"form compact quick-entry-form\" autocomplete=\"off\">" +
@@ -62,16 +74,14 @@
     var shown = { ot: summary.ot || "", plot: summary.plot || "" }; // what the fields started with
     var detail = null;
     var saving = false;
-    var me = { replaced: false };
+    var me = { replaced: false, summary: summary };
 
     var d = Nadlan.dialog.open({
       title: "Parcel " + name,
       content: $form,
       width: 300,
       modal: false,
-      position: domEvent && domEvent.pageX !== undefined
-        ? { my: "left+18 top+18", at: "left top", of: domEvent, collision: "fit" }
-        : { my: "center", at: "center", of: window },
+      position: position(domEvent),
       buttons: [
         { text: "Save", primary: true, click: save },
         { text: "Card", click: function () { d.close(); options.onOpenCard(summary); } }
@@ -167,5 +177,216 @@
     }
   }
 
-  Nadlan.parcelQuickEntry = { open: open, close: close, getDigits: function () { return sessionDigits; }, setDigits: setDigits, split: split };
+  // ---- Row entry: Ctrl/⌘+click picks several Parcels; one form gives them one OT and counting plot numbers. ----------
+
+  /**
+   * Ctrl/⌘+click in quick entry: adds the Parcel to the row, or takes it out again. A single form that is open becomes the
+   * row's first Parcel, so "click the first plot, Ctrl+click the others" works.
+   * @param {{ onSaved: function(number[], string): void, onPreview: function(Array): void, onClose?: function(): void }} options
+   *        onPreview(list) shows the planned "OT / plot" inside each polygon (empty list = none); onSaved after the save.
+   */
+  function toggleInRow(summary, domEvent, options) {
+    if (!row) {
+      var first = current && current.summary.parcelId !== summary.parcelId ? current.summary : null;
+      if (current) { current.replaced = true; current.dialog.close(); }
+      row = openRow(domEvent, options);
+      if (first) { row.add(first); }
+    }
+    row.toggle(summary);
+  }
+
+  function openRow(domEvent, options) {
+    var esc = Nadlan.format.escapeHtml;
+    var rows = []; // { summary, detail (GET /api/parcels/{id}), loaded (promise), plot (text), fixed (typed by the user) }
+    var saving = false;
+    var $form = $("<form class=\"form compact quick-entry-form\" autocomplete=\"off\">" +
+      "<label>OT for all of them<input class=\"input\" name=\"rowOt\" maxlength=\"40\" placeholder=\"empty = keep each one's OT\"></label>" +
+      "<ul class=\"quick-group-list\"></ul>" +
+      "<div class=\"quick-group-warn\" hidden></div>" +
+      "<div class=\"muted quick-entry-hint\">Ctrl+click adds or removes a parcel. Plots count up in click order; type over one to skip a number (4 → 6) or split (4a, 4b). Empty plot = keep. Enter saves, Esc cancels.</div>" +
+      "</form>");
+    var $ot = $form.find("[name=rowOt]");
+    var $list = $form.find(".quick-group-list");
+    var $warn = $form.find(".quick-group-warn");
+    var me = {};
+
+    var d = Nadlan.dialog.open({
+      title: "Row entry",
+      content: $form,
+      width: 380,
+      modal: false,
+      position: position(domEvent),
+      buttons: [
+        { text: "Save all", primary: true, click: save },
+        { text: "Cancel", click: function () { d.close(); } }
+      ],
+      onClose: function () {
+        if (row === me) { row = null; }
+        options.onPreview([]);
+        if (options.onClose) { options.onClose(); }
+      }
+    });
+    d.$el.closest(".ui-dialog").addClass("quick-row-dialog");
+    me.dialog = d;
+
+    function name(r) { return r.summary.registryId || "#" + r.summary.parcelId; }
+    function stored(r) {
+      if (!r.detail) { return { ot: r.summary.ot || "", plot: r.summary.plot || "" }; }
+      var f = r.detail.fields;
+      return { ot: join(f.ot, f.otExt), plot: join(f.plotNumber, f.plotExt) };
+    }
+    // What a row will be saved as: an empty field keeps the stored value (and its ext) as it is.
+    function planned(r) {
+      var now = stored(r), otText = $.trim($ot.val()), plotText = $.trim(r.plot);
+      return { ot: otText ? join(split(otText).value, split(otText).ext) : now.ot, plot: plotText ? join(split(plotText).value, split(plotText).ext) : now.plot };
+    }
+    function replaces(r) {
+      var now = stored(r), p = planned(r);
+      return (now.ot || now.plot) && (now.ot !== p.ot || now.plot !== p.plot);
+    }
+
+    // Rows nobody typed in count up from the one before ("4a" -> 5); a row without a number stops the counting.
+    function renumber() {
+      var prev = null;
+      rows.forEach(function (r, i) {
+        if (i > 0 && !r.fixed) {
+          r.plot = prev === null ? "" : String(prev + 1);
+          $list.find("[data-row=" + i + "]").val(r.plot);
+        }
+        var m = /^(\d+)/.exec($.trim(r.plot));
+        prev = m ? Number(m[1]) : null;
+      });
+      showPlan();
+    }
+
+    function showPlan() {
+      var replacing = 0;
+      rows.forEach(function (r, i) {
+        var now = stored(r), will = replaces(r);
+        if (will) { replacing++; }
+        $list.find("[data-now=" + i + "]").toggleClass("replaces", !!will)
+          .text(now.ot || now.plot ? "now " + (now.ot || "—") + " / " + (now.plot || "—") : "empty");
+      });
+      $warn.prop("hidden", !replacing).text(replacing ? replacing + " of them already have an OT / plot - Save all replaces it." : "");
+      options.onPreview(rows.map(function (r, i) {
+        var p = planned(r);
+        return { parcelId: r.summary.parcelId, badge: String(i + 1), text: p.ot || p.plot ? (p.ot || "—") + " / " + (p.plot || "—") : "", warn: !!replaces(r) };
+      }));
+    }
+
+    function render() {
+      d.$el.closest(".ui-dialog").find(".ui-dialog-title").text("Row entry - " + rows.length + " parcel" + (rows.length === 1 ? "" : "s"));
+      $list.html(rows.map(function (r, i) {
+        return "<li><span class=\"qg-n\">" + (i + 1) + "</span>" +
+          "<span class=\"qg-name\" title=\"" + esc(name(r)) + "\">" + esc(name(r)) + "</span>" +
+          "<span class=\"qg-now\" data-now=\"" + i + "\"></span>" +
+          "<input class=\"input" + (r.fixed ? " fixed" : "") + "\" data-row=\"" + i + "\" maxlength=\"40\" placeholder=\"plot\" title=\"Plot number\" value=\"" + esc(r.plot) + "\">" +
+          "<button type=\"button\" data-drop=\"" + i + "\" title=\"Take out of the row\">×</button></li>";
+      }).join(""));
+      renumber();
+    }
+
+    function remove(r) {
+      var i = rows.indexOf(r);
+      if (i < 0) { return; }
+      rows.splice(i, 1);
+      if (rows.length && i === 0) { rows[0].fixed = true; } // the new first row keeps its number
+      if (!rows.length) { d.close(); return; }
+      render();
+    }
+
+    function add(summary) {
+      if (rows.length >= MAX_ROW) { d.showError("At most " + MAX_ROW + " parcels in one row - save these first."); return; }
+      var r = { summary: summary, detail: null, plot: "", fixed: rows.length === 0 };
+      r.loaded = Nadlan.api.get("/api/parcels/" + summary.parcelId).then(function (res) {
+        if (row !== me) { return null; }
+        if (!res.rights || !res.rights.canEdit) {
+          d.showError("You may not edit parcel " + name(r) + ", so it was left out.");
+          remove(r);
+          return null;
+        }
+        r.detail = res;
+        showPlan();
+        return res;
+      }, function (err) {
+        if (row === me) { d.showError("Could not load parcel " + name(r) + ": " + err.message); remove(r); }
+        return null;
+      });
+      rows.push(r);
+      render();
+    }
+
+    function focusForm() {
+      if (!$.contains(d.$el[0], document.activeElement)) { $ot.trigger("focus").trigger("select"); }
+    }
+
+    $ot.on("input", showPlan);
+    // Enter in OT = on to the first plot (stopped here, so the dialog's "Enter saves" doesn't fire).
+    $ot.on("keydown", function (e) {
+      if (e.key !== "Enter") { return; }
+      e.preventDefault();
+      e.stopPropagation();
+      $list.find("[data-row=0]").trigger("focus").trigger("select");
+    });
+    $list.on("input", "[data-row]", function () {
+      var i = Number($(this).attr("data-row")), r = rows[i];
+      r.plot = this.value;
+      r.fixed = i === 0 || $.trim(this.value) !== ""; // cleared again: counts along with the others
+      $(this).toggleClass("fixed", r.fixed && i > 0);
+      renumber();
+    });
+    $list.on("click", "[data-drop]", function () { remove(rows[Number($(this).attr("data-drop"))]); });
+
+    function save() {
+      if (saving) { return; }
+      saving = true;
+      d.busy(true);
+      d.showError("");
+      Promise.all(rows.map(function (r) { return r.loaded; })).then(function () {
+        if (row !== me) { return; }
+        if (!rows.length) { d.close(); return; }
+        var otText = $.trim($ot.val());
+        var items = rows.map(function (r) {
+          if (!r.detail) { throw new Error("Parcel " + name(r) + " could not be loaded. Take it out (×) or try again."); }
+          var f = r.detail.fields, plotText = $.trim(r.plot);
+          var ot = otText ? split(otText) : { value: f.ot, ext: f.otExt };
+          var plot = plotText ? split(plotText) : { value: f.plotNumber, ext: f.plotExt };
+          return { parcelId: r.summary.parcelId, ot: ot.value, otExt: ot.ext, plotNumber: plot.value, plotExt: plot.ext, version: r.detail.version };
+        });
+        return Nadlan.api.post("/api/parcels/numbers", { items: items }).then(function (res) {
+          var first = planned(rows[0]), last = planned(rows[rows.length - 1]);
+          var ids = rows.map(function (r) { return r.summary.parcelId; });
+          var message = res.changed === 0 ? "Nothing to change in those " + rows.length + " parcels."
+            : res.changed + " parcel" + (res.changed === 1 ? "" : "s") + " saved: OT " + (otText || "kept") +
+              (rows.length > 1 ? ", plots " + (first.plot || "—") + " to " + (last.plot || "—") : ", plot " + (first.plot || "—")) + ".";
+          d.close();
+          options.onSaved(ids, message);
+        });
+      }).catch(function (err) {
+        saving = false;
+        d.busy(false);
+        if (err.code === "EDITED_ELSEWHERE") {
+          // Someone saved one of them meanwhile: reload all (values and versions), show it, let the user save again.
+          rows.forEach(function (r) {
+            r.detail = null;
+            r.loaded = Nadlan.api.get("/api/parcels/" + r.summary.parcelId)
+              .then(function (res) { r.detail = res; showPlan(); return res; }, function () { return null; });
+          });
+          d.showError("Someone else changed one of these parcels meanwhile. Their current values are shown now - check, then Save all again.");
+          return;
+        }
+        d.showError(err.message);
+      });
+    }
+
+    me.add = add;
+    me.toggle = function (summary) {
+      var found = rows.filter(function (r) { return r.summary.parcelId === summary.parcelId; })[0];
+      if (found) { remove(found); } else { add(summary); }
+      if (row === me) { focusForm(); }
+    };
+    return me;
+  }
+
+  Nadlan.parcelQuickEntry = { open: open, toggleInRow: toggleInRow, close: close, getDigits: function () { return sessionDigits; }, setDigits: setDigits, split: split };
 })(window, jQuery);

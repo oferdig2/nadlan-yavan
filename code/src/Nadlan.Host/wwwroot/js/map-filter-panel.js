@@ -33,6 +33,10 @@
           "<label>OT<input class=\"input\" data-filter=\"ot\" placeholder=\"e.g. 47\" title=\"Exact OT (block) number, with or without its letter\"></label>" +
           "<label>Plot<input class=\"input\" data-filter=\"plot\" placeholder=\"e.g. 22\" title=\"Exact plot number, with or without its letter\"></label>" +
         "</div>" +
+        "<fieldset class=\"checks\" data-parcels-only><legend>KAEK</legend>" +
+          "<label class=\"check\"><input type=\"checkbox\" data-kaek=\"real\"> Real KAEK</label>" +
+          "<label class=\"check\"><input type=\"checkbox\" data-kaek=\"provisional\"> Provisional (TMP-)</label>" +
+        "</fieldset>" +
         "<fieldset class=\"checks\"><legend>Geographic area</legend>" + checks("areaIds", Nadlan.reference.active(ref.geographicAreas)) + "</fieldset>" +
         "<div data-assets-only>" +
           "<div class=\"form-row\">" +
@@ -66,7 +70,7 @@
     $root.on("click", "[data-role=clear-rect]", function () { options.onClearRectangle(); });
     $root.on("click", "[data-role=reset]", function () {
       $root.find("input[data-filter]:not(:checkbox)").val(""); // checkbox values are the ids - never blank them
-      $root.find(":checkbox[data-filter]").prop("checked", false);
+      $root.find(":checkbox[data-filter], :checkbox[data-kaek]").prop("checked", false);
       contacts.clear();
       portfolios.clear();
       options.onApply();
@@ -90,6 +94,8 @@
           plot: $.trim($root.find("[data-filter=plot]").val()) || null,
           areaIds: checkedIds("areaIds")
         };
+        var real = $root.find("[data-kaek=real]").prop("checked"), provisional = $root.find("[data-kaek=provisional]").prop("checked");
+        if (mode === "parcels" && real !== provisional) { f.provisional = provisional; } // both or neither = all
         if (mode === "assets") {
           f.priceMin = number("priceMin");
           f.priceMax = number("priceMax");
@@ -104,11 +110,14 @@
         }
         return f;
       },
-      setMode: function (mode) { $root.find("[data-assets-only]").prop("hidden", mode !== "assets"); },
+      setMode: function (mode) {
+        $root.find("[data-assets-only]").prop("hidden", mode !== "assets");
+        $root.find("[data-parcels-only]").prop("hidden", mode !== "parcels");
+      },
       /** "Show Portfolio on map": clear every other filter and keep only this Portfolio. */
       showOnlyPortfolio: function (portfolio) {
         $root.find("input[data-filter]:not(:checkbox)").val(""); // checkbox values are the ids - never blank them
-        $root.find(":checkbox[data-filter]").prop("checked", false);
+        $root.find(":checkbox[data-filter], :checkbox[data-kaek]").prop("checked", false);
         contacts.clear();
         portfolios.setValue([{ id: portfolio.portfolioId, label: portfolio.name }]);
       },

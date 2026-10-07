@@ -31,8 +31,8 @@
     function rowHtml(it, index) {
       var s = it.summary;
       if (mode === "parcels") {
-        // Same colour code as the map: fill = kind, purple ring = has an Asset.
-        return "<li data-index=\"" + index + "\"><div class=\"row-main\"><span class=\"kind-dot kind-" + f.escapeHtml(s.kind || "kaek") +
+        // Same colour code as the map: fill = OT/plot entry (kind), purple ring = has an Asset.
+        return "<li data-index=\"" + index + "\"><div class=\"row-main\"><span class=\"kind-dot kind-" + f.escapeHtml(s.kind || "todo") +
           (s.hasAssets ? " has-assets" : "") + "\" title=\"" + (s.hasAssets ? "Has Asset(s)" : "No Asset") + "\"></span>" +
           f.registryId(s.registryId, s.registryIdIsProvisional) + "</div>" +
           "<div class=\"row-sub muted\">" + f.text(s.geographicArea) + " · OT " + f.text(s.ot) + " / Plot " + f.text(s.plot) + "</div></li>";

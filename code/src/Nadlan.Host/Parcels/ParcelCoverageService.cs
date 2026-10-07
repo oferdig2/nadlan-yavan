@@ -7,8 +7,8 @@ using Nadlan.Core.Parcels;
 namespace Nadlan.Host.Parcels;
 
 /// <summary>
-/// Background worker that keeps the zoomed-out map cheap: all Parcels united into one surface per kind (ParcelKinds:
-/// real KAEK, provisional with OT, provisional without) and per <see cref="CoverageLevel"/>, served as ready-made
+/// Background worker that keeps the zoomed-out map cheap: all Parcels united into one surface per kind (ParcelKinds, the
+/// OT/plot entry: done, partial, to do) and per <see cref="CoverageLevel"/>, served as ready-made
 /// GeoJSON. Recomputed when the parcel table changes - nudged right after a create/edit/delete in this app, and checked every minute (other instances, imports).
 /// Kept in memory: each instance computes its own in a second or two.
 /// </summary>
@@ -94,7 +94,7 @@ public sealed class ParcelCoverageService : BackgroundService
 
         var watch = Stopwatch.StartNew();
         var all = await _parcels.ListAllGeometriesAsync(ct);
-        // One surface per ParcelKinds value (its map colour): { "kaek": MultiPolygon, "ot": ..., "noid": ..., "vertices": n }.
+        // One surface per ParcelKinds value (its map colour): { "done": MultiPolygon, "partial": ..., "todo": ..., "vertices": n }.
         var json = await Task.Run(() => CoverageLevel.All.ToDictionary(level => level.Name, level =>
         {
             var parts = new List<string>();
