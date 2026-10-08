@@ -16,9 +16,8 @@
   KINDS.forEach(function (k) { BY_KEY[k.key] = k; });
   // A Parcel carrying an Asset the user may see: a purple outline over its colour.
   var ASSET_OUTLINE = { strokeColor: "#7c3aed", strokeWeight: 3.5 };
-  var STYLE_SELECTED = { strokeColor: "#111827", strokeWeight: 3 };
-  // Picked for a row entry (Ctrl+click in quick entry): dark outline, filled a bit more.
-  var STYLE_GROUP = { strokeColor: "#0f172a", strokeWeight: 4 };
+  // The selected Parcel (yellow) and the Parcels picked for a row (white) are outlined by Nadlan.createMapHighlight, above
+  // every polygon, and filled a bit more here.
 
   function kindOf(summary) { return BY_KEY[summary && summary.kind] || BY_KEY.todo; }
 
@@ -137,6 +136,8 @@
     // thousands of polygons. Same colours and opacity sliders; a click zooms in there.
     var surface = new google.maps.Data({ map: map });
     var labels = createLabelLayer(map);
+    var highlight = Nadlan.createMapHighlight(map);
+    var outlined = {};     // parcelId -> geometry of the selected / picked Parcels, kept while they scroll out of the results
     var tooltip = createTooltip();
     var selectedId = null;
     var group = {};        // parcelId -> true: picked for a row entry
@@ -158,8 +159,8 @@
         fillColor: kind.fillColor, fillOpacity: fill, zIndex: kind.zIndex
       };
       if (summary && summary.hasAssets) { Object.assign(style, ASSET_OUTLINE, { zIndex: kind.zIndex + 2 }); }
-      if (group[feature.getId()]) { Object.assign(style, STYLE_GROUP, { fillOpacity: Math.min(0.85, fill + 0.3), zIndex: 10 }); }
-      else if (feature.getId() === selectedId) { Object.assign(style, STYLE_SELECTED, { fillOpacity: Math.min(0.85, fill + 0.25) }); }
+      if (group[feature.getId()]) { style.fillOpacity = Math.min(0.85, fill + 0.3); }
+      else if (feature.getId() === selectedId) { style.fillOpacity = Math.min(0.85, fill + 0.25); }
       return style;
     });
 
@@ -188,6 +189,18 @@
     function refresh() {
       layer.setStyle(layer.getStyle()); // re-evaluates the style function
       surface.setStyle(surface.getStyle());
+      paintHighlight();
+    }
+
+    // While a row is being picked only its Parcels are outlined (white); otherwise the selected one (yellow).
+    function paintHighlight() {
+      [selectedId].concat(Object.keys(group).map(Number)).forEach(function (id) {
+        if (id !== null && geometries[id]) { outlined[id] = geometries[id]; }
+      });
+      var ids = Object.keys(group).map(Number);
+      var color = ids.length ? Nadlan.mapHighlightColors.picked : Nadlan.mapHighlightColors.selected;
+      if (!ids.length && selectedId !== null) { ids = [selectedId]; }
+      highlight.set(ids.map(function (id) { return { id: id, geometry: outlined[id], color: color }; }));
     }
 
     var legend = document.createElement("div");
@@ -257,6 +270,7 @@
           })
         });
         tooltip.hide();
+        paintHighlight(); // the selected Parcel may have come into view (e.g. picked in the list before the search ended)
       },
       /** After a save: new summaries of Parcels already drawn (colour, hover card) - no new search, typing goes on at once. */
       updateSummaries: function (summaries) {
@@ -271,7 +285,10 @@
           var f = layer.getFeatureById(id);
           if (f) { layer.remove(f); }
           delete geometries[id];
+          delete outlined[id];
+          if (selectedId === id) { selectedId = null; }
         });
+        paintHighlight();
         tooltip.hide();
       },
       /** @param {{ done: object, partial: object, todo: object }|null} geo  MultiPolygons from GET /api/parcels/coverage; null = none */
@@ -325,6 +342,7 @@
         legend.style.display = value ? "" : "none";
         showGroupLabels(value ? groupLabels : []);
         if (!value) { tooltip.hide(); }
+        highlight.setVisible(value);
       }
     };
   }

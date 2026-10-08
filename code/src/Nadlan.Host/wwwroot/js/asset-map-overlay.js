@@ -13,6 +13,8 @@
    */
   function createAssetMapOverlay(map, options) {
     var layer = new google.maps.Data({ map: map });
+    var highlight = Nadlan.createMapHighlight(map); // the focused Parcel: yellow over a dark halo, never cut by neighbours
+    var geometries = {};
     var focusedParcelId = null;
     var interactive = true;
 
@@ -24,7 +26,7 @@
       return {
         clickable: interactive,
         strokeColor: anySelected ? "#111827" : color,
-        strokeWeight: id === focusedParcelId || anySelected ? 3 : 1.5,
+        strokeWeight: anySelected ? 3 : 1.5,
         fillColor: color,
         fillOpacity: id === focusedParcelId ? 0.5 : 0.3
       };
@@ -39,7 +41,11 @@
       options.onClick(e.feature.getProperty("group"));
     });
 
-    function refresh() { layer.setStyle(layer.getStyle()); }
+    function refresh() {
+      layer.setStyle(layer.getStyle());
+      highlight.set(focusedParcelId !== null && geometries[focusedParcelId]
+        ? [{ id: focusedParcelId, geometry: geometries[focusedParcelId], color: Nadlan.mapHighlightColors.selected }] : []);
+    }
 
     return {
       /** @param {Array<{ summary: object, geometry: object }>} items  as returned by GET /api/assets */
@@ -64,6 +70,8 @@
         var existing = [];
         layer.forEach(function (f) { existing.push(f); });
         existing.forEach(function (f) { layer.remove(f); });
+        geometries = {};
+        order.forEach(function (id) { geometries[id] = byParcel[id].geometry; });
         layer.addGeoJson({
           type: "FeatureCollection",
           features: order.map(function (parcelId) {
@@ -76,12 +84,13 @@
             };
           })
         });
+        refresh();
       },
       focus: function (parcelId) { focusedParcelId = parcelId; refresh(); },
       clearFocus: function () { focusedParcelId = null; refresh(); },
       refreshStyles: refresh,
       setInteractive: function (value) { interactive = value; refresh(); },
-      setVisible: function (visible) { layer.setMap(visible ? map : null); }
+      setVisible: function (visible) { layer.setMap(visible ? map : null); highlight.setVisible(visible); }
     };
   }
 
