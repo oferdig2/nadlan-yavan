@@ -10,6 +10,9 @@ public static class AppConfigJson
     internal static readonly JsonSerializerOptions IndentedOptions = new() { WriteIndented = true };
     private static readonly JsonDocumentOptions Lenient = new() { AllowTrailingCommas = true };
 
+    /// <summary>Every setting of a row as the app sees it: "A:B:C" path (case-insensitive) -> value.</summary>
+    public static IReadOnlyDictionary<string, string?> Paths(string json) => JsonKeyValueFlattener.Flatten(json);
+
     public static bool IsValidObject(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))

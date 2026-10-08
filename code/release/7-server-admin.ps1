@@ -61,6 +61,8 @@ $actions = @(
     "Restart the app",
     "Show settings (app_config ms:host - includes secrets)",
     "Change a setting",
+    "Settings history (each change keeps the version before)",
+    "Undo the last settings change",
     "List users",
     "Set a user's password",
     "Back up the database now",
@@ -96,6 +98,14 @@ while ($true) {
                 }
                 $value = if ($secret) { Read-Secret "New value for $path (Enter = empty)" -MinLength 0 } else { Read-Host "New value for $path (Enter = empty)" }
                 Set-RemoteConfig $path $value
+                if (Read-YesNo "Restart the app now to apply it?" $true) { Restart-App }
+            }
+            "Settings history (each change keeps the version before)" { Invoke-Remote $target "sudo nadlan-db config history ms:host" }
+            "Undo the last settings change" {
+                # Works when a bad save keeps the app from starting (the Settings page is down then too).
+                Invoke-Remote $target "sudo nadlan-db config history ms:host"
+                if (-not (Read-YesNo "Put back the version before the last change to ms:host?" $false)) { continue }
+                Invoke-Remote $target "sudo nadlan-db config undo ms:host"
                 if (Read-YesNo "Restart the app now to apply it?" $true) { Restart-App }
             }
             "List users" { Invoke-Remote $target "sudo nadlan-db user list" }

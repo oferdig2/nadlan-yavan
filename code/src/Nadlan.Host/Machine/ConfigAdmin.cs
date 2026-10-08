@@ -143,10 +143,77 @@ public sealed class ConfigAdmin
             return (storedUpdated, changed);
         }
 
+        EnsureSafeChange(key, AppConfigJson.IsValidObject(storedJson) ? storedJson : null, json);
         await ValidateAsync(key, json, ct);
-        var saved = await _store.TryReplaceAsync(key, json, storedUpdated, ct) ?? throw new EditConflictException($"Setting row {key}");
+        // The version before this save is kept (app_config_history): "sudo nadlan-db config undo <key>" puts it back.
+        var saved = await _store.TryReplaceAsync(key, json, storedUpdated, $"settings page: {user}", ct) ?? throw new EditConflictException($"Setting row {key}");
         _log.LogWarning("Settings page: {User} changed app_config {Key}: {Paths}", user, key, string.Join(", ", changed));
         return (saved, changed);
+    }
+
+    /// <summary>Allowed range of each number setting (<see cref="AppConfigLimits"/>, shared with nadlan-db config set).</summary>
+    public static IReadOnlyDictionary<string, (double Min, double Max)> Limits => AppConfigLimits.All;
+
+    /// <summary>
+    /// What a save may not do, whichever view it comes from:
+    /// - remove a setting: at the next start the app would put back its built-in (development) value, e.g. the
+    ///   development storage folder, so every stored file would look missing;
+    /// - in the rows this app reads, add or change anything outside "Nadlan:" (Urls, Kestrel, Logging, ...): the app
+    ///   obeys those at startup, before any of our checks.
+    /// </summary>
+    public static void EnsureSafeChange(string key, string? storedJson, string json)
+    {
+        var before = Leaves(storedJson);
+        var after = Leaves(json);
+        var removed = before.Keys.Where(k => !after.ContainsKey(k)).OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+        if (removed.Count > 0)
+        {
+            throw new DomainValidationException("CONFIG_SETTING_REMOVED",
+                $"{string.Join(", ", removed)}: settings can't be removed here - at its next start the app would put back its built-in " +
+                "development value. Give it a value (or an empty one) instead. Nothing was saved.");
+        }
+
+        if (key != AppConfigKeys.Common && key != HostRow)
+        {
+            return;
+        }
+
+        var outside = after.Where(kv => !kv.Key.StartsWith(NadlanOptions.SectionName + ":", StringComparison.OrdinalIgnoreCase) &&
+                                        (!before.TryGetValue(kv.Key, out var b) || b != kv.Value))
+            .Select(kv => kv.Key).OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+        if (outside.Count > 0)
+        {
+            throw new DomainValidationException("CONFIG_OUTSIDE_APP_SETTINGS",
+                $"{string.Join(", ", outside)}: only settings under \"{NadlanOptions.SectionName}\" can be added or changed here - the app obeys the " +
+                "others when it starts, before any check (a wrong one keeps it from starting). Nothing was saved.");
+        }
+    }
+
+    /// <summary>Every number setting within its <see cref="Limits"/> (as the app will read it, after this save).</summary>
+    public static void EnsureLimits(IConfiguration config)
+    {
+        foreach (var path in Limits.Keys)
+        {
+            var label = Fields.FirstOrDefault(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase))?.Label;
+            if (AppConfigLimits.Check(path, config[path], label) is { } error)
+            {
+                throw new DomainValidationException("CONFIG_OUT_OF_RANGE", error + " Nothing was saved.");
+            }
+        }
+    }
+
+    private static Dictionary<string, string?> Leaves(string? json)
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        if (json is not null)
+        {
+            foreach (var (k, v) in AppConfigJson.Paths(json))
+            {
+                result.TryAdd(k, v);
+            }
+        }
+
+        return result;
     }
 
     private async Task ValidateAsync(string key, string json, CancellationToken ct)
@@ -182,6 +249,8 @@ public sealed class ConfigAdmin
             throw new DomainValidationException("CONFIG_INVALID", (ex.InnerException is null ? ex.Message : $"{ex.Message} {ex.InnerException.Message}") +
                 " The app would not start with this, so nothing was saved.");
         }
+
+        EnsureLimits(config);
 
         var url = options.Auth.PublicBaseUrl.Trim();
         if (url.Length > 0 && !(Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttps || u.Scheme == Uri.UriSchemeHttp)))

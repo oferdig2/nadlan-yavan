@@ -21,6 +21,9 @@ using Nadlan.Persistence.MySql.Security;
 //   config show <configKey>               print one row, e.g. ms:host
 //   config set <configKey> <path> <value> set one value, e.g. ms:host Nadlan:Maps:GoogleApiKey AIza...  (--empty = "")
 //   config remove <configKey> <path>      delete an obsolete key, e.g. ms:host Nadlan:Storage:KeyPrefix
+//   config history <configKey>            the kept earlier versions of a row (every change keeps the one before)
+//   config undo <configKey>               put back the version before the last change (works when the app won't start)
+//   config restore <configKey> <id>       put back a kept version from "config history"
 //   user list                             list users (email, role, active, password yes/no)
 //   user set-password <email>             set a password from env NADLAN_NEW_PASSWORD (user-password.ps1 prompts for it)
 //   client-cnf                            print the connection as a MySQL option file (server backup.sh / restore.sh)
@@ -37,6 +40,9 @@ const string Usage = """
       Nadlan.DbTool config show <configKey>
       Nadlan.DbTool config set <configKey> <path> <value>     (use --empty for an empty value)
       Nadlan.DbTool config remove <configKey> <path>
+      Nadlan.DbTool config history <configKey>
+      Nadlan.DbTool config undo <configKey>
+      Nadlan.DbTool config restore <configKey> <id>
       Nadlan.DbTool user list
       Nadlan.DbTool user set-password <email>                (password in env NADLAN_NEW_PASSWORD)
       Nadlan.DbTool client-cnf
@@ -99,6 +105,13 @@ try
         {
             // Windows PowerShell drops "" when calling a program, so an empty value is spelled --empty.
             var actual = value == EmptyValueToken ? "" : value;
+            if (AppConfigLimits.Check(path, actual) is { } outOfRange)
+            {
+                // Same ranges as the Settings page: outside them the app may not start, or fail every request.
+                Console.Error.WriteLine($"ERROR: {outOfRange} Nothing was changed.");
+                return 1;
+            }
+
             await migrator.EnsureUpToDateAsync();
             var store = new AppConfigMySqlStore(db.ConnectionString);
             var (found, json, _) = await store.TryGetAsync(key);
@@ -109,7 +122,7 @@ try
                 return 1;
             }
 
-            await store.UpsertAsync(key, AppConfigJson.SetValue(json, path, actual));
+            await store.UpsertAsync(key, AppConfigJson.SetValue(json, path, actual), $"nadlan-db config set {path}");
             Console.WriteLine($"Set {key} -> {path} = {(actual.Length == 0 ? "(empty)" : "(value)")}. Restart the app to pick it up.");
             return 0;
         }
@@ -128,12 +141,57 @@ try
             var (updated, removed) = found ? AppConfigJson.RemoveValue(json, path) : (json, false);
             if (removed)
             {
-                await store.UpsertAsync(key, updated);
+                await store.UpsertAsync(key, updated, $"nadlan-db config remove {path}");
             }
 
             Console.WriteLine(removed
                 ? $"Removed {key} -> {path}. Restart the app. (If appsettings.json still has it, the default is added back.)"
                 : $"{key} has no {path}.");
+            return 0;
+        }
+
+        case ["config", "history", var key]:
+        {
+            await migrator.EnsureUpToDateAsync();
+            var store = new AppConfigMySqlStore(db.ConnectionString);
+            var (found, current, _) = await store.TryGetAsync(key);
+            var kept = await store.ListHistoryAsync(key, 20);
+            if (kept.Count == 0)
+            {
+                Console.WriteLine($"No earlier versions of '{key}' kept yet.");
+                return 0;
+            }
+
+            // Each line: the kept version, and what the change after it did (paths only - values may be secrets).
+            var newer = found ? current : null;
+            foreach (var h in kept)
+            {
+                var changed = newer is null || !AppConfigJson.IsValidObject(newer) || !AppConfigJson.IsValidObject(h.Json)
+                    ? "?" : string.Join(", ", AppConfigSecrets.ChangedPaths(h.Json, newer));
+                Console.WriteLine($"#{h.HistoryId,-6} replaced {h.ReplacedUtc:yyyy-MM-dd HH:mm:ss} UTC by {h.ReplacedBy ?? "?"}; that change: {changed}");
+                newer = h.Json;
+            }
+
+            Console.WriteLine($"Undo the last change: nadlan-db config undo {key}   (or: config restore {key} <#id>)");
+            return 0;
+        }
+
+        case ["config", "undo" or "restore", var key, ..] when args.Length == (args[1] == "undo" ? 3 : 4):
+        {
+            await migrator.EnsureUpToDateAsync();
+            long? id = args[1] == "restore" ? long.Parse(args[3].TrimStart('#'), System.Globalization.CultureInfo.InvariantCulture) : null;
+            var store = new AppConfigMySqlStore(db.ConnectionString);
+            var (_, before, _) = await store.TryGetAsync(key);
+            var restored = await store.RestoreAsync(key, id, id is null ? "nadlan-db config undo" : $"nadlan-db config restore #{id}");
+            if (restored is null)
+            {
+                Console.Error.WriteLine(id is null ? $"No earlier version of '{key}' to go back to." : $"'{key}' has no kept version #{id}.");
+                return 1;
+            }
+
+            var changed = AppConfigJson.IsValidObject(before) ? string.Join(", ", AppConfigSecrets.ChangedPaths(before, restored.Json)) : "(the whole row)";
+            Console.WriteLine($"'{key}' is back to version #{restored.HistoryId} (saved before {restored.ReplacedUtc:yyyy-MM-dd HH:mm:ss} UTC). Changed back: {(changed.Length == 0 ? "nothing" : changed)}.");
+            Console.WriteLine("Restart the app to use it. This step can be undone the same way.");
             return 0;
         }
 

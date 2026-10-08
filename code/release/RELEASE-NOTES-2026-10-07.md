@@ -2,7 +2,7 @@
 
 For the agent who deploys this release and then tells the customer what to look at.
 
-- **Code:** `main` with the commit "Parcels can be divided or united" or later.
+- **Code:** `main` with the commit "Settings page can no longer take the site down" or later.
 - **Tests:** builds clean, 233 automated tests pass, and the new features were checked on a test database (at production's
   connection limit of 20) and in a headless browser with Google Maps simulated.
 - **A separate review checked it too:** on a copy with 4,000 parcels, an OT search went from about 1.1 s to 16 ms, five
@@ -51,6 +51,7 @@ The customer's request is `AI/Remarks/ChangeRequest#1.pdf`. §3 maps each of his
   - `013_ot_plot_key_digit_groups` keeps "47/3" apart from "473" in search.
   - `014_parcel_division` adds the Regular / Divided / United status (every existing parcel: Regular) and the free-text
     "other OT / plot numbers".
+  - `015_app_config_history` keeps the previous version of the settings at every change (see "Settings safety" below).
 - No new settings, keys or permissions.
 
 ---
@@ -59,14 +60,25 @@ The customer's request is `AI/Remarks/ChangeRequest#1.pdf`. §3 maps each of his
 
 The same as last time, from a Windows PC in `code\release`:
 
-1. **Deploy:** `6-update-server.ps1`. It backs up, migrates (012 and 013 above), switches release, runs a health check,
+1. **Deploy:** `6-update-server.ps1`. It backs up, migrates (012-015 above), switches release, runs a health check,
    and rolls back automatically on failure. Check that `https://<domain>/api/health` reports the new release id
    (`<UTC time>-<commit>`).
 2. **Nothing else is required for today's features.** If yesterday's release wasn't deployed, follow its §2 as well (see
    the top of this file).
 
-Note: another session is still changing the release scripts and the admin pages (Server, Web files, Downloads, Settings
-tabs). Use what is committed on `main`. Those changes are not part of these notes.
+Note: the admin pages Server, Web files, Downloads and Settings (for Ofer and Alon only) were built in another session and
+are described in `README.md`, not here. Use what is committed on `main`.
+
+### Settings safety (review of 2026-10-08)
+- **What the Settings page refuses**, so a save can no longer take the site down at the next restart:
+  - numbers outside their range (e.g. session hours 1–720, link minutes 1–10,080, zoom 1–21);
+  - removing a setting, because at the next start the app would put back its development value, e.g. the development
+    storage folder;
+  - adding or changing anything outside `Nadlan:` in the app's own settings (Urls, Kestrel, Logging…).
+- **The same ranges apply in `7-server-admin.ps1` → *Change a setting*.**
+- **Every change keeps the version before it.** If a change still goes wrong, even when the site is down:
+  `7-server-admin.ps1` → *Undo the last settings change* (or on the server `sudo nadlan-db config undo ms:host`), then
+  restart. *Settings history* lists the kept versions; `sudo nadlan-db config restore ms:host <id>` picks one.
 
 ### Smoke test after deploying (10 minutes, as Admin)
 - [ ] The legend says "OT / plot entry" with green / amber / blue and a count on each row. Unticking green empties the

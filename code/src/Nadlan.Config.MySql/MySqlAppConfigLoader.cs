@@ -88,7 +88,7 @@ public static class MySqlAppConfigLoader
             var (merged, changed) = AppConfigJson.AddMissing(json, defaults!);
             if (changed)
             {
-                await store.UpsertAsync(configKey, merged, ct);
+                await store.UpsertAsync(configKey, merged, "startup: added new settings from appsettings.json", ct);
             }
 
             return merged;
@@ -99,7 +99,7 @@ public static class MySqlAppConfigLoader
             return null; // never overwrite the DB with nothing
         }
 
-        await store.UpsertAsync(configKey, defaults!, ct);
+        await store.UpsertAsync(configKey, defaults!, "startup: first run", ct);
         return defaults;
     }
 
