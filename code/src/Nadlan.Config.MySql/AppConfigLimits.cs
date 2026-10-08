@@ -28,17 +28,61 @@ public static class AppConfigLimits
         ["Nadlan:Storage:Delivery:UrlMinutes"] = (1, 10080), // S3 signed links: at most 7 days
     };
 
-    /// <summary>The error for this value, or null when it is fine (or the path has no range, or the text is no number).</summary>
+    /// <summary>Number settings that may have decimals; every other one in <see cref="All"/> is a whole number.</summary>
+    private static readonly HashSet<string> Decimals = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Nadlan:Maps:DefaultCenterLat",
+        "Nadlan:Maps:DefaultCenterLon",
+    };
+
+    /// <summary>On/off settings: true or false only.</summary>
+    public static readonly IReadOnlySet<string> Booleans = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "Nadlan:Auth:TrustForwardedHeaders",
+        "Nadlan:Auth:Email:EnableSsl",
+    };
+
+    /// <summary>
+    /// The error for this value, or null when it is fine (or the path is no number / on-off setting). A number setting takes
+    /// a plain decimal number only - no hex, no text, not empty - which the app reads the same way (invariant culture).
+    /// </summary>
     public static string? Check(string path, string? text, string? label = null)
     {
-        if (string.IsNullOrWhiteSpace(text) || !All.TryGetValue(path, out var range) ||
-            !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+        var name = label ?? path;
+        var t = text?.Trim() ?? "";
+        if (Booleans.Contains(path))
+        {
+            return bool.TryParse(t, out _) ? null : $"{name} must be true or false (it is \"{text}\").";
+        }
+
+        if (!All.TryGetValue(path, out var range))
         {
             return null;
         }
 
-        return value < range.Min || value > range.Max || double.IsNaN(value)
-            ? $"{label ?? path} must be between {range.Min.ToString(CultureInfo.InvariantCulture)} and {range.Max.ToString(CultureInfo.InvariantCulture)} (it is {text})."
+        double value;
+        if (Decimals.Contains(path))
+        {
+            if (!double.TryParse(t, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value))
+            {
+                return $"{name} must be a number such as 38.62 (it is \"{text}\").";
+            }
+        }
+        else if (long.TryParse(t, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var whole))
+        {
+            value = whole;
+        }
+        else
+        {
+            return $"{name} must be a whole number (it is \"{text}\").";
+        }
+
+        return value < range.Min || value > range.Max
+            ? $"{name} must be between {range.Min.ToString(CultureInfo.InvariantCulture)} and {range.Max.ToString(CultureInfo.InvariantCulture)} (it is {text})."
             : null;
     }
+
+    /// <summary>A config path the tools accept: names of letters, digits and _ joined by single colons ("Nadlan:Auth:SessionHours").</summary>
+    public static bool IsValidPath(string path)
+        => System.Text.RegularExpressions.Regex.IsMatch(path, @"^[A-Za-z0-9_]+(:[A-Za-z0-9_]+)*$");
 }

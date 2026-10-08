@@ -25,6 +25,7 @@ await new SchemaMigrator(db).EnsureUpToDateAsync();
 await MySqlAppConfigLoader.AddDbBackedConfigAsync(builder.Configuration, db.ConnectionString,
     new AppConfigLoaderOptions(MsKey: "host", MsRootSectionName: NadlanOptions.SectionName, SeedCommonWhenMissing: true));
 builder.Configuration.AddEnvironmentVariables();
+ConfigAdmin.EnsureStartupSettings(builder.Configuration); // a bad stored value: stop here with the fix, not an error on every request
 
 builder.Services.Configure<NadlanOptions>(builder.Configuration.GetSection(NadlanOptions.SectionName));
 builder.Services.AddNadlanPersistence(db);

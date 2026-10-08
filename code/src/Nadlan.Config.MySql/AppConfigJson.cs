@@ -10,6 +10,32 @@ public static class AppConfigJson
     internal static readonly JsonSerializerOptions IndentedOptions = new() { WriteIndented = true };
     private static readonly JsonDocumentOptions Lenient = new() { AllowTrailingCommas = true };
 
+    /// <summary>
+    /// Keys spelled twice in different case ("Nadlan" and "nadlan"), as "path / path". IConfiguration takes the last one, and
+    /// <see cref="AddMissing(string, string)"/> would fill it with defaults - so the real values and secrets would be ignored.
+    /// </summary>
+    public static IReadOnlyList<string> CaseVariants(string json)
+    {
+        var result = new List<string>();
+        void Visit(JsonNode? node, string path)
+        {
+            if (node is not JsonObject obj)
+            {
+                return;
+            }
+
+            result.AddRange(obj.GroupBy(p => p.Key, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1)
+                .Select(g => string.Join(" / ", g.Select(p => path + p.Key))));
+            foreach (var (name, child) in obj)
+            {
+                Visit(child, path + name + ":");
+            }
+        }
+
+        Visit(ParseObject(json), "");
+        return result;
+    }
+
     /// <summary>Every setting of a row as the app sees it: "A:B:C" path (case-insensitive) -> value.</summary>
     public static IReadOnlyDictionary<string, string?> Paths(string json) => JsonKeyValueFlattener.Flatten(json);
 

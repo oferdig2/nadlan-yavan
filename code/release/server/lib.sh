@@ -52,3 +52,32 @@ wait_healthy() {
 }
 
 current_release_dir() { if [[ -L "$CURRENT_LINK" ]]; then readlink -f "$CURRENT_LINK"; fi; }
+
+# One server task at a time: deploy, restore, backup and the admin page's Restart buttons (control.sh) share this lock, so
+# a restart can't hit a half-done deploy or restore. Nested calls (deploy -> backup) inherit it.
+OPS_LOCK=/run/lock/nadlan-ops.lock
+ops_lock() {   # ops_lock [seconds to wait]
+    [[ -n "${NADLAN_OPS_LOCKED:-}" ]] && return 0
+    exec 9>"$OPS_LOCK"
+    flock -w "${1:-900}" 9 || die "Another server task (deploy, restore or backup) is still running; try again when it has finished."
+    export NADLAN_OPS_LOCKED=1
+}
+
+# Where backup.sh copies the database dumps off the server: fixed in this root-only file at install / first deploy, not
+# read from app_config at each run - the Settings page edits app_config, and must not be able to send the dumps (all data,
+# all secrets) elsewhere. backup.sh --pin-target writes it again from the current settings (after moving the bucket).
+BACKUP_TARGET_FILE=/etc/nadlan/backup-target.env
+pin_backup_target() {   # pin_backup_target <client.cnf> [--force]
+    local cnf="$1" db bucket root region
+    if [[ -f "$BACKUP_TARGET_FILE" && "${2:-}" != --force ]]; then return 0; fi
+    db=$(cnf_database "$cnf")
+    storage_value() {
+        mysql --defaults-file="$cnf" -N -B -e "SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(json_text, '\$.Nadlan.Storage.$1')), '')
+            FROM app_config WHERE config_key = 'ms:host'" "$db" 2>/dev/null || true
+    }
+    bucket=$(storage_value Bucket); root=$(storage_value RootFolder); region=$(storage_value Region)
+    root="${root#/}"; root="${root%/}"
+    [[ -z "$bucket" || "$bucket" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || { warn "Odd bucket name '$bucket' in app_config; the backup target was not pinned."; return 1; }
+    ( umask 077; printf 'BACKUP_S3_BUCKET=%q\nBACKUP_S3_ROOT=%q\nBACKUP_S3_REGION=%q\n' "$bucket" "$root" "$region" > "$BACKUP_TARGET_FILE" )
+    echo "Backup copies go to: ${bucket:+s3://$bucket/${root:+$root/}_backups/db/}${bucket:-(no S3 bucket: kept on this disk only)} (pinned in $BACKUP_TARGET_FILE)"
+}

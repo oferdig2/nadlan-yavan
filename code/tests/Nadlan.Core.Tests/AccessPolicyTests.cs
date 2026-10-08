@@ -146,7 +146,7 @@ public class AccessPolicyTests
     private static (UserAdminService Service, FakeUsers Users) AdminService()
     {
         var users = new FakeUsers();
-        users.Add(User(1, "oferdig2@gmail.com", null) with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
+        users.Add(User(1, "first.admin@example.gr", null) with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
         users.Add(User(2, "agent@example.gr", null));
         var auth = new AuthService(users, new FakeRoles(), new FakeTokenStore(), new AuthSettings());
         // Delegated user management (non-Admins with MANAGE_USERS) is switched off in the app; on here so its guards stay tested.
@@ -155,16 +155,68 @@ public class AccessPolicyTests
 
     private static UserAccess Me() => new() { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Ofer" };
 
+    // ---- server admins (MachineAdmins): their accounts can't be taken over by another Admin ------------------------
+
+    private static (UserAdminService Service, FakeUsers Users) ServerAdminSetup()
+    {
+        var users = new FakeUsers();
+        users.Add(User(1, "oferdig2@gmail.com", "server admin pw 1") with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
+        users.Add(User(2, "alon.schwarz@gmail.com", null) with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
+        users.Add(User(3, "customer.admin@example.gr", "customer admin pw 1") with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
+        var auth = new AuthService(users, new FakeRoles(), new FakeTokenStore(), new AuthSettings());
+        return (new UserAdminService(users, new FakeRoles(), new FakeGrants(), auth), users);
+    }
+
+    private static UserAccess Admin(long id, string email) => new() { UserId = id, Email = email, RoleCode = SecurityRoles.Admin, DisplayName = email };
+
+    [Fact]
+    public async Task Another_Admin_cannot_take_over_a_server_admin_account()
+    {
+        var (service, _) = ServerAdminSetup();
+        var other = Admin(3, "customer.admin@example.gr");
+
+        foreach (var attempt in new Func<Task>[]
+        {
+            () => service.SetPasswordAsync(other, 2, "takeover password 1", false),            // Alon has no password yet
+            () => service.UpdateAsync(other, 1, new UserInput("oferdig2@gmail.com", "Ofer", null, 3, true, false)),
+            () => service.CreatePasswordLinkAsync(other, 1),
+        })
+        {
+            Assert.Equal("USERS_SERVER_ADMIN", (await Assert.ThrowsAsync<ForbiddenException>(attempt)).Code);
+        }
+    }
+
+    [Fact]
+    public async Task Another_Admin_cannot_take_a_server_admin_email()
+    {
+        var (service, _) = ServerAdminSetup();
+        var other = Admin(3, "customer.admin@example.gr");
+
+        var rename = await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.UpdateAsync(other, 3, new UserInput("ALON.SCHWARZ@gmail.com ", "me", null, 1, true, false)));
+        Assert.Equal("USERS_SERVER_ADMIN", rename.Code);
+    }
+
+    [Fact]
+    public async Task A_server_admin_may_manage_the_other_one()
+    {
+        var (service, users) = ServerAdminSetup();
+
+        await service.SetPasswordAsync(Admin(1, "oferdig2@gmail.com"), 2, "alon password 12", true);
+
+        Assert.NotNull(users.Get(2).PasswordHash);
+    }
+
     [Fact]
     public async Task The_last_admin_cannot_lose_admin_or_be_deactivated_or_deleted()
     {
         var (service, _) = AdminService();
 
         var demote = await Assert.ThrowsAsync<DomainValidationException>(() =>
-            service.UpdateAsync(Me() with { UserId = 99 }, 1, new UserInput("oferdig2@gmail.com", "Ofer", null, 2, true, false)));
+            service.UpdateAsync(Me() with { UserId = 99 }, 1, new UserInput("first.admin@example.gr", "Ofer", null, 2, true, false)));
         Assert.Equal("USER_LAST_ADMIN", demote.Code);
         Assert.Equal("USER_SELF_DEACTIVATE", (await Assert.ThrowsAsync<DomainValidationException>(() =>
-            service.UpdateAsync(Me(), 1, new UserInput("oferdig2@gmail.com", "Ofer", null, 1, false, false)))).Code);
+            service.UpdateAsync(Me(), 1, new UserInput("first.admin@example.gr", "Ofer", null, 1, false, false)))).Code);
         Assert.Equal("USER_SELF_DELETE", (await Assert.ThrowsAsync<DomainValidationException>(() => service.DeleteAsync(Me(), 1))).Code);
     }
 
@@ -195,13 +247,13 @@ public class AccessPolicyTests
     public async Task An_Admin_without_a_password_only_counts_when_Google_sign_in_is_on(bool googleOn)
     {
         var users = new FakeUsers();
-        users.Add(User(1, "oferdig2@gmail.com", "admin password 1") with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
+        users.Add(User(1, "first.admin@example.gr", "admin password 1") with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
         users.Add(User(5, "alon@example.gr", null) with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" }); // seeded, no password
         var auth = new AuthService(users, new FakeRoles(), new FakeTokenStore(), new AuthSettings());
         var service = new UserAdminService(users, new FakeRoles(), new FakeGrants(), auth, signIn: new SignIn(googleOn));
         var me = new UserAccess { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Ofer" };
 
-        var demoteSelf = () => service.UpdateAsync(me, 1, new UserInput("oferdig2@gmail.com", null, null, 3, true, false));
+        var demoteSelf = () => service.UpdateAsync(me, 1, new UserInput("first.admin@example.gr", null, null, 3, true, false));
         var dropOwnPassword = () => service.RemovePasswordAsync(me, 1);
         if (googleOn)
         {
@@ -231,7 +283,7 @@ public class AccessPolicyTests
     public async Task User_administration_is_for_Admins_only()
     {
         var users = new FakeUsers();
-        users.Add(User(1, "oferdig2@gmail.com", "admin password 1") with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
+        users.Add(User(1, "first.admin@example.gr", "admin password 1") with { SecurityRoleId = 1, RoleCode = SecurityRoles.Admin, RoleName = "Admin" });
         users.Add(User(2, "viewer@example.gr", null));
         var auth = new AuthService(users, new FakeRoles(), new FakeTokenStore(), new AuthSettings());
         var service = new UserAdminService(users, new FakeRoles(), new FakeGrants(), auth); // as in the app

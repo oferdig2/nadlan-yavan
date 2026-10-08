@@ -2,7 +2,7 @@
 
 For the agent who deploys this release and then tells the customer what to look at.
 
-- **Code:** `main` with the commit "Settings page can no longer take the site down" or later.
+- **Code:** `main` with the commit "Settings and server tasks hardened" or later.
 - **Tests:** builds clean, 233 automated tests pass, and the new features were checked on a test database (at production's
   connection limit of 20) and in a headless browser with Google Maps simulated.
 - **A separate review checked it too:** on a copy with 4,000 parcels, an OT search went from about 1.1 s to 16 ms, five
@@ -63,7 +63,15 @@ The same as last time, from a Windows PC in `code\release`:
 1. **Deploy:** `6-update-server.ps1`. It backs up, migrates (012-015 above), switches release, runs a health check,
    and rolls back automatically on failure. Check that `https://<domain>/api/health` reports the new release id
    (`<UTC time>-<commit>`).
-2. **Nothing else is required for today's features.** If yesterday's release wasn't deployed, follow its §2 as well (see
+2. **Deploy this release before using `5-copy-local-db.ps1` or a restore with kept settings.** Those use the server's
+   `restore.sh`, which from this release on keeps the server's settings history too. With an older `restore.sh`, the
+   history would be your PC's, and *Undo* would then apply your PC's settings, including the development storage folder.
+3. **IAM, once:** run `3-create-ec2-server.ps1` again with the same server name. It reuses the instance and refreshes the
+   role policy, which now forbids the app from overwriting the importer downloads (`<root>/_downloads/`).
+4. **Backup target:** the first backup after the deploy pins where the copies go, in `/etc/nadlan/backup-target.env`.
+   - Check it once: `sudo cat /etc/nadlan/backup-target.env` should show the production bucket and folder.
+   - After moving the bucket on purpose: `sudo /opt/nadlan/current/server/backup.sh --pin-target`.
+5. **Nothing else is required for today's features.** If yesterday's release wasn't deployed, follow its §2 as well (see
    the top of this file).
 
 Note: the admin pages Server, Web files, Downloads and Settings (for Ofer and Alon only) were built in another session and
@@ -72,13 +80,33 @@ are described in `README.md`, not here. Use what is committed on `main`.
 ### Settings safety (review of 2026-10-08)
 - **What the Settings page refuses**, so a save can no longer take the site down at the next restart:
   - numbers outside their range (e.g. session hours 1–720, link minutes 1–10,080, zoom 1–21);
-  - removing a setting, because at the next start the app would put back its development value, e.g. the development
-    storage folder;
-  - adding or changing anything outside `Nadlan:` in the app's own settings (Urls, Kestrel, Logging…).
-- **The same ranges apply in `7-server-admin.ps1` → *Change a setting*.**
-- **Every change keeps the version before it.** If a change still goes wrong, even when the site is down:
-  `7-server-admin.ps1` → *Undo the last settings change* (or on the server `sudo nadlan-db config undo ms:host`), then
-  restart. *Settings history* lists the kept versions; `sudo nadlan-db config restore ms:host <id>` picks one.
+  - removing a setting, setting it to null, or renaming it (also only by case, e.g. `Nadlan` → `nadlan`): at the next
+    start the app would put back its development value, e.g. the development storage folder;
+  - a setting spelled twice in different case: the app would use the second spelling filled with development defaults,
+    overriding the real values and secrets;
+  - adding or changing anything outside `Nadlan:` in the app's own settings (Urls, Kestrel, Logging…);
+  - a new SMTP server without its own password (the stored one would be sent to the new server).
+- **`7-server-admin.ps1` → *Change a setting* has the same checks:**
+  - plain values only, no hex or text for numbers;
+  - proper setting names;
+  - a new SMTP server clears the old password.
+- **The app checks its settings when it starts.** A bad value already stored stops it at start, with the way back in
+  the log (`journalctl -u nadlan`), instead of errors on every request.
+- **Every change keeps the version before it.**
+  - If a change still goes wrong, even when the site is down: `7-server-admin.ps1` → *Undo the last settings change*
+    (on the server `sudo nadlan-db config undo ms:host`), then restart.
+  - Each undo goes one more step back; it never re-applies the change it just undid.
+  - *Restore an earlier settings version* picks any kept version from *Settings history*.
+
+### Server admins and server tasks (review of 2026-10-08)
+- **The server admins' accounts (Ofer, Alon) can only be changed by a server admin.** Another Admin, e.g. one for the
+  customer, can't set their password, make a password link, change their email or role, or rename an account to their
+  address. Otherwise any Admin could make themselves a server admin.
+- **One server task at a time:** deploy, restore, backup and the Server page's **Restart** buttons share a lock. A
+  Restart during a deploy or restore is refused with a message.
+- **The nginx Restart button tests nginx's configuration first;** if the test fails, nginx is not restarted.
+- **Backups:** the target of the nightly off-site copy is fixed on the server (step 4 above), so the editable settings
+  can't send the database dumps elsewhere.
 
 ### Smoke test after deploying (10 minutes, as Admin)
 - [ ] The legend says "OT / plot entry" with green / amber / blue and a count on each row. Unticking green empties the

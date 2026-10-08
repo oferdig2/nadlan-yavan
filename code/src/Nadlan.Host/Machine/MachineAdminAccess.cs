@@ -4,19 +4,13 @@ using Nadlan.Host.Auth;
 namespace Nadlan.Host.Machine;
 
 /// <summary>
-/// Who may use the server pages (workload and restarts, web files and hot patches, app_config): Admins on this fixed list
-/// only. It is in the code on purpose: nothing in the database or app_config (which these pages edit) can extend it.
-/// Everyone else, other Admins included, gets 404 - the pages don't exist for them.
+/// Who may use the server pages (workload and restarts, web files and hot patches, app_config): the server admins of
+/// <see cref="MachineAdmins"/> only (fixed in code; their accounts can't be taken over by another Admin). Everyone else,
+/// other Admins included, gets 404 - the pages don't exist for them.
 /// </summary>
 public static class MachineAdminAccess
 {
-    private static readonly HashSet<string> Emails = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "oferdig2@gmail.com",
-        "alon.schwarz@gmail.com",
-    };
-
-    public static bool IsMachineAdmin(UserAccess? user) => user is { IsAdmin: true } && Emails.Contains(user.Email.Trim());
+    public static bool IsMachineAdmin(UserAccess? user) => MachineAdmins.Is(user);
 
     /// <summary>The route group for these pages. API tokens never get here (AuthRegistration blocks them on /api/admin).</summary>
     public static RouteGroupBuilder MapMachineGroup(this IEndpointRouteBuilder app) =>

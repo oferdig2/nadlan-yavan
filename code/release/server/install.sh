@@ -188,6 +188,8 @@ elif run_dbtool "$CURRENT_LINK" config show ms:host | grep -q '"RootFolder": "na
     set_config Nadlan:Storage:RootFolder nadlan/prod "nadlan/prod (set Nadlan:Storage:Bucket later)"
     set_config Nadlan:Storage:AwsProfile --empty "(empty: the EC2 instance role)"
 fi
+# Where the nightly backups are copied: fixed now from these settings, not re-read from the editable ones (lib.sh).
+bash "$CURRENT_LINK/server/backup.sh" --pin-target || warn "Backup target not pinned; backup.sh pins it at its first run."
 systemctl restart "$SERVICE"
 wait_healthy "" 90
 

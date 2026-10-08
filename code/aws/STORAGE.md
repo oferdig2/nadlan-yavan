@@ -29,6 +29,9 @@ profile of the same name, and an existing key is reused only if AWS confirms it 
 The printed `config.ps1` commands point the app at it.
 Its policy (`iam-policy-app.json`) also allows `s3:ListBucket` limited to the root folder: without it S3 answers a
 missing file with 403 instead of 404, and the app couldn't tell "gone" (restart the upload) from "denied".
+It denies writes under `<root>/_downloads/`: the KAEK importer installers and their checksums that admins download
+are uploaded with an admin profile (`2-upload-importer-s3.ps1`), and the app's own access must not be able to replace
+them. A server created before this gets it by running `3-create-ec2-server.ps1` again (it reuses the instance).
 
 ## 2. Moving to another bucket (e.g. the client's)
 

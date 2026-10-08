@@ -105,10 +105,16 @@ try
         {
             // Windows PowerShell drops "" when calling a program, so an empty value is spelled --empty.
             var actual = value == EmptyValueToken ? "" : value;
-            if (AppConfigLimits.Check(path, actual) is { } outOfRange)
+            if (!AppConfigLimits.IsValidPath(path))
             {
-                // Same ranges as the Settings page: outside them the app may not start, or fail every request.
-                Console.Error.WriteLine($"ERROR: {outOfRange} Nothing was changed.");
+                Console.Error.WriteLine($"ERROR: '{path}' is no config path: names of letters, digits and _ joined by single colons, e.g. Nadlan:Auth:SessionHours. Nothing was changed.");
+                return 1;
+            }
+
+            if (AppConfigLimits.Check(path, actual) is { } badValue)
+            {
+                // Same rules as the Settings page: otherwise the app may not start, or fail every request.
+                Console.Error.WriteLine($"ERROR: {badValue} Nothing was changed.");
                 return 1;
             }
 
@@ -122,8 +128,24 @@ try
                 return 1;
             }
 
-            await store.UpsertAsync(key, AppConfigJson.SetValue(json, path, actual), $"nadlan-db config set {path}");
-            Console.WriteLine($"Set {key} -> {path} = {(actual.Length == 0 ? "(empty)" : "(value)")}. Restart the app to pick it up.");
+            var updated = AppConfigJson.SetValue(json, path, actual); // keeps the stored spelling of existing names
+            var note = "";
+            const string smtpHost = "Nadlan:Auth:Email:SmtpHost", smtpPassword = "Nadlan:Auth:Email:SmtpPassword";
+            if (found && string.Equals(path, smtpHost, StringComparison.OrdinalIgnoreCase))
+            {
+                // The stored password belongs to the old server: it must not be sent to the new one.
+                var before = AppConfigJson.Paths(json);
+                var oldHost = before.TryGetValue(smtpHost, out var h) ? h?.Trim() ?? "" : "";
+                if (!string.Equals(oldHost, actual.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    before.TryGetValue(smtpPassword, out var pw) && !string.IsNullOrEmpty(pw))
+                {
+                    updated = AppConfigJson.SetValue(updated, smtpPassword, "");
+                    note = $" The SMTP password was cleared (it belonged to {oldHost}): set {smtpPassword} for the new server.";
+                }
+            }
+
+            await store.UpsertAsync(key, updated, $"nadlan-db config set {path}");
+            Console.WriteLine($"Set {key} -> {path} = {(actual.Length == 0 ? "(empty)" : "(value)")}.{note} Restart the app to pick it up.");
             return 0;
         }
 
@@ -179,19 +201,38 @@ try
         case ["config", "undo" or "restore", var key, ..] when args.Length == (args[1] == "undo" ? 3 : 4):
         {
             await migrator.EnsureUpToDateAsync();
-            long? id = args[1] == "restore" ? long.Parse(args[3].TrimStart('#'), System.Globalization.CultureInfo.InvariantCulture) : null;
             var store = new AppConfigMySqlStore(db.ConnectionString);
             var (_, before, _) = await store.TryGetAsync(key);
-            var restored = await store.RestoreAsync(key, id, id is null ? "nadlan-db config undo" : $"nadlan-db config restore #{id}");
-            if (restored is null)
+            AppConfigHistoryEntry? restored;
+            if (args[1] == "undo")
             {
-                Console.Error.WriteLine(id is null ? $"No earlier version of '{key}' to go back to." : $"'{key}' has no kept version #{id}.");
-                return 1;
+                // Steps back one version each time (a second undo goes further back, it doesn't re-apply the change).
+                restored = await store.UndoAsync(key, "nadlan-db config undo");
+                if (restored is null)
+                {
+                    Console.Error.WriteLine($"No earlier version of '{key}' to go back to (see: config history {key}).");
+                    return 1;
+                }
+            }
+            else
+            {
+                if (!long.TryParse(args[3].TrimStart('#'), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id))
+                {
+                    Console.Error.WriteLine($"ERROR: '{args[3]}' is no version number; see: config history {key}.");
+                    return 1;
+                }
+
+                restored = await store.RestoreAsync(key, id, $"nadlan-db config restore #{id}");
+                if (restored is null)
+                {
+                    Console.Error.WriteLine($"'{key}' has no kept version #{id} (see: config history {key}).");
+                    return 1;
+                }
             }
 
             var changed = AppConfigJson.IsValidObject(before) ? string.Join(", ", AppConfigSecrets.ChangedPaths(before, restored.Json)) : "(the whole row)";
-            Console.WriteLine($"'{key}' is back to version #{restored.HistoryId} (saved before {restored.ReplacedUtc:yyyy-MM-dd HH:mm:ss} UTC). Changed back: {(changed.Length == 0 ? "nothing" : changed)}.");
-            Console.WriteLine("Restart the app to use it. This step can be undone the same way.");
+            Console.WriteLine($"'{key}' is back to version #{restored.HistoryId} (the one replaced {restored.ReplacedUtc:yyyy-MM-dd HH:mm:ss} UTC by {restored.ReplacedBy ?? "?"}). Changed back: {(changed.Length == 0 ? "nothing" : changed)}.");
+            Console.WriteLine($"Restart the app to use it. Undo again to go one more step back; config restore {key} <#id> picks any version.");
             return 0;
         }
 

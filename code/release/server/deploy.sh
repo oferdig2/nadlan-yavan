@@ -7,6 +7,7 @@ set -euo pipefail
 PKG="$(cd "${1:?usage: deploy.sh <unpacked-package-dir>}" && pwd)"
 . "$PKG/server/lib.sh"
 require_root
+ops_lock 1800 # one server task at a time (lib.sh): no Restart button, restore or backup in the middle of a deploy
 [[ -f "$ENV_FILE" ]] || die "$ENV_FILE is missing: this server isn't installed yet (run 4-install-server.ps1)."
 
 ID=$(tr -d '[:space:]' < "$PKG/RELEASE")

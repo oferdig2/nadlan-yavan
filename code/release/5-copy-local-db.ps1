@@ -85,7 +85,7 @@ try {
     if ($typed.Trim() -ne $target.Host) { throw "Not confirmed; nothing changed." }
 
     # Never copied: the server's own settings and sign-in data (restore.sh --keep-server-identity keeps them there).
-    $serverOwnedTables = @("app_config", "security_role", "permission", "role_permission", "app_user", "resource_access",
+    $serverOwnedTables = @("app_config", "app_config_history", "security_role", "permission", "role_permission", "app_user", "resource_access",
         "api_token", "password_token", "data_protection_key")
     Write-Step "Dumping local '$dbName'"
     $r = Invoke-Native $mysqldump (@("--defaults-file=$cnf", "--single-transaction", "--quick", "--no-tablespaces", "--routines",

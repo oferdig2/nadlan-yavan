@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Nadlan.Config.MySql;
 using Nadlan.Core.Validation;
 using Nadlan.Host.Configuration;
@@ -136,14 +137,17 @@ public sealed class ConfigAdmin
             throw new EditConflictException($"Setting row {key}");
         }
 
+        EnsureSecretsStayWithTheirServer(AppConfigJson.IsValidObject(storedJson) ? storedJson : null, editedJson!);
         var json = AppConfigSecrets.Unmask(editedJson!, storedJson);
+        // First: a spelling or null that would break the app is refused even when the values look unchanged (the change
+        // detection ignores case, as the app does).
+        EnsureSafeChange(key, AppConfigJson.IsValidObject(storedJson) ? storedJson : null, json);
         var changed = AppConfigSecrets.ChangedPaths(AppConfigJson.IsValidObject(storedJson) ? storedJson : null, json);
         if (changed.Count == 0)
         {
             return (storedUpdated, changed);
         }
 
-        EnsureSafeChange(key, AppConfigJson.IsValidObject(storedJson) ? storedJson : null, json);
         await ValidateAsync(key, json, ct);
         // The version before this save is kept (app_config_history): "sudo nadlan-db config undo <key>" puts it back.
         var saved = await _store.TryReplaceAsync(key, json, storedUpdated, $"settings page: {user}", ct) ?? throw new EditConflictException($"Setting row {key}");
@@ -156,20 +160,36 @@ public sealed class ConfigAdmin
 
     /// <summary>
     /// What a save may not do, whichever view it comes from:
-    /// - remove a setting: at the next start the app would put back its built-in (development) value, e.g. the
-    ///   development storage folder, so every stored file would look missing;
+    /// - spell one setting twice in different case ("Nadlan" and "nadlan"): the app reads the last one, and at its next
+    ///   start fills it with development defaults that override the real values and secrets;
+    /// - set a value to null, or remove a setting (also by changing its case): at the next start the app would put back its
+    ///   built-in (development) value, e.g. the development storage folder, so every stored file would look missing;
     /// - in the rows this app reads, add or change anything outside "Nadlan:" (Urls, Kestrel, Logging, ...): the app
     ///   obeys those at startup, before any of our checks.
     /// </summary>
     public static void EnsureSafeChange(string key, string? storedJson, string json)
     {
-        var before = Leaves(storedJson);
-        var after = Leaves(json);
-        var removed = before.Keys.Where(k => !after.ContainsKey(k)).OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+        var before = Read(storedJson).Leaves;
+        var (after, caseVariants, nulls) = Read(json);
+        if (caseVariants.Count > 0)
+        {
+            throw new DomainValidationException("CONFIG_CASE_VARIANT",
+                $"{string.Join("; ", caseVariants)}: the same setting spelled twice in different case. The app would use the last one and " +
+                "fill it with development defaults at its next start. Keep one spelling. Nothing was saved.");
+        }
+
+        if (nulls.Count > 0)
+        {
+            throw new DomainValidationException("CONFIG_NULL_VALUE",
+                $"{string.Join(", ", nulls)}: null means \"no value\" to the app, which then uses its development default. Give it a value, " +
+                "or an empty one (\"\"). Nothing was saved.");
+        }
+
+        var removed = before.Keys.Where(k => !after.ContainsKey(k)).OrderBy(k => k, StringComparer.Ordinal).ToList();
         if (removed.Count > 0)
         {
             throw new DomainValidationException("CONFIG_SETTING_REMOVED",
-                $"{string.Join(", ", removed)}: settings can't be removed here - at its next start the app would put back its built-in " +
+                $"{string.Join(", ", removed)}: settings can't be removed or renamed here - at its next start the app would put back its built-in " +
                 "development value. Give it a value (or an empty one) instead. Nothing was saved.");
         }
 
@@ -178,9 +198,9 @@ public sealed class ConfigAdmin
             return;
         }
 
-        var outside = after.Where(kv => !kv.Key.StartsWith(NadlanOptions.SectionName + ":", StringComparison.OrdinalIgnoreCase) &&
+        var outside = after.Where(kv => !kv.Key.StartsWith(NadlanOptions.SectionName + ":", StringComparison.Ordinal) &&
                                         (!before.TryGetValue(kv.Key, out var b) || b != kv.Value))
-            .Select(kv => kv.Key).OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+            .Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
         if (outside.Count > 0)
         {
             throw new DomainValidationException("CONFIG_OUTSIDE_APP_SETTINGS",
@@ -189,31 +209,128 @@ public sealed class ConfigAdmin
         }
     }
 
-    /// <summary>Every number setting within its <see cref="Limits"/> (as the app will read it, after this save).</summary>
-    public static void EnsureLimits(IConfiguration config)
+    /// <summary>
+    /// A new SMTP server must get its own password: keeping the stored one (still masked in the form) would send it to the
+    /// new server at the first email.
+    /// </summary>
+    public static void EnsureSecretsStayWithTheirServer(string? storedJson, string editedJson)
     {
-        foreach (var path in Limits.Keys)
+        if (storedJson is null)
         {
+            return;
+        }
+
+        var stored = AppConfigJson.Paths(storedJson);
+        var edited = AppConfigJson.Paths(editedJson);
+        string Value(IReadOnlyDictionary<string, string?> d, string p) => (d.TryGetValue(p, out var v) ? v : null)?.Trim() ?? "";
+        const string host = "Nadlan:Auth:Email:SmtpHost", password = "Nadlan:Auth:Email:SmtpPassword";
+        if (!string.Equals(Value(stored, host), Value(edited, host), StringComparison.OrdinalIgnoreCase) &&
+            Value(stored, password).Length > 0 && Value(edited, password) == AppConfigSecrets.MaskedValue)
+        {
+            throw new DomainValidationException("CONFIG_SECRET_FOR_NEW_SERVER",
+                "You changed the SMTP server: type the SMTP password for the new server too (or clear it) - the stored one belongs to the old " +
+                "server and would be sent to the new one. Nothing was saved.");
+        }
+    }
+
+    /// <summary>
+    /// At startup: the settings the app is about to run with must bind and be in range. A bad value already stored (a tool,
+    /// a hand edit, an older release) stops the app here, with the way back in the log - instead of errors on every request.
+    /// </summary>
+    public static void EnsureStartupSettings(IConfiguration config)
+    {
+        const string fix = " Undo the last settings change: sudo nadlan-db config undo ms:host (or 7-server-admin.ps1 -> \"Undo the last " +
+                           "settings change\"; \"config history ms:host\" lists earlier versions), then restart the app.";
+        try
+        {
+            config.GetSection(NadlanOptions.SectionName).Get<NadlanOptions>();
+            config.GetSection(StorageOptions.SectionName).Get<StorageOptions>();
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException($"Settings problem in app_config: {ex.Message} {ex.InnerException?.Message}{fix}", ex);
+        }
+
+        try
+        {
+            EnsureLimits(config, "");
+        }
+        catch (DomainValidationException ex)
+        {
+            throw new InvalidOperationException($"Settings problem in app_config: {ex.Message}{fix}", ex);
+        }
+    }
+
+    /// <summary>Every number setting within its <see cref="Limits"/> (as the app will read it, after this save).</summary>
+    public static void EnsureLimits(IConfiguration config, string after = " Nothing was saved.")
+    {
+        foreach (var path in Limits.Keys.Concat(AppConfigLimits.Booleans))
+        {
+            if (config[path] is null)
+            {
+                continue; // not set: the app's default applies
+            }
+
             var label = Fields.FirstOrDefault(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase))?.Label;
             if (AppConfigLimits.Check(path, config[path], label) is { } error)
             {
-                throw new DomainValidationException("CONFIG_OUT_OF_RANGE", error + " Nothing was saved.");
+                throw new DomainValidationException("CONFIG_OUT_OF_RANGE", error + after);
             }
         }
     }
 
-    private static Dictionary<string, string?> Leaves(string? json)
+    /// <summary>A row's settings with their exact spelling, plus the keys that differ only in case and the null values.</summary>
+    private static (Dictionary<string, string?> Leaves, List<string> CaseVariants, List<string> Nulls) Read(string? json)
     {
-        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        if (json is not null)
+        var leaves = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var variants = new List<string>();
+        var nulls = new List<string>();
+        if (json is null)
         {
-            foreach (var (k, v) in AppConfigJson.Paths(json))
+            return (leaves, variants, nulls);
+        }
+
+        static string Join(string path, string name) => path.Length == 0 ? name : path + ":" + name;
+        void Visit(JsonNode? node, string path)
+        {
+            switch (node)
             {
-                result.TryAdd(k, v);
+                case JsonObject obj:
+                    variants.AddRange(obj.GroupBy(p => p.Key, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1)
+                        .Select(g => string.Join(" / ", g.Select(p => Join(path, p.Key)))));
+                    foreach (var (name, child) in obj)
+                    {
+                        Visit(child, Join(path, name));
+                    }
+
+                    break;
+                case JsonArray array:
+                    for (var i = 0; i < array.Count; i++)
+                    {
+                        Visit(array[i], Join(path, i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                    }
+
+                    break;
+                case null:
+                    nulls.Add(path);
+                    leaves[path] = null;
+                    break;
+                default:
+                    leaves[path] = node.GetValueKind() == System.Text.Json.JsonValueKind.String ? node.GetValue<string>() : node.ToJsonString();
+                    break;
             }
         }
 
-        return result;
+        try
+        {
+            Visit(AppConfigJson.ParseObject(json), "");
+        }
+        catch (ArgumentException ex) // the same key twice, spelled exactly the same
+        {
+            throw new DomainValidationException("CONFIG_CASE_VARIANT", $"A setting appears twice: {ex.Message} Nothing was saved.");
+        }
+
+        return (leaves, variants, nulls);
     }
 
     private async Task ValidateAsync(string key, string json, CancellationToken ct)

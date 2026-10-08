@@ -74,7 +74,10 @@ public sealed class AppConfigMySqlStore
     }
 
     /// <summary>Writes a row whatever version it has (tools, startup defaults); the version it replaces is kept in history.</summary>
-    public async Task UpsertAsync(string configKey, string jsonText, string? replacedBy = null, CancellationToken ct = default)
+    public Task UpsertAsync(string configKey, string jsonText, string? replacedBy = null, CancellationToken ct = default)
+        => UpsertCoreAsync(configKey, jsonText, replacedBy, restoredHistoryId: null, ct);
+
+    private async Task UpsertCoreAsync(string configKey, string jsonText, string? replacedBy, long? restoredHistoryId, CancellationToken ct)
     {
         await using var conn = new MySqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -88,7 +91,7 @@ public sealed class AppConfigMySqlStore
                 return; // nothing changes: no new version, no history row
             }
 
-            await KeepPreviousAsync(conn, tx, configKey, p.Json, p.UpdatedUtcMs, replacedBy, ct);
+            await KeepPreviousAsync(conn, tx, configKey, p.Json, p.UpdatedUtcMs, replacedBy, ct, restoredHistoryId);
         }
 
         await WriteAsync(conn, tx, configKey, jsonText, now, ct);
@@ -98,10 +101,22 @@ public sealed class AppConfigMySqlStore
     /// <summary>The kept versions of a row, newest first: id, its version, when it was replaced and by whom.</summary>
     public async Task<IReadOnlyList<AppConfigHistoryEntry>> ListHistoryAsync(string configKey, int limit, CancellationToken ct = default)
     {
+        try
+        {
+            return await ReadHistoryAsync(configKey, limit, "restored_history_id", ct);
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.BadFieldError)
+        {
+            return await ReadHistoryAsync(configKey, limit, "NULL", ct); // a development database with the first draft of 015
+        }
+    }
+
+    private async Task<IReadOnlyList<AppConfigHistoryEntry>> ReadHistoryAsync(string configKey, int limit, string restoredColumn, CancellationToken ct)
+    {
         await using var conn = new MySqlConnection(_connectionString);
         await conn.OpenAsync(ct);
-        await using var cmd = new MySqlCommand("""
-            SELECT history_id, json_text, version_utc_ms, replaced_utc, replaced_by
+        await using var cmd = new MySqlCommand($"""
+            SELECT history_id, json_text, version_utc_ms, replaced_utc, replaced_by, {restoredColumn}
             FROM app_config_history WHERE config_key = @config_key ORDER BY history_id DESC LIMIT @limit
             """, conn);
         cmd.Parameters.AddWithValue("@config_key", configKey);
@@ -111,28 +126,46 @@ public sealed class AppConfigMySqlStore
         while (await r.ReadAsync(ct))
         {
             result.Add(new AppConfigHistoryEntry(r.GetInt64(0), r.GetString(1), r.GetInt64(2),
-                DateTime.SpecifyKind(r.GetDateTime(3), DateTimeKind.Utc), r.IsDBNull(4) ? null : r.GetString(4)));
+                DateTime.SpecifyKind(r.GetDateTime(3), DateTimeKind.Utc), r.IsDBNull(4) ? null : r.GetString(4))
+            {
+                RestoredHistoryId = r.IsDBNull(5) ? null : r.GetInt64(5),
+            });
         }
 
         return result;
     }
 
-    /// <summary>
-    /// Puts a kept version back (<paramref name="historyId"/>; null = the newest, i.e. undo the last change). The version
-    /// it replaces is kept too, so a restore can itself be undone. Returns the restored entry, or null if there is none.
-    /// </summary>
-    public async Task<AppConfigHistoryEntry?> RestoreAsync(string configKey, long? historyId, string? replacedBy, CancellationToken ct = default)
+    /// <summary>Puts kept version <paramref name="historyId"/> back. Returns it, or null if the row has no such version.</summary>
+    public async Task<AppConfigHistoryEntry?> RestoreAsync(string configKey, long historyId, string? replacedBy, CancellationToken ct = default)
     {
-        var entry = historyId is long id
-            ? (await ListHistoryAsync(configKey, int.MaxValue, ct)).FirstOrDefault(h => h.HistoryId == id)
-            : (await ListHistoryAsync(configKey, 1, ct)).FirstOrDefault();
-        if (entry is null)
+        var entry = (await ListHistoryAsync(configKey, int.MaxValue, ct)).FirstOrDefault(h => h.HistoryId == historyId);
+        if (entry is not null)
         {
-            return null;
+            await UpsertCoreAsync(configKey, entry.Json, replacedBy, entry.HistoryId, ct);
         }
 
-        await UpsertAsync(configKey, entry.Json, replacedBy, ct);
         return entry;
+    }
+
+    /// <summary>
+    /// Steps back one version - again and again, never toggling: the target is the newest kept version that is older than
+    /// what an earlier undo / restore put back, that no undo itself set aside (those are the undone versions), that startup
+    /// didn't write (it only adds new defaults, which come back anyway), and that differs from the row now. Null = none left.
+    /// </summary>
+    public async Task<AppConfigHistoryEntry?> UndoAsync(string configKey, string? replacedBy, CancellationToken ct = default)
+    {
+        var (found, current, _) = await TryGetAsync(configKey, ct);
+        var kept = await ListHistoryAsync(configKey, 1000, ct);
+        var before = kept.FirstOrDefault() is { RestoredHistoryId: long restored } ? restored : long.MaxValue;
+        var target = kept.FirstOrDefault(h => h.HistoryId < before && h.RestoredHistoryId is null &&
+                                              !(h.ReplacedBy ?? "").StartsWith("startup:", StringComparison.Ordinal) &&
+                                              !(found && h.Json == current));
+        if (target is not null)
+        {
+            await UpsertCoreAsync(configKey, target.Json, replacedBy, target.HistoryId, ct);
+        }
+
+        return target;
     }
 
     private static async Task<(string Json, long UpdatedUtcMs)?> ReadForUpdateAsync(MySqlConnection conn, MySqlTransaction tx, string configKey, CancellationToken ct)
@@ -156,16 +189,17 @@ public sealed class AppConfigMySqlStore
     }
 
     private static async Task KeepPreviousAsync(MySqlConnection conn, MySqlTransaction tx, string configKey, string json, long versionUtcMs, string? replacedBy,
-        CancellationToken ct)
+        CancellationToken ct, long? restoredHistoryId = null)
     {
         await using var cmd = new MySqlCommand("""
-            INSERT INTO app_config_history (config_key, json_text, version_utc_ms, replaced_by)
-            VALUES (@config_key, @json_text, @version, @replaced_by)
+            INSERT INTO app_config_history (config_key, json_text, version_utc_ms, replaced_by, restored_history_id)
+            VALUES (@config_key, @json_text, @version, @replaced_by, @restored)
             """, conn, tx);
         cmd.Parameters.AddWithValue("@config_key", configKey);
         cmd.Parameters.AddWithValue("@json_text", json);
         cmd.Parameters.AddWithValue("@version", versionUtcMs);
         cmd.Parameters.AddWithValue("@replaced_by", replacedBy is null ? DBNull.Value : replacedBy.Length <= 200 ? replacedBy : replacedBy[..200]);
+        cmd.Parameters.AddWithValue("@restored", restoredHistoryId is long r ? r : DBNull.Value);
         try
         {
             await cmd.ExecuteNonQueryAsync(ct);
@@ -174,8 +208,22 @@ public sealed class AppConfigMySqlStore
         {
             // A database from before migration 015 (a tool run before "migrate"): the change itself still goes through.
         }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.BadFieldError)
+        {
+            // A development database that got the first draft of 015 (no restored_history_id; never released): keep the
+            // version anyway, just without the undo link.
+            cmd.CommandText = """
+                INSERT INTO app_config_history (config_key, json_text, version_utc_ms, replaced_by)
+                VALUES (@config_key, @json_text, @version, @replaced_by)
+                """;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
     }
 }
 
 /// <summary>A kept version of an app_config row (app_config_history).</summary>
-public sealed record AppConfigHistoryEntry(long HistoryId, string Json, long VersionUtcMs, DateTime ReplacedUtc, string? ReplacedBy);
+public sealed record AppConfigHistoryEntry(long HistoryId, string Json, long VersionUtcMs, DateTime ReplacedUtc, string? ReplacedBy)
+{
+    /// <summary>Set when the change that replaced this version was an undo / restore: the kept version it put back.</summary>
+    public long? RestoredHistoryId { get; init; }
+}

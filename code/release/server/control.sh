@@ -22,13 +22,22 @@ done
 
 json_text() { printf '%s' "$1" | tr '\n\r\t' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g' | cut -c1-400; }
 
+# Not in the middle of a deploy, restore or backup: they hold this lock (lib.sh ops_lock) - refuse instead of disrupting.
+busy=false
+exec 9>/run/lock/nadlan-ops.lock
+flock -n 9 || busy=true
+
 # The app last: it may be the one asking.
 for action in restart-mysqld restart-nginx restart-nadlan; do
     [[ "$wanted" == *" $action "* ]] || continue
     unit=${UNITS[$action]}
     started=$(date -u +%FT%TZ)
-    if ! systemctl cat "$unit.service" >/dev/null 2>&1; then
+    if $busy; then
+        ok=false; msg="A deploy, restore or backup is running right now - not restarted. Try again when it has finished."
+    elif ! systemctl cat "$unit.service" >/dev/null 2>&1; then
         ok=false; msg="$unit is not installed on this server."
+    elif [[ "$unit" == nginx ]] && ! out=$(nginx -t 2>&1); then
+        ok=false; msg="nginx's configuration test failed, so nginx was NOT restarted (it keeps running as it is): $out"
     elif out=$(systemctl restart "$unit" 2>&1); then
         sleep 2
         state=$(systemctl is-active "$unit" 2>/dev/null || true)

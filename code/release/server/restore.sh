@@ -11,14 +11,15 @@ set -Eeuo pipefail  # -E: the ERR trap (rollback below) also fires inside functi
 SELF_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 . "$SELF_DIR/lib.sh"
 require_root
+ops_lock 1800 # one server task at a time (lib.sh): no Restart button, deploy or backup in the middle of a restore
 FILE="${1:?usage: restore.sh <file.sql.gz> --yes [--keep-config|--keep-server-identity]}"
 [[ "${2:-}" == "--yes" ]] || die "This replaces ALL data in the database. Add --yes to confirm."
 MODE="${3:-}"
 case "$MODE" in
     "") KEEP_TABLES=() ;;
-    --keep-config) KEEP_TABLES=(app_config) ;;
+    --keep-config) KEEP_TABLES=(app_config app_config_history) ;;
     # Sign-in and access data stays the server's own, like its settings.
-    --keep-server-identity) KEEP_TABLES=(app_config security_role permission role_permission app_user resource_access
+    --keep-server-identity) KEEP_TABLES=(app_config app_config_history security_role permission role_permission app_user resource_access
                                          api_token password_token data_protection_key) ;;
     *) die "Unknown option $MODE" ;;
 esac
@@ -60,6 +61,13 @@ systemctl stop "$SERVICE" || true
 step "Safety dump of the current data"
 SAFETY=$(bash "$SELF_DIR/backup.sh" before-restore | tail -n 1) || SAFETY="" # a failure must not exit here: the app is stopped
 [[ -f "$SAFETY" ]] || { on_failure; die "Safety dump failed; nothing was changed."; }
+
+# Only the kept tables this server has (app_config_history arrived with migration 015): mysqldump fails on a missing one.
+PRESENT=()
+for table in "${KEEP_TABLES[@]}"; do
+    if [[ -n "$(mysql --defaults-file="$CNF" -N -B -e "SHOW TABLES LIKE '$table'" "$DB")" ]]; then PRESENT+=("$table"); fi
+done
+KEEP_TABLES=("${PRESENT[@]}")
 
 if [[ ${#KEEP_TABLES[@]} -gt 0 ]]; then
     mysqldump --defaults-file="$CNF" --single-transaction --no-tablespaces --set-gtid-purged=OFF \

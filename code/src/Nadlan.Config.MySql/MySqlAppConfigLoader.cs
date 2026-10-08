@@ -78,6 +78,14 @@ public static class MySqlAppConfigLoader
                 $"app_config row '{configKey}' is not valid JSON. Fix it (e.g. in MySQL Workbench) - it was left untouched.");
         }
 
+        if (found && AppConfigJson.CaseVariants(json) is { Count: > 0 } variants)
+        {
+            // Filling one spelling with defaults would override the real values and secrets in the other: stop instead.
+            throw new InvalidOperationException(
+                $"app_config row '{configKey}' spells a setting twice in different case: {string.Join("; ", variants)}. Undo the change that " +
+                $"added it (sudo nadlan-db config undo {configKey}; config history {configKey} lists the versions) - it was left untouched.");
+        }
+
         if (found)
         {
             if (!hasDefaults)

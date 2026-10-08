@@ -66,6 +66,13 @@ public sealed class UserAdminService
     /// </summary>
     private async Task RequireMayManageAsync(UserAccess admin, AppUser target, CancellationToken ct)
     {
+        // A server admin's account only for server admins: an Admin who could set its password, email or role, or mint its
+        // token or link, could sign in as it - and get the server pages (settings secrets, web files, restarts).
+        if (MachineAdmins.IsListedEmail(target.Email) && !MachineAdmins.Is(admin))
+        {
+            throw new ForbiddenException("USERS_SERVER_ADMIN", $"{target.Email} is a server admin: only a server admin can change that account.");
+        }
+
         if (admin.IsAdmin)
         {
             return;
@@ -214,6 +221,15 @@ public sealed class UserAdminService
         }
     }
 
+    /// <summary>A server admin's email (<see cref="MachineAdmins"/>) on a new or renamed account is for server admins only.</summary>
+    private static void RequireMayUseEmail(UserAccess admin, string email)
+    {
+        if (MachineAdmins.IsListedEmail(email) && !MachineAdmins.Is(admin))
+        {
+            throw new ForbiddenException("USERS_SERVER_ADMIN", $"{email} is a server admin's address: only a server admin can give it to an account.");
+        }
+    }
+
     /// <summary>Roles decide what everyone may do; changing them is for Admins only.</summary>
     private void RequireRealAdmin(UserAccess admin)
     {
@@ -236,6 +252,7 @@ public sealed class UserAdminService
         var (email, name, role) = await ValidateAsync(input, existing: null, ct);
         RequireMayAssign(admin, role);
         RequireMayLinkContact(admin, input.ContactId, existing: null);
+        RequireMayUseEmail(admin, email);
         if (await _users.GetByEmailAsync(email, ct) is not null)
         {
             throw new DomainValidationException("USER_EMAIL_EXISTS", $"A user with {email} already exists.");
@@ -280,6 +297,11 @@ public sealed class UserAdminService
         var (email, name, role) = await ValidateAsync(input, existing, ct);
         RequireMayAssign(admin, role);
         RequireMayLinkContact(admin, input.ContactId, existing.ContactId);
+        if (!string.Equals(email, existing.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            RequireMayUseEmail(admin, email);
+        }
+
         if (email != existing.Email && await _users.GetByEmailAsync(email, ct) is not null)
         {
             throw new DomainValidationException("USER_EMAIL_EXISTS", $"A user with {email} already exists.");
