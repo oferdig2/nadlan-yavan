@@ -34,9 +34,9 @@ public sealed class ConfigAdmin
         new ConfigSection("Nadlan:Maps", "Map", "Google Maps and where the map opens."),
         new ConfigSection("Nadlan:Auth", "Sign-in", "Sessions, lockout and password links."),
         new ConfigSection("Nadlan:Auth:Google", "Google sign-in", "OAuth client of type \"Web application\"; redirect URI https://<domain>/signin-google. Both empty = no Google button."),
-        new ConfigSection("Nadlan:Auth:Email", "Email (SMTP)", "For \"forgot password\" emails, e.g. Amazon SES SMTP. Empty host = Admins hand out password links instead."),
+        new ConfigSection("Nadlan:Auth:Email", "Email (SMTP)", "Only two emails use it: \"Forgot password?\" on the sign-in page, and \"also email it\" when an Admin makes a password link (Users). Empty host = no emails: \"Forgot password?\" tells the user to ask an Admin, who copies the link from Users instead. To turn it on, e.g. Amazon SES SMTP."),
         new ConfigSection("Nadlan:Storage", "File storage (S3)", "Where uploaded documents, photos and videos are kept. On EC2 the instance role gives access: leave AwsProfile empty."),
-        new ConfigSection("Nadlan:Storage:Delivery", "File delivery", "How browsers download files: straight from S3 (presigned) or through CloudFront."),
+        new ConfigSection("Nadlan:Storage:Delivery", "File delivery", "Keep Mode = S3Presigned and leave the CloudFront fields empty: browsers then get short-lived signed links straight to the S3 bucket. CloudFront is Amazon's CDN, optional, only worth it if photos and videos load slowly far from the server."),
     };
 
     public static readonly IReadOnlyList<ConfigField> Fields = new[]

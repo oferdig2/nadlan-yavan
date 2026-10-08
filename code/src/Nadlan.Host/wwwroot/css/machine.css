@@ -99,3 +99,15 @@
 .download-older { margin-top: 12px; }
 .download-older summary { cursor: pointer; color: var(--accent); margin-bottom: 6px; }
 .download-empty { background: var(--surface); border: 1px dashed var(--border); border-radius: 8px; padding: 12px; }
+.download-card { cursor: pointer; }
+.download-card:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.download-card.previewed { background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+.download-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.download-guide-hint { color: var(--accent); margin-top: auto; visibility: hidden; }
+.download-card.previewed .download-guide-hint { visibility: visible; }
+.download-guide { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px 16px 12px; font-size: 13px; line-height: 1.5; }
+.download-guide h4 { font-size: 15px; margin: 12px 0 2px; }
+.download-guide h5 { font-size: 13px; margin: 14px 0 4px; }
+.download-guide ol, .download-guide ul { margin: 0; padding-left: 22px; }
+.download-guide li { margin: 2px 0; }
+.download-cmd { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 0; }
