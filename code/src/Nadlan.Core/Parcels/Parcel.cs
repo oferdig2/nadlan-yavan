@@ -35,6 +35,12 @@ public sealed record Parcel
     /// <summary>That user's display name (read only, filled by the store; null if unknown or deleted).</summary>
     public string? OtPlotByName { get; init; }
 
+    /// <summary>Regular, divided or united (<see cref="ParcelDivision"/>).</summary>
+    public string DivisionStatus { get; init; } = ParcelDivision.Regular;
+
+    /// <summary>Divided / united only: the other OT / plot numbers, free text as typed (V1: shown, not searched).</summary>
+    public string? RelatedNumbers { get; init; }
+
     /// <summary>Approximate slope, in percent.</summary>
     public decimal? Inclination { get; init; }
 
@@ -74,4 +80,45 @@ public static class ParcelKinds
         (true, true) => Todo,
         _ => Partial,
     };
+}
+
+/// <summary>
+/// Whether a Parcel was divided or united (owner, 2026-10-08). For divided / united ones the user notes the other OT / plot
+/// numbers as free text (<see cref="Parcel.RelatedNumbers"/>); V1 doesn't search it - it may become structured later.
+/// </summary>
+public static class ParcelDivision
+{
+    public const string Regular = "regular";
+    public const string Divided = "divided";
+    public const string United = "united";
+
+    public static readonly IReadOnlyList<string> All = new[] { Regular, Divided, United };
+
+    public const int MaxRelatedNumbersLength = 500; // parcel.related_numbers VARCHAR(500)
+
+    /// <summary>
+    /// The status and text to store. A null status keeps the current one (API clients that don't know the field), and so
+    /// does a null text then; a regular Parcel has no text.
+    /// </summary>
+    public static (string Status, string? RelatedNumbers) Resolve(string? status, string? relatedNumbers, string currentStatus, string? currentRelated)
+    {
+        var s = status is null ? currentStatus : status.Trim().ToLowerInvariant();
+        if (!All.Contains(s))
+        {
+            throw new Validation.DomainValidationException("PARCEL_DIVISION_INVALID", $"Parcel status must be {string.Join(", ", All)}.");
+        }
+
+        if (s == Regular)
+        {
+            return (s, null);
+        }
+
+        var text = status is null && relatedNumbers is null ? currentRelated : Text.TextNormalize.NullIfBlank(relatedNumbers);
+        if (text?.Length > MaxRelatedNumbersLength)
+        {
+            throw new Validation.DomainValidationException("PARCEL_RELATED_NUMBERS_TOO_LONG", $"The other OT / plot numbers are at most {MaxRelatedNumbersLength} characters.");
+        }
+
+        return (s, text);
+    }
 }

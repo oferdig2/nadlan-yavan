@@ -25,6 +25,12 @@ public sealed record CreateParcelRequest
     public decimal? BuildFactor { get; init; }
     public string? Notes { get; init; }
 
+    /// <summary>regular (default), divided or united (<see cref="ParcelDivision"/>).</summary>
+    public string? DivisionStatus { get; init; }
+
+    /// <summary>Divided / united: the other OT / plot numbers, free text.</summary>
+    public string? RelatedNumbers { get; init; }
+
     /// <summary>The user saw the overlap warning and wants to save anyway.</summary>
     public bool AcceptOverlaps { get; init; }
 }
@@ -60,6 +66,13 @@ public sealed record UpdateParcelRequest
     public decimal? Inclination { get; init; }
     public decimal? BuildFactor { get; init; }
     public string? Notes { get; init; }
+
+    /// <summary>regular, divided or united; null = keep the current one (with its text).</summary>
+    public string? DivisionStatus { get; init; }
+
+    /// <summary>Divided / united: the other OT / plot numbers, free text (V1: not searched).</summary>
+    public string? RelatedNumbers { get; init; }
+
     public bool AcceptOverlaps { get; init; }
 
     /// <summary>The signed-in user who saves it: recorded as who entered OT / plot when those change.</summary>
@@ -114,6 +127,7 @@ public sealed class ParcelService
         ParcelNumberKey.Ensure("Plot", plot, plotExt);
         request = request with { OT = ot, OTExt = otExt, PlotNumber = plot, PlotExt = plotExt };
         var hasNumbers = ParcelNumberKey.Key(ot, otExt) is not null || ParcelNumberKey.Key(plot, plotExt) is not null;
+        var (division, related) = ParcelDivision.Resolve(request.DivisionStatus, request.RelatedNumbers, ParcelDivision.Regular, null);
         var area = await ResolveAreaAsync(request.GeographicAreaId, currentAreaId: null, ct);
         var (registryId, provisional) = ResolveRegistryId(request, area);
         await using var writeLock = await _parcels.LockParcelWritesAsync(ct); // checks below and the insert: one at a time
@@ -155,6 +169,8 @@ public sealed class ParcelService
                 PlotExt = plotExt,
                 OtPlotByUserId = hasNumbers ? request.CreatedByUserId : null,
                 OtPlotUpdatedUtc = hasNumbers ? DateTime.UtcNow : null,
+                DivisionStatus = division,
+                RelatedNumbers = related,
                 Inclination = request.Inclination,
                 BuildFactor = request.BuildFactor,
                 Notes = TextNormalize.NullIfBlank(request.Notes),
@@ -232,6 +248,7 @@ public sealed class ParcelService
         if (otChanged) { ParcelNumberKey.Ensure("OT", ot, otExt); } else { (ot, otExt) = (existing.OT, existing.OTExt); }
         if (plotChanged) { ParcelNumberKey.Ensure("Plot", plot, plotExt); } else { (plot, plotExt) = (existing.PlotNumber, existing.PlotExt); }
         var numbersChanged = otChanged || plotChanged;
+        var (division, related) = ParcelDivision.Resolve(request.DivisionStatus, request.RelatedNumbers, existing.DivisionStatus, existing.RelatedNumbers);
         var updated = existing with
         {
             RegistryId = registryId,
@@ -246,6 +263,8 @@ public sealed class ParcelService
             // Who / when, in the same UPDATE as the numbers (the history row is best-effort, these are not).
             OtPlotByUserId = numbersChanged ? request.EditedByUserId : existing.OtPlotByUserId,
             OtPlotUpdatedUtc = numbersChanged ? DateTime.UtcNow : existing.OtPlotUpdatedUtc,
+            DivisionStatus = division,
+            RelatedNumbers = related,
             Inclination = request.Inclination,
             BuildFactor = request.BuildFactor,
             Notes = TextNormalize.NullIfBlank(request.Notes),
@@ -348,6 +367,10 @@ public sealed class ParcelService
         if (before.BuildFactor != after.BuildFactor) { fields.Add("build factor"); }
         if (before.Inclination != after.Inclination) { fields.Add("inclination"); }
         if (before.Notes != after.Notes) { fields.Add("notes"); }
+        if (before.DivisionStatus != after.DivisionStatus || before.RelatedNumbers != after.RelatedNumbers)
+        {
+            fields.Add(after.DivisionStatus == ParcelDivision.Regular ? "now regular" : $"{after.DivisionStatus} (other numbers: {after.RelatedNumbers ?? "—"})");
+        }
         if (fields.Count > 0)
         {
             await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelEdited,

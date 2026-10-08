@@ -113,9 +113,13 @@
         if (s.geographicArea) { facts.push(esc(s.geographicArea)); }
         if (s.officialAreaSqm) { facts.push(esc(Nadlan.format.sqm(s.officialAreaSqm))); }
         tip.style.borderLeftColor = kind.strokeColor;
+        var division = s.divisionStatus && s.divisionStatus !== "regular"
+          ? "<span class=\"tip-tag tip-tag-division\">" + (s.divisionStatus === "divided" ? "Divided" : "United") + "</span>" +
+            (s.relatedNumbers ? " <span class=\"tip-related\">" + esc(s.relatedNumbers.length > 60 ? s.relatedNumbers.slice(0, 57) + "…" : s.relatedNumbers) + "</span>" : "")
+          : "";
         tip.innerHTML = "<div class=\"tip-numbers\">" + numbers + "</div>" +
           (facts.length ? "<div class=\"tip-facts\">" + facts.join(" · ") + "</div>" : "") +
-          (s.hasAssets ? "<div class=\"tip-tags\"><span class=\"tip-tag\">Has Asset</span></div>" : "");
+          (s.hasAssets || division ? "<div class=\"tip-tags\">" + (s.hasAssets ? "<span class=\"tip-tag\">Has Asset</span> " : "") + division + "</div>" : "");
         tip.hidden = false;
         place();
       },

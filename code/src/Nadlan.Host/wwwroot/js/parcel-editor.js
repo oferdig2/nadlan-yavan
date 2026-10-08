@@ -35,6 +35,13 @@
         "<label>OT<input class=\"input\" name=\"ot\" value=\"" + v(p.ot) + "\"></label><label class=\"narrow\">Ext<input class=\"input\" name=\"otExt\" value=\"" + v(p.otExt) + "\"></label>" +
         "<label>Plot<input class=\"input\" name=\"plotNumber\" value=\"" + v(p.plotNumber) + "\"></label><label class=\"narrow\">Ext<input class=\"input\" name=\"plotExt\" value=\"" + v(p.plotExt) + "\"></label>" +
       "</div>" +
+      // Divided / united: the other OT / plot numbers as free text (V1: shown, not searched).
+      "<label>Parcel<select class=\"input\" name=\"divisionStatus\">" +
+        [["regular", "Regular"], ["divided", "Divided"], ["united", "United"]].map(function (o) {
+          return "<option value=\"" + o[0] + "\"" + ((p.divisionStatus || "regular") === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+        }).join("") + "</select></label>" +
+      "<label data-related" + ((p.divisionStatus || "regular") === "regular" ? " hidden" : "") + ">Other OT / plot numbers" +
+        "<textarea class=\"input\" name=\"relatedNumbers\" rows=\"2\" maxlength=\"500\" placeholder=\"Free text, e.g. 171a/3 and 171a/4\">" + v(p.relatedNumbers) + "</textarea></label>" +
       "<div class=\"form-row\">" +
         "<label>Official area m²<input class=\"input\" name=\"officialAreaSqm\" data-type=\"number\" value=\"" + v(p.officialAreaSqm) + "\"></label>" +
         "<label>Build factor<input class=\"input\" name=\"buildFactor\" data-type=\"number\" data-number=\"ratio\" value=\"" + v(p.buildFactor) + "\"></label>" +
@@ -75,6 +82,12 @@
         acceptOverlaps = false; // a changed shape needs a fresh overlap check
         $form.find(".overlap-box").prop("hidden", true);
       }
+
+      // The free text only for divided / united Parcels (the server drops it for regular ones).
+      $form.on("change", "[name=divisionStatus]", function () {
+        var $related = $form.find("[data-related]").prop("hidden", this.value === "regular");
+        if (this.value !== "regular") { $related.find("textarea").trigger("focus"); }
+      });
 
       $form.on("click", "[data-geo]", function () {
         d.showError("");

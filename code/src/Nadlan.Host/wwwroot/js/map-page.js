@@ -460,8 +460,7 @@
       Nadlan.parcelEditor.open({
         drawTool: drawTool,
         onSaved: function (parcelId) {
-          setStatus("Parcel created.");
-          reload();
+          reload("Parcel created."); // shown once the map has refreshed (a reload clears the status line)
           showParcelById(parcelId);
         },
         onShowParcel: showParcelById
@@ -475,13 +474,11 @@
         onDeleted: function (id, name) {
           popups.closeParcel(id);
           parcelOverlay.clearSelection();
-          setStatus("Parcel " + name + " deleted.");
-          reload();
+          reload("Parcel " + name + " deleted.");
         },
         onSaved: function () {
-          setStatus("Parcel saved.");
           popups.refreshParcel(parcelId);
-          reload();
+          reload("Parcel saved.");
         },
         onShowParcel: showParcelById
       }).catch(function (err) { setStatus(err.message, true); });

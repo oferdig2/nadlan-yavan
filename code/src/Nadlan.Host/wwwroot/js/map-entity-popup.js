@@ -27,6 +27,10 @@
         row("Area", f.text(p.geographicArea)) +
         row("OT / Plot", f.text(p.ot) + " / " + f.text(p.plot) + (by ? "<div class=\"muted card-by\">by " + f.escapeHtml(by.name) +
           (by.utc ? ", " + f.escapeHtml(new Date(by.utc).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })) : "") + "</div>" : "")) +
+        (p.divisionStatus && p.divisionStatus !== "regular"
+          ? row("Parcel", (p.divisionStatus === "divided" ? "Divided" : "United") +
+              (p.relatedNumbers ? "<div class=\"muted card-by\">other: " + f.escapeHtml(p.relatedNumbers) + "</div>" : ""))
+          : "") +
         row("Official area", f.sqm(p.officialAreaSqm));
     }
 

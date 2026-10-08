@@ -163,6 +163,8 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .parcel-tip .tip-missing { color: #93c5fd; font-weight: 600; }
 .parcel-tip .tip-facts { color: #cbd5e1; margin-top: 2px; }
 .parcel-tip .tip-tag { display: inline-block; margin-top: 4px; padding: 0 6px; border-radius: 4px; background: #7c3aed; color: #fff; font-size: 11px; font-weight: 600; }
+.parcel-tip .tip-tag-division { background: #0e7490; }
+.parcel-tip .tip-related { color: #cbd5e1; }
 
 /* Planned "OT / plot" inside each Parcel picked for a row entry (Ctrl+click in quick entry). */
 .parcel-labels { position: absolute; left: 0; top: 0; pointer-events: none; }

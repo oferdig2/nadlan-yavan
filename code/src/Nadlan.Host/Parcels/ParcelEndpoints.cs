@@ -65,7 +65,7 @@ public static class ParcelEndpoints
     public sealed record CreateParcelDto(
         string? RegistryId, int? GeographicAreaId, double[][][]? Coordinates, decimal? OfficialAreaSqm,
         string? OT, string? OTExt, string? PlotNumber, string? PlotExt, decimal? Inclination, decimal? BuildFactor,
-        string? Notes, bool AcceptOverlaps, string? Version = null);
+        string? Notes, bool AcceptOverlaps, string? Version = null, string? DivisionStatus = null, string? RelatedNumbers = null);
 
     public sealed record ParcelNumbersItemDto(long ParcelId, string? OT, string? OTExt, string? PlotNumber, string? PlotExt, string? Version);
 
@@ -210,7 +210,7 @@ public static class ParcelEndpoints
                 {
                     parcel.RegistryId, parcel.RegistryIdIsProvisional, parcel.GeographicAreaId, ot = parcel.OT,
                     otExt = parcel.OTExt, parcel.PlotNumber, parcel.PlotExt, parcel.OfficialAreaSqm,
-                    parcel.Inclination, parcel.BuildFactor, parcel.Notes,
+                    parcel.Inclination, parcel.BuildFactor, parcel.Notes, parcel.DivisionStatus, parcel.RelatedNumbers,
                 },
                 // What the UI may offer; every write is checked again.
                 rights = new
@@ -251,6 +251,8 @@ public static class ParcelEndpoints
                 Inclination = dto.Inclination,
                 BuildFactor = dto.BuildFactor,
                 Notes = dto.Notes,
+                DivisionStatus = dto.DivisionStatus,
+                RelatedNumbers = dto.RelatedNumbers,
                 AcceptOverlaps = dto.AcceptOverlaps,
                 CreatedByUserId = me.UserId,
             }, ct);
@@ -280,6 +282,8 @@ public static class ParcelEndpoints
                 Inclination = dto.Inclination,
                 BuildFactor = dto.BuildFactor,
                 Notes = dto.Notes,
+                DivisionStatus = dto.DivisionStatus,
+                RelatedNumbers = dto.RelatedNumbers,
                 AcceptOverlaps = dto.AcceptOverlaps,
                 EditedByUserId = me.UserId,
             }, ct), me, policy, ct);
@@ -406,6 +410,8 @@ public static class ParcelEndpoints
         ot = Join(p.OT, p.OTExt),
         plot = Join(p.PlotNumber, p.PlotExt),
         officialAreaSqm = p.OfficialAreaSqm,
+        divisionStatus = p.DivisionStatus, // regular | divided | united
+        relatedNumbers = p.RelatedNumbers, // divided / united: the other OT / plot numbers, free text
     };
 
     private static async Task<Dictionary<int, string>> AreaNamesAsync(IGeographicAreaStore areas, CancellationToken ct)

@@ -295,6 +295,48 @@ public class ParcelEditTests
     }
 
 
+    [Fact]
+    public async Task A_divided_parcel_keeps_its_other_numbers_as_free_text()
+    {
+        var store = new Store();
+        store.Parcels.Add(new Parcel { ParcelId = 1, CountryId = 1, RegistryId = "TMP-A", OT = "171", PlotNumber = "3", Geometry = Square });
+        var log = new Activity();
+        var service = new ParcelService(store, new NoAreas(), new Greece(), log);
+
+        await service.UpdateAsync(new UpdateParcelRequest { ParcelId = 1, OT = "171", PlotNumber = "3", DivisionStatus = "Divided", RelatedNumbers = "  171a/3, 171a/4 (part) " });
+
+        var saved = store.Updated.Single();
+        Assert.Equal((ParcelDivision.Divided, "171a/3, 171a/4 (part)"), (saved.DivisionStatus, saved.RelatedNumbers)); // as typed, trimmed
+        Assert.Equal("Parcel details edited: divided (other numbers: 171a/3, 171a/4 (part)).", log.Entries.Single().Summary);
+    }
+
+    [Theory]
+    [InlineData(null, null, "united", "12/4")]         // field not sent (old client): kept, with its text
+    [InlineData("united", null, "united", null)]       // text emptied
+    [InlineData("regular", "12/4", "regular", null)]   // regular: no text
+    [InlineData("divided", "13/1", "divided", "13/1")]
+    public void The_status_and_text_to_store(string? status, string? text, string expectedStatus, string? expectedText)
+    {
+        Assert.Equal((expectedStatus, expectedText), ParcelDivision.Resolve(status, text, ParcelDivision.United, "12/4"));
+    }
+
+    [Fact]
+    public void An_unknown_status_or_too_long_text_is_refused()
+    {
+        Assert.Equal("PARCEL_DIVISION_INVALID", Assert.Throws<DomainValidationException>(() => ParcelDivision.Resolve("split", null, "regular", null)).Code);
+        Assert.Equal("PARCEL_RELATED_NUMBERS_TOO_LONG", Assert.Throws<DomainValidationException>(() => ParcelDivision.Resolve("divided", new string('1', 501), "regular", null)).Code);
+    }
+
+    [Fact]
+    public async Task A_new_parcel_is_regular_unless_told_otherwise()
+    {
+        var store = new Store();
+        await NewService(store).CreateAsync(new CreateParcelRequest { RegistryId = "050123456789", Geometry = Square });
+        await NewService(store).CreateAsync(new CreateParcelRequest { RegistryId = "050123456790", Geometry = Square, DivisionStatus = "united", RelatedNumbers = "5/1 + 5/2" });
+
+        Assert.Equal(new[] { ("regular", (string?)null), ("united", "5/1 + 5/2") }, store.Parcels.Select(p => (p.DivisionStatus, p.RelatedNumbers)));
+    }
+
     private static ParcelService NewService(Store store) => new(store, new NoAreas(), new Greece());
 
     private sealed class Store : IParcelStore

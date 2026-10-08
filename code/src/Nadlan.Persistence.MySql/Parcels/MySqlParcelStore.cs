@@ -24,6 +24,7 @@ public sealed class MySqlParcelStore : IParcelStore
         SELECT p.parcel_id, p.country_id, p.registry_id, p.registry_id_is_provisional, p.geographic_area_id,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt, p.official_area_sqm, p.ot, p.ot_ext,
                p.plot_number, p.plot_ext, p.ot_plot_by_user_id, p.ot_plot_updated_utc, ou.display_name AS ot_plot_by_name,
+               p.division_status, p.related_numbers,
                p.inclination, p.build_factor, p.notes, p.created_by_user_id, p.created_utc, p.updated_utc
         FROM parcel p
         LEFT JOIN app_user ou ON ou.user_id = p.ot_plot_by_user_id
@@ -78,9 +79,11 @@ public sealed class MySqlParcelStore : IParcelStore
         return await conn.ExecuteScalarAsync<long>(new CommandDefinition($"""
             INSERT INTO parcel (country_id, registry_id, registry_id_is_provisional, geographic_area_id, geometry,
                                 official_area_sqm, ot, ot_ext, plot_number, plot_ext, ot_plot_by_user_id, ot_plot_updated_utc,
+                                division_status, related_numbers,
                                 inclination, build_factor, notes, created_by_user_id)
             VALUES (@CountryId, @RegistryId, @RegistryIdIsProvisional, @GeographicAreaId, {FromWkt},
                     @OfficialAreaSqm, @OT, @OTExt, @PlotNumber, @PlotExt, @OtPlotByUserId, @OtPlotUpdatedUtc,
+                    @DivisionStatus, @RelatedNumbers,
                     @Inclination, @BuildFactor, @Notes, @CreatedByUserId);
             SELECT LAST_INSERT_ID();
             """,
@@ -88,7 +91,8 @@ public sealed class MySqlParcelStore : IParcelStore
             {
                 parcel.CountryId, parcel.RegistryId, parcel.RegistryIdIsProvisional, parcel.GeographicAreaId,
                 Wkt = parcel.Geometry.ToWkt(), parcel.OfficialAreaSqm, parcel.OT, parcel.OTExt, parcel.PlotNumber,
-                parcel.PlotExt, parcel.OtPlotByUserId, parcel.OtPlotUpdatedUtc, parcel.Inclination, parcel.BuildFactor, parcel.Notes,
+                parcel.PlotExt, parcel.OtPlotByUserId, parcel.OtPlotUpdatedUtc, parcel.DivisionStatus, parcel.RelatedNumbers,
+                parcel.Inclination, parcel.BuildFactor, parcel.Notes,
                 parcel.CreatedByUserId,
             },
             cancellationToken: ct));
@@ -322,13 +326,15 @@ public sealed class MySqlParcelStore : IParcelStore
                     geographic_area_id = @GeographicAreaId, geometry = {FromWkt}, official_area_sqm = @OfficialAreaSqm,
                     ot = @OT, ot_ext = @OTExt, plot_number = @PlotNumber, plot_ext = @PlotExt,
                     ot_plot_by_user_id = @OtPlotByUserId, ot_plot_updated_utc = @OtPlotUpdatedUtc,
+                    division_status = @DivisionStatus, related_numbers = @RelatedNumbers,
                     inclination = @Inclination, build_factor = @BuildFactor, notes = @Notes, updated_utc = UTC_TIMESTAMP(3)
                 WHERE parcel_id = @ParcelId
                 """, new
                 {
                     parcel.ParcelId, parcel.RegistryId, parcel.RegistryIdIsProvisional, parcel.GeographicAreaId,
                     Wkt = parcel.Geometry.ToWkt(), parcel.OfficialAreaSqm, parcel.OT, parcel.OTExt, parcel.PlotNumber,
-                    parcel.PlotExt, parcel.OtPlotByUserId, parcel.OtPlotUpdatedUtc, parcel.Inclination, parcel.BuildFactor, parcel.Notes,
+                    parcel.PlotExt, parcel.OtPlotByUserId, parcel.OtPlotUpdatedUtc, parcel.DivisionStatus, parcel.RelatedNumbers,
+                    parcel.Inclination, parcel.BuildFactor, parcel.Notes,
                 }, cancellationToken: ct));
         }
         catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
@@ -475,6 +481,8 @@ public sealed class MySqlParcelStore : IParcelStore
         public long? OtPlotByUserId { get; init; }
         public DateTime? OtPlotUpdatedUtc { get; init; }
         public string? OtPlotByName { get; init; }
+        public string DivisionStatus { get; init; } = ParcelDivision.Regular;
+        public string? RelatedNumbers { get; init; }
         public decimal? Inclination { get; init; }
         public decimal? BuildFactor { get; init; }
         public string? Notes { get; init; }
@@ -499,6 +507,8 @@ public sealed class MySqlParcelStore : IParcelStore
             OtPlotByUserId = OtPlotByUserId,
             OtPlotUpdatedUtc = OtPlotUpdatedUtc is DateTime t ? DateTime.SpecifyKind(t, DateTimeKind.Utc) : null,
             OtPlotByName = OtPlotByName,
+            DivisionStatus = DivisionStatus,
+            RelatedNumbers = RelatedNumbers,
             Inclination = Inclination,
             BuildFactor = BuildFactor,
             Notes = Notes,

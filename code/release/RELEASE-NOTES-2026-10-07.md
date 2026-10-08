@@ -2,7 +2,7 @@
 
 For the agent who deploys this release and then tells the customer what to look at.
 
-- **Code:** `main` with the commit "Quick entry for fast data entry" (after `f98e9b7`) or later.
+- **Code:** `main` with the commit "Parcels can be divided or united" or later.
 - **Tests:** builds clean, 233 automated tests pass, and the new features were checked on a test database (at production's
   connection limit of 20) and in a headless browser with Google Maps simulated.
 - **A separate review checked it too:** on a copy with 4,000 parcels, an OT search went from about 1.1 s to 16 ms, five
@@ -33,6 +33,8 @@ The customer's request is `AI/Remarks/ChangeRequest#1.pdf`. §3 maps each of his
 | **Who entered OT / plot** | Parcel card, under "OT / Plot": "by *name*, *date*" | Stored on each parcel and updated by every save (quick entry, group entry, edit form, new parcel). The parcel's History shows old → new values, e.g. "OT/plot set to 171a / 3 (was 12A / 5C)". Re-saving the same number (e.g. an old "47A" saved as 47 + A) credits nobody. |
 | **Per-person history (Admins)** | API only for now: `GET /api/activity/by-user?userId=<id>&entityType=Parcel&from=2026-10-07&to=2026-10-08` | Everything one user did in a period, newest first, with each parcel's KAEK. There is no screen for it yet (see §5). |
 | **Number rule** | Every save of OT / plot | A new or changed OT or plot must be a number (up to 12 digits) with at most 3 letters: 47, 47A, 171α. Typing "47A" in one field is stored as 47 + A. Keypad slips such as "47+", "47.", "47/3" or a lone "-" are refused with a clear message, so nothing half-typed turns a parcel green. Odd values already in the data don't block other edits. |
+| **Divided / united parcels** (added 2026-10-08) | Parcel edit form: **Parcel** = Regular / Divided / United; the parcel card; the hover card | Every parcel starts as Regular. For a divided or united parcel a box **Other OT / plot numbers** appears, for free text such as "171a/3 and 171a/4". The card shows "Parcel: Divided – other: …", the hover card shows a "Divided" / "United" tag, and the history records the change. V1 doesn't search this text; it may become structured, and searchable, later. |
+| **Clearer selected parcel** (2026-10-08) | Map, both views | The selected parcel now has a bright yellow outline over a dark halo, all the way round and above its neighbours, visible on any colour and on the satellite photo. Parcels picked for a row are outlined in white. Before, it was a thin black line partly hidden by the neighbouring parcels. |
 
 ### Behind the scenes
 - **Group saves are all-or-nothing:**
@@ -47,6 +49,8 @@ The customer's request is `AI/Remarks/ChangeRequest#1.pdf`. §3 maps each of his
   - `012_ot_plot_entry` adds who/when columns, search keys and indexes to `parcel`, and a (user, time) index to the
     history. It rebuilds the parcel table: a few seconds at 4,000 parcels.
   - `013_ot_plot_key_digit_groups` keeps "47/3" apart from "473" in search.
+  - `014_parcel_division` adds the Regular / Divided / United status (every existing parcel: Regular) and the free-text
+    "other OT / plot numbers".
 - No new settings, keys or permissions.
 
 ---
@@ -81,6 +85,9 @@ tabs). Use what is committed on `main`. Those changes are not part of these note
   - [ ] **Enter** saves all three.
   - Then put back the real values, or use test parcels.
 - [ ] Type "47+" as a plot in the quick form → it is refused with the message about numbers and letters.
+- [ ] Click a parcel (quick entry off) → it has a yellow outline all the way round. Open its card → **Edit** → set
+  **Parcel** to Divided, type "test 1/2" in **Other OT / plot numbers** → **Save parcel** → the card shows "Divided –
+  other: test 1/2" and so does the hover card. Set it back to Regular.
 
 ---
 
@@ -137,6 +144,15 @@ Done, exactly so.
 - Combined with the drawn rectangle or the area boxes. With no area chosen it searches the visible map (that is the
   default), or "Everywhere" if chosen.
 - It tolerates how numbers are typed: leading zeros, Greek or Latin letters, spaces or dashes.
+
+**Also new: divided and united parcels.**
+- In a parcel's edit form, **Parcel** can be set to Regular (the default), Divided or United.
+- For divided and united parcels he notes the other OT / plot numbers in his own words, e.g. "171a/3 and 171a/4". They
+  show on the parcel card and when hovering.
+- For now this text is for reading, not for searching; we can make it searchable later.
+
+**Also improved: the selected parcel** now stands out with a yellow outline all the way round, on any colour and on the
+satellite photo.
 
 ### Set expectations
 - **Who can use it:** quick entry and group entry are for users who may edit all parcels (Admin and **Data person**). Give
