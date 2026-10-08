@@ -1,0 +1,7 @@
+[Unit]
+Description=Nadlan restart helper (restarts nadlan, mysqld or nginx when the admin page asks)
+
+[Service]
+Type=oneshot
+# A fixed copy (deploy.sh), not /opt/nadlan/current/...: it keeps working after a rollback to an older release.
+ExecStart=/usr/local/sbin/nadlan-control

@@ -1,12 +1,13 @@
 <#
 .SYNOPSIS
-Uploads a built importer version to S3 (private) and prints download links for admins.
+Uploads a built importer version to S3 (private): it then shows in GreekPlot, Admin > Downloads. Also prints download links.
 
 .DESCRIPTION
 Asks which AWS identity (CLI profile) to use - it may differ from the one that runs the server - then uploads
 code\dist\NadlanKaekImporter-<version>-* (packages, .sha256, README) to
   s3://<bucket>/<prefix>/<version>/
-and writes s3://<bucket>/<prefix>/latest.json. The objects stay private: the script prints pre-signed links
+and writes s3://<bucket>/<prefix>/latest.json. With the server's bucket and <storage root>/_downloads/kaek-importer (the defaults)
+the admin page's Downloads tab lists every version and hands out fresh links. The objects stay private: the script prints pre-signed links
 (valid up to 7 days) to send to admins, and saves them in code\dist\NadlanKaekImporter-<version>-links.txt.
 Run it again later just to get fresh links (it skips files that are already uploaded unchanged).
 #>
@@ -35,7 +36,10 @@ foreach ($p in $packages) {
 $AwsProfile = Select-AwsProfile $AwsProfile "uploading the importer to S3" "awsProfileUpload"
 $Bucket = Read-Value "S3 bucket" $Bucket -Setting "importerBucket" -Default (Get-Setting "storageBucket") `
     -Pattern '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$' -PatternHint "An S3 bucket name (lowercase letters, digits, '.', '-')."
-$Prefix = (Read-Value "Folder in the bucket" $Prefix -Setting "importerPrefix" -Default "nadlan/downloads/kaek-importer" `
+# Inside the server's own storage folder: its S3 role can read it there, so Admin > Downloads lists it (ImporterDownloads.cs).
+$storageRoot = (Get-Setting "storageRoot")
+$defaultPrefix = if ($storageRoot) { "$($storageRoot.Trim('/'))/_downloads/kaek-importer" } else { "_downloads/kaek-importer" }
+$Prefix = (Read-Value "Folder in the bucket" $Prefix -Setting "importerPrefix" -Default $defaultPrefix `
     -Pattern '^[A-Za-z0-9._/-]+$' -PatternHint "Letters, digits, '.', '_', '-' and '/'.").Trim('/')
 if ($LinkDays -le 0) {
     $LinkDays = [int](Read-Value "Download links valid for how many days (1-7)" -Default "7" -Pattern '^[1-7]$' -PatternHint "1 to 7 (S3's limit).")
@@ -98,3 +102,9 @@ $linksPath = Join-Path $DistRoot "NadlanKaekImporter-$Version-links.txt"
 $lines | ForEach-Object { Write-Host $_ }
 Write-Host "Saved to $linksPath" -ForegroundColor Green
 Write-Host "Send admins the README link and the package for their machine. New links any time: run this script again."
+if ($Prefix -notlike "*/_downloads/kaek-importer" -and $Prefix -ne "_downloads/kaek-importer") {
+    Write-Warning "Admin > Downloads in GreekPlot only lists <server storage root>/_downloads/kaek-importer; this folder is not shown there."
+} else {
+    $root = $Prefix -replace '/?_downloads/kaek-importer$', ''
+    Write-Host "Also listed in GreekPlot: Admin > Downloads, on the server whose storage folder is '$root' in $Bucket." -ForegroundColor Green
+}

@@ -1,0 +1,9 @@
+[Unit]
+Description=Nadlan restart requests from the admin page (Server tab)
+
+[Path]
+# The app (user nadlan) drops request files here; nadlan-control.service (root) acts on them. deploy.sh creates the folder.
+DirectoryNotEmpty=/var/lib/nadlan-control/requests
+
+[Install]
+WantedBy=multi-user.target

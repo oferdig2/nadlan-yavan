@@ -1,5 +1,6 @@
 // Admin page composition: one tab per section; each tab is rebuilt when opened so it shows fresh data.
-// Tabs show by permission (Users/Roles: MANAGE_USERS, Contacts: contact permissions, lists: MANAGE_METADATA);
+// Tabs show by permission (Users/Roles: MANAGE_USERS, Contacts: contact permissions, lists: MANAGE_METADATA; Server,
+// Web files, Downloads, Settings: the Admins in MachineAdminAccess);
 // the server enforces the same rules on every call.
 (function (window, $) {
   "use strict";
@@ -25,6 +26,14 @@
       Nadlan.initializeAdminRoles($panel);
     } else if (tab === "contacts") {
       Nadlan.initializeAdminContacts($panel);
+    } else if (tab === "server") {
+      Nadlan.initializeAdminServer($panel);
+    } else if (tab === "web-files") {
+      Nadlan.initializeAdminWebFiles($panel);
+    } else if (tab === "downloads") {
+      Nadlan.initializeAdminDownloads($panel);
+    } else if (tab === "settings") {
+      Nadlan.initializeAdminSettings($panel);
     } else {
       Nadlan.initializeMetadataTableEditor($panel, $.extend({ table: tab }, LISTS[tab]));
     }
@@ -39,6 +48,7 @@
       function (err) { if (window.console) { console.warn("Client config not loaded; file uploads may be unavailable.", err); } });
 
     Nadlan.session.applyRequires();
+    $("[data-machine-admin]").prop("hidden", !Nadlan.session.user().machineAdmin);
     var allowed = $("[data-tab]").filter(function () { return !this.hidden; }).map(function () { return $(this).data("tab"); }).get();
     if (!allowed.length) {
       $("#admin-panel").html("<div class=\"muted\">You have no administration rights. <a href=\"/\">Back to the map</a></div>");

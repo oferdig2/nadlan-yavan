@@ -33,7 +33,18 @@ public interface IObjectStorage
 
     /// <summary>Stores a small object in one request (preview images; files themselves go up multipart from the browser).</summary>
     Task PutObjectAsync(string key, byte[] content, string contentType, CancellationToken ct = default) => throw new NotSupportedException();
+
+    /// <summary>Objects whose key starts with <paramref name="prefix"/> (keys relative to the storage root, like every key here).</summary>
+    Task<IReadOnlyList<StoredObject>> ListAsync(string prefix, CancellationToken ct = default) => throw new NotSupportedException();
+
+    /// <summary>A small text object (at most <paramref name="maxBytes"/>), or null if it doesn't exist or is larger.</summary>
+    Task<string?> ReadTextAsync(string key, int maxBytes, CancellationToken ct = default) => throw new NotSupportedException();
+
+    /// <summary>A short-lived link that downloads the object as a file named <paramref name="downloadName"/> (never shown inline).</summary>
+    string GetAttachmentUrl(string key, string downloadName, TimeSpan lifetime) => throw new NotSupportedException();
 }
+
+public sealed record StoredObject(string Key, long Size, DateTimeOffset LastModifiedUtc);
 
 /// <summary>
 /// Turns a storage key into a URL the browser can load: an S3 presigned URL (dev), a CloudFront signed URL,

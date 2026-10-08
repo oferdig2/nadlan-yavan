@@ -50,6 +50,21 @@ public static class MySqlAppConfigLoader
         }
     }
 
+    /// <summary>
+    /// The configuration a process would see from these rows, later rows winning (common:application, then ms:...), without
+    /// files or environment variables. Used to check an edited row before it is saved.
+    /// </summary>
+    public static IConfigurationRoot BuildFromRows(params string?[] rowsJson)
+    {
+        var builder = new ConfigurationBuilder();
+        foreach (var json in rowsJson.Where(AppConfigJson.IsValidObject))
+        {
+            builder.AddInMemoryCollection(JsonKeyValueFlattener.Flatten(json!));
+        }
+
+        return builder.Build();
+    }
+
     private static async Task<string?> LoadAndSeedAsync(AppConfigMySqlStore store, string configKey, string? defaults, CancellationToken ct)
     {
         var (found, json, _) = await store.TryGetAsync(configKey, ct);

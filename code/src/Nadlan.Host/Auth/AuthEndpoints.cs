@@ -96,6 +96,7 @@ public static class AuthEndpoints
             me.HasPassword,
             loginMethod = http.User.LoginMethod(),
             canCreateAsset = AccessPolicy.CanCreateAsset(me),
+            machineAdmin = Nadlan.Host.Machine.MachineAdminAccess.IsMachineAdmin(me), // admin.html: Server, Web files, Settings tabs
         }));
 
         group.MapPost("/change-password", async (ChangePasswordDto dto, UserAccess me, AuthService auth, HttpContext http, CancellationToken ct) =>

@@ -26,3 +26,6 @@ code/dist/
 
 # Release scripts: remembered answers (code/release/release.local.json) - local to each admin PC
 code/release/release.local.json
+
+# Hot patches made on a developer PC (admin page > Web files)
+App_Data/

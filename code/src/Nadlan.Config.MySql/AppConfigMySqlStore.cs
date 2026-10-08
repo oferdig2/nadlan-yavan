@@ -38,6 +38,26 @@ public sealed class AppConfigMySqlStore
         return result;
     }
 
+    /// <summary>
+    /// Replaces a row only if it is still the version the editor loaded (<paramref name="expectedUpdatedUtcMs"/>; 0 = the
+    /// row must not exist yet). Returns the new version, or null when someone else saved in between.
+    /// </summary>
+    public async Task<long?> TryReplaceAsync(string configKey, string jsonText, long expectedUpdatedUtcMs, CancellationToken ct = default)
+    {
+        await using var conn = new MySqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        // Strictly newer than the version it replaces, even within the same millisecond.
+        var now = Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), expectedUpdatedUtcMs + 1);
+        await using var cmd = new MySqlCommand(expectedUpdatedUtcMs == 0
+            ? "INSERT IGNORE INTO app_config (config_key, json_text, updated_utc_ms) VALUES (@config_key, @json_text, @now)"
+            : "UPDATE app_config SET json_text = @json_text, updated_utc_ms = @now WHERE config_key = @config_key AND updated_utc_ms = @expected", conn);
+        cmd.Parameters.AddWithValue("@config_key", configKey);
+        cmd.Parameters.AddWithValue("@json_text", jsonText);
+        cmd.Parameters.AddWithValue("@now", now);
+        cmd.Parameters.AddWithValue("@expected", expectedUpdatedUtcMs);
+        return await cmd.ExecuteNonQueryAsync(ct) == 1 ? now : null;
+    }
+
     public async Task UpsertAsync(string configKey, string jsonText, CancellationToken ct = default)
     {
         await using var conn = new MySqlConnection(_connectionString);

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Nadlan.Core.Security;
 using Nadlan.Host.Configuration;
+using Nadlan.Host.Machine;
 using Nadlan.Persistence.MySql;
 
 namespace Nadlan.Host.Auth;
@@ -120,6 +121,10 @@ public static class AuthRegistration
             app.UseForwardedHeaders();
         }
 
+        // Hot patches (server page, Web files) are served in front of the release's own files.
+        var webFiles = app.Services.GetRequiredService<WebFiles>();
+        app.Environment.WebRootFileProvider = webFiles.CreateServedFiles(app.Environment.WebRootFileProvider);
+
         app.UseDefaultFiles();
 
         // Signed-out visitors of the map/admin page go to the login page instead of an empty shell.
@@ -137,13 +142,17 @@ public static class AuthRegistration
             await next();
         });
 
-        // Pages, scripts and styles are revalidated on every load (a 304 when unchanged): after a deploy no browser keeps
-        // running yesterday's scripts against today's API.
+        app.UsePrecompressedStaticFiles(app.Environment.WebRootFileProvider, webFiles);
+
+        // Pages, scripts and styles are revalidated on every load (a 304 when unchanged): after a deploy or a hot patch no
+        // browser keeps running yesterday's scripts against today's API.
         app.UseStaticFiles(new StaticFileOptions
         {
+            ContentTypeProvider = new PrecompressedStaticFiles.ContentTypes(),
             OnPrepareResponse = ctx =>
             {
-                var ext = Path.GetExtension(ctx.File.Name);
+                var name = ctx.File.Name;
+                var ext = Path.GetExtension(WebFiles.CompressedSuffix(name) is { } suffix ? name[..^suffix.Length] : name);
                 if (ext.Equals(".html", StringComparison.OrdinalIgnoreCase) || ext.Equals(".js", StringComparison.OrdinalIgnoreCase)
                     || ext.Equals(".css", StringComparison.OrdinalIgnoreCase))
                 {

@@ -7,7 +7,7 @@ namespace Nadlan.Config.MySql;
 /// <summary>JSON helpers for app_config documents.</summary>
 public static class AppConfigJson
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    internal static readonly JsonSerializerOptions IndentedOptions = new() { WriteIndented = true };
     private static readonly JsonDocumentOptions Lenient = new() { AllowTrailingCommas = true };
 
     public static bool IsValidObject(string? json)
@@ -59,7 +59,7 @@ public static class AppConfigJson
             return null;
         }
 
-        return new JsonObject { [sectionName] = ToNode(section) }.ToJsonString(Indented);
+        return new JsonObject { [sectionName] = ToNode(section) }.ToJsonString(IndentedOptions);
     }
 
     /// <summary>
@@ -89,7 +89,7 @@ public static class AppConfigJson
         }
 
         node[ExistingName(node, parts[^1]) ?? parts[^1]] = value is null ? null : JsonValue.Create(value);
-        return root.ToJsonString(Indented);
+        return root.ToJsonString(IndentedOptions);
     }
 
     /// <summary>Deletes the key at a config path. Returns the document and whether the key existed.</summary>
@@ -108,7 +108,7 @@ public static class AppConfigJson
         }
 
         var leaf = parts.Length == 0 ? null : ExistingName(node, parts[^1]);
-        return leaf is not null && node.Remove(leaf) ? (root.ToJsonString(Indented), true) : (json, false);
+        return leaf is not null && node.Remove(leaf) ? (root.ToJsonString(IndentedOptions), true) : (json, false);
     }
 
     /// <summary>
@@ -128,7 +128,7 @@ public static class AppConfigJson
         var current = ParseObject(currentJson);
         var defaults = ParseObject(defaultsJson);
         var changed = AddMissing(current, defaults);
-        return (current.ToJsonString(Indented), changed);
+        return (current.ToJsonString(IndentedOptions), changed);
     }
 
     private static bool AddMissing(JsonObject target, JsonObject defaults)

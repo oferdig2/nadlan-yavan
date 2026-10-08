@@ -160,6 +160,59 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             }, ct);
         });
 
+    public Task<IReadOnlyList<StoredObject>> ListAsync(string prefix, CancellationToken ct = default)
+        => Guard<IReadOnlyList<StoredObject>>(async () =>
+        {
+            var root = _options.FullKey("");
+            var result = new List<StoredObject>();
+            var request = new ListObjectsV2Request { BucketName = _options.Bucket, Prefix = _options.FullKey(prefix) };
+            ListObjectsV2Response response;
+            do
+            {
+                response = await Client.ListObjectsV2Async(request, ct);
+                result.AddRange((response.S3Objects ?? new List<S3Object>()).Select(o => new StoredObject(
+                    o.Key[root.Length..], o.Size ?? 0, new DateTimeOffset(DateTime.SpecifyKind(o.LastModified ?? DateTime.UtcNow, DateTimeKind.Utc)))));
+                request.ContinuationToken = response.NextContinuationToken;
+            }
+            while (response.IsTruncated == true);
+            return result;
+        });
+
+    public Task<string?> ReadTextAsync(string key, int maxBytes, CancellationToken ct = default)
+        => Guard(async () =>
+        {
+            try
+            {
+                using var response = await Client.GetObjectAsync(new GetObjectRequest { BucketName = _options.Bucket, Key = _options.FullKey(key) }, ct);
+                if (response.ContentLength > maxBytes)
+                {
+                    return null;
+                }
+
+                using var reader = new StreamReader(response.ResponseStream);
+                return (string?)await reader.ReadToEndAsync(ct);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+        });
+
+    public string GetAttachmentUrl(string key, string downloadName, TimeSpan lifetime)
+        => Guard(() =>
+        {
+            var request = new GetPreSignedUrlRequest
+            {
+                BucketName = _options.Bucket,
+                Key = _options.FullKey(key),
+                Verb = HttpVerb.GET,
+                Expires = DateTime.UtcNow.Add(lifetime),
+                Protocol = Protocol.HTTPS,
+            };
+            request.ResponseHeaderOverrides.ContentDisposition = $"attachment; filename=\"{downloadName.Replace("\"", "")}\"";
+            return Client.GetPreSignedURL(request);
+        });
+
     public void Dispose()
     {
         if (_client.IsValueCreated)

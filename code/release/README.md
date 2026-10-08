@@ -12,7 +12,7 @@ Each script also runs on its own (`.\4-install-server.ps1`). Your answers (serve
 | Script | What it does |
 |---|---|
 | `1-build-importer.ps1` | Builds the KAEK polygon importer for Windows, Mac Apple Silicon and Mac Intel (self-contained), with checksums and an admin README, into `code\dist` |
-| `2-upload-importer-s3.ps1` | Asks which AWS identity to use, uploads a built version to a private S3 folder, and prints download links valid up to 7 days |
+| `2-upload-importer-s3.ps1` | Asks which AWS identity to use and uploads a built version into the server's storage folder (`<root>/_downloads/kaek-importer`, private). It then shows in GreekPlot under Admin → Downloads; the script also prints download links valid up to 7 days |
 | `3-create-ec2-server.ps1` | Optional. Creates the EC2 instance (t3.micro, Amazon Linux 2023) with a key pair, firewall, S3 role and Elastic IP |
 | `4-install-server.ps1` | Installs everything on the server: MySQL, nginx, HTTPS, the app, backups. Safe to re-run |
 | `5-copy-local-db.ps1` | Replaces the server's data with your local database, keeping the server's settings. Can also copy the S3 files |
@@ -44,6 +44,12 @@ Each script also runs on its own (`.\4-install-server.ps1`). Your answers (serve
 - **Dropped connection:** install, update, restore and rollback run on the server as their own systemd unit, so they finish (or roll back) even if your SSH connection drops; the script reconnects and keeps showing the output. Their logs are in `/var/lib/nadlan-ops` for 30 days.
 - **HTTPS:** Let's Encrypt via certbot, with automatic renewal (`certbot-renew.timer`). The app trusts nginx's `X-Forwarded-*` headers, so cookies are `Secure` and Google sign-in builds `https` links.
 - **Files:** the browser uploads straight to S3. The server reaches S3 through its EC2 instance role, so no keys are stored on it.
+- **Admin page → Server, Web files, Downloads, Settings** (only oferdig2@gmail.com and alon.schwarz@gmail.com, fixed in `MachineAdminAccess.cs`; everyone else gets 404):
+  - *Server:* CPU (with t3 "steal"), memory, swap, disk and load, and per service (app, MySQL, nginx) CPU and memory for the last hour, MySQL internals, and **Restart** buttons. The app can't run `systemctl` (no sudo), so it drops a request file into `/var/lib/nadlan-control/requests`; the root unit `nadlan-control.path` runs `/usr/local/sbin/nadlan-control` (`server/control.sh`), which acts only on the names `restart-nadlan`, `restart-mysqld` and `restart-nginx`. `deploy.sh` installs it with every update.
+  - *Web files:* hot patches of HTML/JS/CSS (and images, fonts) without a deploy: edit in the browser or upload. A patch never touches the release (it stays read-only); it goes into `/var/lib/nadlan/hotfix/<release>/wwwroot`, served in front of the release's file, with its `.br` and `.gz` made on the server. It lasts until the next deploy, so commit the same change to git. Revert = back to the release's file.
+  - *Downloads:* the KAEK importer for Windows, Mac (Apple chip) and Mac (Intel), every uploaded version, with checksums and the admin README. Each click gets a fresh 10-minute S3 link through the server's own role, so nothing expires on the page.
+  - *Settings:* the `app_config` rows as a form (or raw JSON). Secrets stay on the server, a save that would stop the app from starting is refused, and the app reads settings when it starts: use *Restart the app* after saving.
+- **Compression:** the app serves the `.br`/`.gz` copies that `dotnet publish` makes for every page, script and style (brotli at maximum level) to browsers that accept them; nginx's own gzip still covers the API's JSON.
 
 ## On the server
 

@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\Nadlan.Config.MySql\Nadlan.Config.MySql.csproj" />
     <ProjectReference Include="..\..\src\Nadlan.Persistence.MySql\Nadlan.Persistence.MySql.csproj" />
     <ProjectReference Include="..\..\src\Nadlan.Storage.S3\Nadlan.Storage.S3.csproj" />
+    <ProjectReference Include="..\..\src\Nadlan.Host\Nadlan.Host.csproj" />
   </ItemGroup>
 
 </Project>

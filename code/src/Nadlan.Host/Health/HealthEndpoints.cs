@@ -7,7 +7,7 @@ namespace Nadlan.Host.Health;
 public static class HealthEndpoints
 {
     // The release id the server package was built with (code/release passes it as InformationalVersion); "dev" locally.
-    private static readonly string Version =
+    internal static readonly string Version =
         typeof(HealthEndpoints).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "dev";
 
     /// <summary>

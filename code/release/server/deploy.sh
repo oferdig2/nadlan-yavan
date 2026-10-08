@@ -70,6 +70,16 @@ install_units() {
     install -m 644 "$1/server/nadlan.service" /etc/systemd/system/nadlan.service
     install -m 644 "$1/server/nadlan-backup.service" /etc/systemd/system/nadlan-backup.service
     install -m 644 "$1/server/nadlan-backup.timer" /etc/systemd/system/nadlan-backup.timer
+    # Restart helper for the admin page (Server tab). Releases before it don't have these files: leave what is installed.
+    if [[ -f "$1/server/control.sh" ]]; then
+        install -m 755 "$1/server/control.sh" /usr/local/sbin/nadlan-control
+        install -m 644 "$1/server/nadlan-control.path" /etc/systemd/system/nadlan-control.path
+        install -m 644 "$1/server/nadlan-control.service" /etc/systemd/system/nadlan-control.service
+        # Root-owned, so the app can't swap the folders for links; it may only drop files into requests (group nadlan,
+        # sticky: its own files only).
+        install -d -m 755 -o root -g root /var/lib/nadlan-control /var/lib/nadlan-control/results
+        install -d -m 1770 -o root -g nadlan /var/lib/nadlan-control/requests
+    fi
     systemctl daemon-reload
 }
 
@@ -86,6 +96,9 @@ install_units "$NEW"
 ln -sfn "$CURRENT_LINK/server/nadlan-db.sh" /usr/bin/nadlan-db
 systemctl enable "$SERVICE" >/dev/null 2>&1
 systemctl enable --now nadlan-backup.timer >/dev/null 2>&1
+if [[ -f /etc/systemd/system/nadlan-control.path ]]; then
+    systemctl enable --now nadlan-control.path >/dev/null 2>&1 || warn "nadlan-control.path did not start: the admin page's Restart buttons won't work."
+fi
 systemctl start "$SERVICE"
 
 step "Waiting for the app"
