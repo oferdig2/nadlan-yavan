@@ -225,13 +225,19 @@
   // The enclosed areas of the parcel-lines layer ("ΚΤΗΜΑΤΟΓΡΑΦΗΣΗ", yellow lines on a transparent image) in the
   // current view. Each area is one parcel, road or the sea. For each: the point farthest from any line, and
   // sample points every sampleStepMetres with their distance to the nearest line. Coordinates are EGSA87 metres.
-  // Returns { error } when the layer is not shown, or { retry: true } while its tiles are still loading.
+  // Returns { error } when the layer is not shown, or { retry: true } while its tiles are still loading or the map has
+  // no usable size or extent (mid-zoom, resizing, window minimised) - every number returned must be finite: the .NET side
+  // cannot take NaN or Infinity.
   function findAreas(sampleStepMetres) {
     var canvas = document.getElementById("KT.KTWebMap.0.ContainerDrawingCanvas");
     var layer = (MyMap.ReturnLayers() || []).filter(function (l) { return l.visible && /ΚΤΗΜΑΤΟΓΡΑΦ/i.test(l.LayerName); })[0];
     if (!canvas || !layer) { return { error: "The parcel lines layer is not shown on the map. Zoom in until the yellow lines appear." }; }
     var box = canvas.getBoundingClientRect();
     var W = Math.round(box.width), H = Math.round(box.height);
+    var e = MyMap.MapExtents();
+    if (!(W > 0 && H > 0) || !e || ![e.left, e.right, e.top, e.bottom].every(isFinite) || !(e.right > e.left && e.top > e.bottom)) {
+      return { retry: true, notReady: "map size " + W + " x " + H + " px, extent " + (e ? [e.left, e.right, e.top, e.bottom].join(", ") : "none") };
+    }
     var tiles = [].slice.call(document.querySelectorAll("img")).filter(function (t) {
       if (t.id.indexOf("KT.KTWebMap.0.") !== 0 || t.src.indexOf("Layer=" + layer.LayerSource) < 0 || !t.offsetParent) { return false; }
       var r = t.getBoundingClientRect();
@@ -282,7 +288,6 @@
       areas.push({ size: size, best: best, samples: [] });
     }
 
-    var e = MyMap.MapExtents();
     var mx = (e.right - e.left) / W, my = (e.top - e.bottom) / H;
     function point(i) {
       return [+(e.left + (i % W + 0.5) * mx).toFixed(2), +(e.top - ((i / W | 0) + 0.5) * my).toFixed(2), +(dist[i] / 3 * mx).toFixed(2)];

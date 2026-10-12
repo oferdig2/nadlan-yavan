@@ -40,22 +40,43 @@ public sealed class KtimanetPage
     /// </summary>
     public async Task<(MapAreas? Areas, string? Error)> ReadAreasAsync(double sampleStepMetres)
     {
+        string? notReady = null;
         for (var attempt = 0; attempt < 20; attempt++)
         {
-            var reply = await _page.EvaluateAsync<JsonElement>(
-                "s => typeof MyMap === 'undefined' || !window.NadlanPanel ? { error: 'The Ktimatologio map is not loaded yet.' } : NadlanPanel.findAreas(s)",
-                sampleStepMetres);
+            if (attempt > 0) await Task.Delay(500);
+            JsonElement reply;
+            try
+            {
+                reply = await _page.EvaluateAsync<JsonElement>(
+                    "s => typeof MyMap === 'undefined' || !window.NadlanPanel ? { error: 'The Ktimatologio map is not loaded yet.' } : NadlanPanel.findAreas(s)",
+                    sampleStepMetres);
+            }
+            catch (ArgumentException ex)
+            {
+                // Playwright can't turn a NaN/Infinity from the page into JSON (a customer hit it mid-zoom, 2026-10-12);
+                // findAreas guards against it, and anything that still slips through is treated as "map not ready".
+                notReady = ex.Message;
+                continue;
+            }
+
             var dto = reply.Deserialize<AreasDto>(Json)!;
             if (dto.Error is not null) return (null, dto.Error);
             if (dto.Retry)
             {
-                await Task.Delay(500);
+                notReady = dto.NotReady;
                 continue;
             }
 
             var e = dto.Extent!;
             return (new MapAreas(new MapExtent(e.Left, e.Right, e.Top, e.Bottom), dto.MetresPerPixel,
                 dto.Areas!.Select(a => new MapArea(a.Size, Point(a.Point), a.Samples.Select(Point).ToList())).ToList()), null);
+        }
+
+        if (notReady is not null)
+        {
+            Console.WriteLine($"The map was not ready for 10 s: {notReady}");
+            return (null, "The map is not ready - it may still be zooming, or the window is too small or minimised. " +
+                          "Let the map settle, then click Acquire polygons again.");
         }
 
         return (null, "The parcel lines did not finish loading. Wait for the map, then try again.");
@@ -65,7 +86,7 @@ public sealed class KtimanetPage
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private sealed record AreasDto(string? Error, bool Retry, ExtentDto? Extent, double MetresPerPixel, List<AreaDto>? Areas);
+    private sealed record AreasDto(string? Error, bool Retry, string? NotReady, ExtentDto? Extent, double MetresPerPixel, List<AreaDto>? Areas);
     private sealed record ExtentDto(double Left, double Right, double Top, double Bottom);
     private sealed record AreaDto(int Size, double[] Point, List<double[]> Samples);
 

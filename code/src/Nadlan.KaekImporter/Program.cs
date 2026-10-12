@@ -105,7 +105,22 @@ public static class Program
         // Null while offline; also while not connected, but then nothing can be started.
         NadlanApiClient? Nadlan() => connection.Offline is null && !connection.NeedsConnect ? client : null;
 
-        await context.ExposeFunctionAsync("nadlanConnect", async () =>
+        // Last line of defence for the panel's buttons: an unexpected error goes to the log with its details, and the panel
+        // shows a plain sentence - never .NET's own text (a customer got a raw JSON serializer message, 2026-10-12).
+        async Task<string> Safely(string action, Func<Task<string>> body)
+        {
+            try
+            {
+                return await body();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"{action} failed: {ex}");
+                return $"{action} failed unexpectedly. Try again; if it keeps happening, send the log file {logPath} to support.";
+            }
+        }
+
+        await context.ExposeFunctionAsync("nadlanConnect", () => Safely("Connecting to GreekPlot", async () =>
         {
             if (connection.Offline is not null) return "Offline: restart the importer when GreekPlot is reachable.";
             if (connecting) return "The GreekPlot tab is already open - sign in there and click Connect.";
@@ -131,9 +146,9 @@ public static class Program
                 return "Could not connect: " + ex.Message;
             }
             finally { connecting = false; }
-        });
+        }));
 
-        await context.ExposeFunctionAsync("nadlanStart", async (string areaId) =>
+        await context.ExposeFunctionAsync("nadlanStart", (string areaId) => Safely("Starting the import", async () =>
         {
             if (connection.NeedsConnect) return "Connect to GreekPlot first.";
             if (current is not null) return "An import is already running.";
@@ -146,7 +161,11 @@ public static class Program
                 if (read is null) return error ?? "Could not read the map.";
                 view = read;
             }
-            catch (PlaywrightException ex) { return "Could not read the map: " + ex.Message; }
+            catch (PlaywrightException ex)
+            {
+                Console.Error.WriteLine("Reading the map failed: " + ex);
+                return "Could not read the map: " + ex.Message.Split('\n')[0].Trim();
+            }
 
             var cts = current = new CancellationTokenSource();
             Console.WriteLine($"Import started over {view.Extent.Width:0} x {view.Extent.Height:0} m, {view.Areas.Count} areas.");
@@ -166,9 +185,9 @@ public static class Program
                 }
             });
             return "";
-        });
+        }));
         await context.ExposeFunctionAsync("nadlanStop", () => { current?.Cancel(); });
-        await context.ExposeFunctionAsync("nadlanClickMode", async (bool on, string areaId) =>
+        await context.ExposeFunctionAsync("nadlanClickMode", (bool on, string areaId) => Safely("Switching click import", async () =>
         {
             if (on)
             {
@@ -183,7 +202,7 @@ public static class Program
             clicks = null;
             if (stopping is not null) await stopping.StopAsync();
             return "";
-        });
+        }));
 
         // Click import: the site's reply to the user's own map click already holds the KAEK and polygon.
         // Our sweep's requests look the same, so they are ignored while a sweep runs.
