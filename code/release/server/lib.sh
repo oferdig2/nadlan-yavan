@@ -79,5 +79,7 @@ pin_backup_target() {   # pin_backup_target <client.cnf> [--force]
     root="${root#/}"; root="${root%/}"
     [[ -z "$bucket" || "$bucket" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || { warn "Odd bucket name '$bucket' in app_config; the backup target was not pinned."; return 1; }
     ( umask 077; printf 'BACKUP_S3_BUCKET=%q\nBACKUP_S3_ROOT=%q\nBACKUP_S3_REGION=%q\n' "$bucket" "$root" "$region" > "$BACKUP_TARGET_FILE" )
-    echo "Backup copies go to: ${bucket:+s3://$bucket/${root:+$root/}_backups/db/}${bucket:-(no S3 bucket: kept on this disk only)} (pinned in $BACKUP_TARGET_FILE)"
+    local target="(no S3 bucket: kept on this disk only)"
+    [[ -n "$bucket" ]] && target="s3://$bucket/${root:+$root/}_backups/db/"
+    echo "Backup copies go to: $target (pinned in $BACKUP_TARGET_FILE)"
 }
