@@ -22,7 +22,7 @@ public sealed partial class ImporterDownloads
     {
         ["windows"] = ("Windows", "Windows 10/11, 64-bit. Extract, then run Install.cmd (no admin rights needed).", 0),
         ["mac-apple-silicon"] = ("Mac with Apple chip", "M1-M4 Macs, macOS 13+. Unpack, drag to Applications, approve once in Privacy & Security.", 1),
-        ["mac-intel"] = ("Mac with Intel chip", "Older Intel Macs, macOS 13+. Same steps as Apple chip.", 2),
+        ["mac-intel"] = ("Mac with Intel chip", "Older Macs with an Intel processor, macOS 13+ - not for M1-M4 Macs. Same steps as Apple chip.", 2),
     };
 
     // NadlanKaekImporter-1.2.0-windows.zip / -mac-intel.tar.gz / -README.txt (+ .sha256 next to each package)

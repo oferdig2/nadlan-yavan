@@ -98,6 +98,8 @@
 .download-sum code { font-size: 11px; }
 .download-older { margin-top: 12px; }
 .download-older summary { cursor: pointer; color: var(--accent); margin-bottom: 6px; }
+.download-which { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 6px; padding: 8px 12px; font-size: 13px; line-height: 1.5; margin: 8px 0 4px; }
 .download-empty { background: var(--surface); border: 1px dashed var(--border); border-radius: 8px; padding: 12px; }
 .download-card { cursor: pointer; }
 .download-card:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); }
