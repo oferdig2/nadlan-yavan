@@ -29,3 +29,6 @@ code/release/release.local.json
 
 # Hot patches made on a developer PC (admin page > Web files)
 App_Data/
+
+# Database backups brought down from the server (personal data, secrets) - never commit
+Backups/
