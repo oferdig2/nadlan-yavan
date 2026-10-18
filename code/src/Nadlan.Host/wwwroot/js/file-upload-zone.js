@@ -5,6 +5,13 @@
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
 
+  // Phones and tablets: Browse offers every file, not just the zone's kinds. With accept="image/*,video/*" Android opens
+  // its photo picker, which shows only the gallery - not a USB card reader with drone footage (a customer, 2026-10-18).
+  // The zone still sorts each file by its kind, as drag-and-drop does. Macs and PCs keep the filtered file window.
+  // iPadOS reports itself as a Mac; touch points tell them apart.
+  var touchDevice = /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent) ||
+    (/Macintosh/.test(window.navigator.userAgent) && window.navigator.maxTouchPoints > 1);
+
   function formatSize(bytes) {
     if (bytes >= 1073741824) { return (bytes / 1073741824).toFixed(1) + " GB"; }
     if (bytes >= 1048576) { return (bytes / 1048576).toFixed(1) + " MB"; }
@@ -25,7 +32,7 @@
       "<div class=\"drop-area\" tabindex=\"0\">" +
         "<div class=\"drop-label\">" + esc(zone.label) + "</div>" +
         "<div class=\"drop-hint muted\">Drop files or <u>browse</u></div>" +
-        "<input type=\"file\" multiple hidden" + (zone.accept ? " accept=\"" + esc(zone.accept) + "\"" : "") + ">" +
+        "<input type=\"file\" multiple hidden" + (zone.accept && !touchDevice ? " accept=\"" + esc(zone.accept) + "\"" : "") + ">" +
       "</div>" +
       "<ul class=\"upload-queue\"></ul>");
     var $drop = $root.find(".drop-area");
