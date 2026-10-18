@@ -35,7 +35,7 @@
       "#nadlan-panel label{display:block;margin-bottom:6px}" +
       "#nadlan-panel [hidden]{display:none!important}" +
       "#nadlan-panel label.check{display:flex;gap:6px;align-items:center;margin:4px 0 0}" +
-      "#nadlan-panel select{width:100%;padding:4px;margin-top:2px}" +
+      "#nadlan-panel select{width:100%;padding:4px;margin-top:2px}#nadlan-panel select.missing{outline:2px solid #dc2626;background:#fef2f2}" +
       "#nadlan-panel .actions{display:flex;gap:6px;margin:8px 0}" +
       "#nadlan-panel .actions button{flex:1;padding:6px;border-radius:6px;border:1px solid #1d4ed8;cursor:pointer;font-weight:600}" +
       "#nadlan-start{background:#1d4ed8;color:#fff}#nadlan-start:disabled{opacity:.5;cursor:default}" +
@@ -64,7 +64,7 @@
         "<button type=\"button\" id=\"nadlan-connect-btn\">Connect to GreekPlot</button>" +
         "Opens GreekPlot in a new tab: sign in with your email and password, then click Connect. The tab closes by itself and " +
         "the importer remembers the connection. Your user must be allowed to create Parcels.</div>" +
-      "<label id=\"nadlan-area-label\">Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">(none)</option></select></label>" +
+      "<label id=\"nadlan-area-label\">Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">- choose the area -</option></select></label>" +
       "<label class=\"check\"><input type=\"checkbox\" id=\"nadlan-click\"> Import each parcel I click on the map</label>" +
       "<div class=\"actions\"><button type=\"button\" id=\"nadlan-start\">Acquire polygons</button>" +
       "<button type=\"button\" id=\"nadlan-stop\" disabled>Stop</button></div>" +
@@ -74,7 +74,9 @@
     document.body.appendChild(panel);
 
     document.getElementById("nadlan-min").onclick = function () { panel.classList.toggle("min"); };
+    document.getElementById("nadlan-area").onchange = function () { this.classList.remove("missing"); };
     document.getElementById("nadlan-start").onclick = function () {
+      if (!requireArea()) { return; }
       var areaId = document.getElementById("nadlan-area").value;
       setRunning(true);
       window.nadlanStart(areaId).then(function (error) {
@@ -83,6 +85,7 @@
     };
     document.getElementById("nadlan-click").onchange = function () {
       var box = this, on = box.checked;
+      if (on && !requireArea()) { box.checked = false; return; }
       box.disabled = true;
       window.nadlanClickMode(on, document.getElementById("nadlan-area").value).then(function (error) {
         box.disabled = false;
@@ -178,7 +181,7 @@
 
     var select = document.getElementById("nadlan-area");
     var chosen = select.value;
-    select.innerHTML = "<option value=\"\">(none)</option>" + (s.areas || []).map(function (a) {
+    select.innerHTML = "<option value=\"\">- choose the area -</option>" + (s.areas || []).map(function (a) {
       return "<option value=\"" + a.id + "\"" + (String(a.id) === chosen ? " selected" : "") + ">" + esc(a.name) + "</option>";
     }).join("");
 
@@ -198,6 +201,17 @@
   }
 
   function status(text) { document.getElementById("nadlan-status").textContent = text; }
+
+  // Every parcel saved needs its geographic area (parcels without one were showing up in GreekPlot). Offline nothing is
+  // saved, so no area is asked for. The .NET side and the server check it again.
+  function requireArea() {
+    var select = document.getElementById("nadlan-area");
+    if (offline || select.value) { return true; }
+    select.classList.add("missing");
+    select.focus();
+    status("Choose the geographic area for the new parcels first.");
+    return false;
+  }
 
   function log(text, kind) {
     var box = document.getElementById("nadlan-log");

@@ -26,8 +26,15 @@ public sealed class ImportSession
     private readonly DateTime _started = DateTime.Now;
     private int _nadlanErrors;
 
+    /// <param name="geographicAreaId">Required whenever parcels are saved (nadlan not null): a parcel without an area must
+    /// never be created. Program checks it first and tells the user.</param>
     public ImportSession(KtimanetPage site, NadlanApiClient? nadlan, int? geographicAreaId, TextWriter console)
     {
+        if (nadlan is not null && geographicAreaId is null)
+        {
+            throw new ArgumentException("A geographic area is required to save parcels.", nameof(geographicAreaId));
+        }
+
         _site = site;
         _nadlan = nadlan;
         _geographicAreaId = geographicAreaId;

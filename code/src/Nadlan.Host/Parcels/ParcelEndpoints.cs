@@ -8,6 +8,7 @@ using Nadlan.Core.Parcels;
 using Nadlan.Core.Security;
 using Nadlan.Core.Validation;
 using Nadlan.Host.Assets;
+using Nadlan.Host.Auth;
 using Nadlan.Host.Configuration;
 using Nadlan.Host.Geo;
 
@@ -231,11 +232,19 @@ public static class ParcelEndpoints
         });
 
         group.MapPost("/", async (CreateParcelDto dto, UserAccess me, AccessPolicy policy, ParcelService service, ParcelCoverageService coverage,
-            CancellationToken ct) =>
+            HttpContext http, CancellationToken ct) =>
         {
             if (!me.Has(Permissions.EditAllParcels))
             {
                 throw new ForbiddenException("PARCEL_CREATE_FORBIDDEN", "You may not create Parcels.");
+            }
+
+            // The KAEK importer (API token) must always say which geographic area a new Parcel belongs to: parcels without
+            // one were reaching the database from importers whose panel still offered "(none)". The web form may leave it empty.
+            if (dto.GeographicAreaId is null && http.User.LoginMethod() == LoginMethods.ApiToken)
+            {
+                throw new DomainValidationException("PARCEL_AREA_REQUIRED",
+                    "Choose the geographic area for new parcels in the importer panel (update the importer from Admin > Downloads if it offers \"(none)\").");
             }
 
             var result = await service.CreateAsync(new CreateParcelRequest

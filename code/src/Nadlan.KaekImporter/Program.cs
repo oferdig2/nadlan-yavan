@@ -105,6 +105,13 @@ public static class Program
         // Null while offline; also while not connected, but then nothing can be started.
         NadlanApiClient? Nadlan() => connection.Offline is null && !connection.NeedsConnect ? client : null;
 
+        // Every parcel saved needs its geographic area; offline nothing is saved, so none is needed. The area must be one of
+        // the active areas GreekPlot listed at start/Connect (the server also refuses one switched off since).
+        string? AreaProblem(string areaId) =>
+            Nadlan() is null || (AreaId(areaId) is int id && connection.Areas.Any(a => a.Id == id))
+                ? null
+                : "Choose the geographic area for the new parcels first.";
+
         // Last line of defence for the panel's buttons: an unexpected error goes to the log with its details, and the panel
         // shows a plain sentence - never .NET's own text (a customer got a raw JSON serializer message, 2026-10-12).
         async Task<string> Safely(string action, Func<Task<string>> body)
@@ -153,6 +160,7 @@ public static class Program
             if (connection.NeedsConnect) return "Connect to GreekPlot first.";
             if (current is not null) return "An import is already running.";
             if (clicks is not null) return "Switch off click import first.";
+            if (AreaProblem(areaId) is string noArea) return noArea;
             var run = new ImportRun(site, Nadlan(), options.Settings, Console.Out);
             MapAreas view;
             try
@@ -193,6 +201,7 @@ public static class Program
             {
                 if (connection.NeedsConnect) return "Connect to GreekPlot first.";
                 if (current is not null) return "Stop the running import first.";
+                if (clicks is null && AreaProblem(areaId) is string noArea) return noArea;
                 clicks ??= new ClickImport(site, Nadlan(), AreaId(areaId), Console.Out);
                 Console.WriteLine("Click import on.");
                 return "";
