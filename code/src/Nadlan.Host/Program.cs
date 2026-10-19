@@ -8,6 +8,7 @@ using Nadlan.Host.Configuration;
 using Nadlan.Host.Contacts;
 using Nadlan.Host.Errors;
 using Nadlan.Host.Files;
+using Nadlan.Host.Geo;
 using Nadlan.Host.Health;
 using Nadlan.Host.Machine;
 using Nadlan.Host.Parcels;
@@ -58,5 +59,6 @@ app.MapPresentationEndpoints();
 app.MapActivityEndpoints();
 app.MapAdminEndpoints();
 app.MapMachineEndpoints();
+app.MapMapLinkEndpoints(); // "paste a Google Maps link": follows a short share link (Google hosts only)
 
 app.Run();

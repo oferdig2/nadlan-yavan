@@ -104,6 +104,18 @@
       }
     });
 
+    // "Paste a Google Maps link": a pin there; once the Parcels around it are loaded, say which one it falls in.
+    Nadlan.mapLinkPin.createMapLinkPinControl(map, {
+      onError: function (message) { setStatus(message, true); },
+      onClear: function () { state.pinAt = null; setStatus(""); },
+      onPin: function (p) {
+        state.pinAt = p;
+        setStatus("Looking for the Parcel at the pin…");
+        var seqAtPin = requestSeq; // the map may not move (already there): then use the Parcels shown
+        setTimeout(function () { if (state.pinAt === p && requestSeq === seqAtPin) { showPinnedParcel(state.items); } }, 1500);
+      }
+    });
+
     // Quick OT/plot entry (Parcels view, Parcel editors): a click opens the small OT/plot form instead of the card.
     var $quick = $("[data-role=quick-entry]");
     var $digits = $("[data-role=ot-digits]").val(Nadlan.parcelQuickEntry.getDigits() || "");
@@ -242,6 +254,7 @@
 
     function setMode(mode) {
       state.mode = mode;
+      popups.setView(mode);
       $("[data-view]").removeClass("active").filter("[data-view=" + mode + "]").addClass("active");
       $(".quick-entry-setting").toggleClass("off-view", mode !== "parcels"); // Parcels view only
       if (mode !== "parcels") { Nadlan.parcelQuickEntry.close(); }
@@ -292,6 +305,7 @@
         if (state.fitAfterLoad) { state.fitAfterLoad = false; fitItems(res.items); }
         setStatus(typeof doneMessage === "string" ? doneMessage : "");
         if (state.standingAt) { showWhereIStand(res.items); }
+        if (state.pinAt) { showPinnedParcel(res.items); }
       }, function (err) {
         if (seq === requestSeq) { setStatus("Search failed: " + err.message, true); }
       });
@@ -411,6 +425,26 @@
       }
       if (state.mode === "assets") { assetOverlay.focus(parcels[0].parcelId); } else { parcelOverlay.select(parcels[0].parcelId); }
       setStatus("You're standing on Parcel " + name(parcels[0]) + (p.accuracy > 10 ? " (± " + Math.round(p.accuracy) + " m)" : "") + ".");
+    }
+
+    // After centring on a pasted location: the Parcel (or Asset's Parcel) the pin is in, if any is in the results.
+    function showPinnedParcel(items) {
+      var p = state.pinAt;
+      state.pinAt = null; // once: later pans don't repeat it (the pin itself stays until removed)
+      var where = p.exact ? "The pin" : "The pasted map view's centre (the link has no exact pin)";
+      if (state.mode === "parcels" && map.getZoom() < detailZoom) { setStatus(where + " is shown - zoom in to see which Parcel it is in."); return; }
+      var parcels = [];
+      Nadlan.myLocation.standingOn({ lat: p.lat, lng: p.lng, accuracy: 0 }, items, function (it) { return [it.geometry]; }).hits
+        .forEach(function (it) { if (!parcels.some(function (x) { return x.parcelId === it.summary.parcelId; })) { parcels.push(it.summary); } });
+      var name = function (s) { return s.registryId || "#" + s.parcelId; };
+      if (!parcels.length) {
+        setStatus(where + " is not in " + (state.mode === "assets" ? "an Asset's Parcel" : "a Parcel") + " in the results here.");
+        return;
+      }
+      if (parcels.length > 1) { setStatus(where + " is where " + parcels.length + " Parcels overlap: " + parcels.map(name).join(", ") + "."); return; }
+      if (state.mode === "assets") { assetOverlay.focus(parcels[0].parcelId); } else { parcelOverlay.select(parcels[0].parcelId); }
+      popups.showParcel(parcels[0]);
+      setStatus(where + " is in Parcel " + name(parcels[0]) + ".");
     }
 
     function fitItems(items) {

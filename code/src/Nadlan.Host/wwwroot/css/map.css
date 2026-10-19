@@ -76,6 +76,7 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .card-title { font-weight: 600; }
 .card-actions { display: flex; align-items: center; gap: 2px; }
 .card-actions button { border: none; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 2px 4px; }
+.assets-view .card-actions [data-action=edit-parcel] { display: none; } /* Parcels view only (map-entity-popup.js setView) */
 .card-icon { width: 26px; height: 26px; padding: 0 !important; border-radius: 50%; line-height: 1; font-size: 15px !important; color: var(--muted) !important; display: inline-flex; align-items: center; justify-content: center; }
 .card-icon:hover { background: var(--bg) !important; color: var(--text) !important; }
 /* Pinned: the pin sits upright in a tinted circle; unpinned it lies tilted and faded. */
@@ -165,6 +166,11 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .parcel-tip .tip-tag { display: inline-block; margin-top: 4px; padding: 0 6px; border-radius: 4px; background: #7c3aed; color: #fff; font-size: 11px; font-weight: 600; }
 .parcel-tip .tip-tag-division { background: #0e7490; }
 .parcel-tip .tip-related { color: #cbd5e1; }
+.asset-tip .tip-asset + .tip-asset { margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(148, 163, 184, 0.25); }
+.asset-tip .tip-price { font-size: 16px; white-space: nowrap; }
+.asset-tip .tip-price b { font-weight: 700; }
+.asset-tip .tip-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.asset-tip .tip-parcel { color: #94a3b8; margin-top: 5px; font-size: 11px; }
 
 /* Planned "OT / plot" inside each Parcel picked for a row entry (Ctrl+click in quick entry). */
 .parcel-labels { position: absolute; left: 0; top: 0; pointer-events: none; }
@@ -201,3 +207,13 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .map-locate.on { color: #2563eb; }
 .map-locate.busy svg { animation: map-locate-pulse 1s ease-in-out infinite; }
 @keyframes map-locate-pulse { 50% { opacity: 0.3; } }
+/* "Paste a Google Maps link" (map-link-pin.js): the 🔗 button, and the paste box that opens to its left */
+.map-linkpin { display: flex; align-items: center; gap: 6px; margin: 0 10px 10px 0; }
+.map-linkpin-toggle { width: 40px; height: 40px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  cursor: pointer; font-size: 18px; line-height: 1; padding: 0; }
+.map-linkpin-form { display: flex; align-items: center; background: #fff; border-radius: 6px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); padding: 3px; }
+.map-linkpin-form[hidden] { display: none; }
+.map-linkpin-form .input { width: min(340px, 60vw); border: 0; font-size: 13px; padding: 6px 8px; }
+.map-linkpin-clear { border: 0; background: none; color: #64748b; font-size: 18px; cursor: pointer; padding: 0 6px; }
+.map-linkpin-clear[hidden] { display: none; }
+.map-linkpin.busy .map-linkpin-toggle { animation: map-locate-pulse 1s ease-in-out infinite; }

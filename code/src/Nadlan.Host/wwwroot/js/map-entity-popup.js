@@ -37,10 +37,10 @@
     function assetsHtml(assets) {
       if (!assets.length) { return "<div class=\"muted card-row\">No assets on this parcel yet.</div>"; }
       return "<ul class=\"card-assets\">" + assets.map(function (a) {
-        return "<li>" +
+        return "<li title=\"Asset #" + a.assetId + "\">" +
           "<label class=\"check\"><input type=\"checkbox\" data-select=\"" + a.assetId + "\"" + (options.selection.has(a.assetId) ? " checked" : "") + "></label>" +
           "<div class=\"row-body\"><div>" + f.assetPrice(a) + " " + f.statusBadge(a.statusName, a.statusColor) + "</div>" +
-          "<div class=\"muted\">" + f.text(a.managingContactName) + (a.propertyType ? " · " + f.escapeHtml(a.propertyType) : "") + " · #" + a.assetId + "</div></div>" +
+          "<div class=\"muted\">" + f.text(a.managingContactName) + (a.propertyType ? " · " + f.escapeHtml(a.propertyType) : "") + "</div></div>" +
           "<span class=\"row-actions\">" +
             (a.canEdit ? "<button type=\"button\" class=\"btn btn-small\" data-edit=\"" + a.assetId + "\">Edit</button>" : "") +
             "<button type=\"button\" class=\"btn btn-small\" data-files=\"" + a.assetId + "\">Files</button>" +
@@ -238,6 +238,8 @@
     });
 
     return {
+      /** The map's view: the Parcel's own Edit is offered in the Parcels view only (in the Assets view it confused). */
+      setView: function (mode) { $layer.toggleClass("assets-view", mode === "assets"); },
       /** @param {{ parcelId: number, registryId?: string }} parcel  any Parcel summary; the card loads the rest */
       showParcel: function (parcel) {
         if (unpinned) { unpinned.close(true); }
