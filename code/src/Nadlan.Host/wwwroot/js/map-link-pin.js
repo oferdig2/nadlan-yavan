@@ -2,7 +2,7 @@
 // pin shows where it points; the page then says which parcel the pin falls in.
 //   parseLocation(text)                 - { lat, lng, exact } from a link or "lat, lng", or null
 //   createMapLinkPinControl(map, opts)  - the button, the paste box and the pin
-//   pointInside(geometry), googleMapsLink(p), copyText(text) - the other way: a Parcel's "Location" link (card button)
+//   pointInside(geometry), parcelLink(geometry), copyText(text) - the other way: a Parcel's "Location" link (card button)
 // Short share links (maps.app.goo.gl/…) carry no coordinates: the server follows them (GET /api/maps/resolve-link -
 // a browser can't, Google sends no CORS headers) and the address they lead to is read here.
 (function (window, $) {
@@ -59,39 +59,66 @@
     return Promise.resolve(parseLocation(text));
   }
 
+  var SCAN_LINES = 15; // latitudes tried across a Parcel whose centre of gravity is outside it
+
   /**
    * A point inside a GeoJSON Polygon, near its middle: the centre of gravity when that lies inside (most Parcels), else
-   * the middle of the widest stretch across the Parcel at that latitude (L-shapes, bends - the centre can fall outside).
+   * the middle of the widest stretch across the Parcel at one of several latitudes (L-shapes, bends, thin strips).
+   * Computed relative to the first corner: raw lng x lat products (~38 x 23) lose the few metres of a small Parcel.
    * @returns {{ lat: number, lng: number }}
    */
   function pointInside(geometry) {
     var ring = geometry.coordinates[0];
+    var ox = ring[0][0], oy = ring[0][1];
     var a = 0, cx = 0, cy = 0;
     for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      var cross = ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+      var xj = ring[j][0] - ox, yj = ring[j][1] - oy, xi = ring[i][0] - ox, yi = ring[i][1] - oy;
+      var cross = xj * yi - xi * yj;
       a += cross;
-      cx += (ring[j][0] + ring[i][0]) * cross;
-      cy += (ring[j][1] + ring[i][1]) * cross;
+      cx += (xj + xi) * cross;
+      cy += (yj + yi) * cross;
     }
-    var c = a ? { lng: cx / (3 * a), lat: cy / (3 * a) } : { lng: ring[0][0], lat: ring[0][1] };
+    var c = a ? { lng: ox + cx / (3 * a), lat: oy + cy / (3 * a) } : { lng: ox, lat: oy };
     if (Nadlan.myLocation.containsPoint(geometry, c.lat, c.lng)) { return c; }
-    // Across the Parcel at the centre's latitude (holes included): inside between each pair of edge crossings.
-    var xs = [];
-    geometry.coordinates.forEach(function (r) {
-      for (var i = 0, j = r.length - 1; i < r.length; j = i++) {
-        var y1 = r[j][1], y2 = r[i][1];
-        if ((y1 > c.lat) !== (y2 > c.lat)) { xs.push(r[j][0] + (c.lat - y1) / (y2 - y1) * (r[i][0] - r[j][0])); }
-      }
-    });
-    xs.sort(function (p, q) { return p - q; });
+
+    // Across the Parcel at each latitude (holes included): inside between each pair of edge crossings; widest wins.
+    var south = Infinity, north = -Infinity;
+    ring.forEach(function (p) { south = Math.min(south, p[1]); north = Math.max(north, p[1]); });
     var best = null;
-    for (var k = 0; k + 1 < xs.length; k += 2) { if (!best || xs[k + 1] - xs[k] > best[1] - best[0]) { best = [xs[k], xs[k + 1]]; } }
-    return best ? { lat: c.lat, lng: (best[0] + best[1]) / 2 } : { lat: ring[0][1], lng: ring[0][0] };
+    for (var k = 0; k < SCAN_LINES; k++) {
+      var lat = south + (north - south) * (k + 0.5) / SCAN_LINES;
+      var xs = [];
+      geometry.coordinates.forEach(function (r) {
+        for (var i = 0, j = r.length - 1; i < r.length; j = i++) {
+          var y1 = r[j][1], y2 = r[i][1];
+          if ((y1 > lat) !== (y2 > lat)) { xs.push(r[j][0] + (lat - y1) / (y2 - y1) * (r[i][0] - r[j][0])); }
+        }
+      });
+      xs.sort(function (p, q) { return p - q; });
+      for (var m = 0; m + 1 < xs.length; m += 2) {
+        if (!best || xs[m + 1] - xs[m] > best.width) { best = { width: xs[m + 1] - xs[m], lat: lat, lng: (xs[m] + xs[m + 1]) / 2 }; }
+      }
+    }
+    return best ? { lat: best.lat, lng: best.lng } : c;
   }
 
   /** A Google Maps link with a pin at the point - opens in the Maps app on phones; no GreekPlot account needed. */
-  function googleMapsLink(p) {
-    return "https://www.google.com/maps/search/?api=1&query=" + p.lat.toFixed(6) + "%2C" + p.lng.toFixed(6);
+  function googleMapsLink(p, decimals) {
+    var d = decimals || 6;
+    return "https://www.google.com/maps/search/?api=1&query=" + p.lat.toFixed(d) + "%2C" + p.lng.toFixed(d);
+  }
+
+  /**
+   * The card's "Location" link: a pin inside the Parcel, still inside after rounding (6 decimals is ~10 cm, enough to
+   * leave a very thin Parcel; then 7 or 8).
+   */
+  function parcelLink(geometry) {
+    var p = pointInside(geometry);
+    for (var d = 6; d <= 8; d++) {
+      var lat = Number(p.lat.toFixed(d)), lng = Number(p.lng.toFixed(d));
+      if (Nadlan.myLocation.containsPoint(geometry, lat, lng)) { return googleMapsLink(p, d); }
+    }
+    return googleMapsLink(p, 8);
   }
 
   /** Puts the text on the clipboard (resolves false when the browser won't, e.g. not https). */
@@ -188,6 +215,6 @@
 
   Nadlan.mapLinkPin = {
     parseLocation: parseLocation, isShortLink: isShortLink, createMapLinkPinControl: createMapLinkPinControl,
-    pointInside: pointInside, googleMapsLink: googleMapsLink, copyText: copyText
+    pointInside: pointInside, googleMapsLink: googleMapsLink, parcelLink: parcelLink, copyText: copyText
   };
 })(window, jQuery);

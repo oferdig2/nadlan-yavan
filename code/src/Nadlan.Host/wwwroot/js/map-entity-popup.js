@@ -206,7 +206,7 @@
         var geometry = state.details && state.details.geometry;
         var got = geometry ? Promise.resolve(geometry) : Nadlan.api.get("/api/parcels/" + state.parcelId).then(function (d) { return d.geometry; });
         got.then(function (g) {
-          var link = Nadlan.mapLinkPin.googleMapsLink(Nadlan.mapLinkPin.pointInside(g));
+          var link = Nadlan.mapLinkPin.parcelLink(g);
           return Nadlan.mapLinkPin.copyText(link).then(function (copied) {
             if (!copied) { window.prompt("Copy this Google Maps link:", link); return; }
             $button.text("Copied ✓").attr("data-link", link);

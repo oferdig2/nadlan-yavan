@@ -2,9 +2,9 @@
 
 For the agent who deploys this release and then tells the customer what to look at.
 
-- **Code:** `main` with the commit "Parcel card: Location copies a Google Maps link" or later.
+- **Code:** `main` with the commit "Location pin stays inside small and thin parcels" or later.
 - **Deploy:** software only. No migration, no new settings, no data change.
-- **Tests:** builds clean. The review of 3c299fd passed (292 tests, 12/12 link-endpoint checks). Headless-browser runs with Google Maps simulated passed (38 + 17 checks) on a test database
+- **Tests:** builds clean. The review of 3c299fd passed (292 tests, 12/12 link-endpoint checks). The Location pin was checked on all 10,332 parcels of the 2026-10-18 production copy: all inside (by our code and by MySQL ST_Contains; the first version missed 203 small/thin ones). Headless-browser runs with Google Maps simulated passed (38 + 17 checks) on a test database
   (2026-10-19). The server side of the link feature was also checked against Google itself: an unknown short link gets
   a clear message.
 - **Not tried yet:** a real `maps.app.goo.gl` share link from the customer's phone, real Google Maps on screen, and a
