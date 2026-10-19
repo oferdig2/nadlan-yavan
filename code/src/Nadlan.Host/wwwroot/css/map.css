@@ -72,9 +72,9 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 
 .map-card.pinned { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
 
-.card-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.card-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .card-title { font-weight: 600; }
-.card-actions { display: flex; align-items: center; gap: 2px; }
+.card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 2px; } /* narrow card: wraps, the × never cut off */
 .card-actions button { border: none; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 2px 4px; }
 .assets-view .card-actions [data-action=edit-parcel] { display: none; } /* Parcels view only (map-entity-popup.js setView) */
 .card-icon { width: 26px; height: 26px; padding: 0 !important; border-radius: 50%; line-height: 1; font-size: 15px !important; color: var(--muted) !important; display: inline-flex; align-items: center; justify-content: center; }

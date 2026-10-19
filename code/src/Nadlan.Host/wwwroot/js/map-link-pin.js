@@ -2,6 +2,7 @@
 // pin shows where it points; the page then says which parcel the pin falls in.
 //   parseLocation(text)                 - { lat, lng, exact } from a link or "lat, lng", or null
 //   createMapLinkPinControl(map, opts)  - the button, the paste box and the pin
+//   pointInside(geometry), googleMapsLink(p), copyText(text) - the other way: a Parcel's "Location" link (card button)
 // Short share links (maps.app.goo.gl/…) carry no coordinates: the server follows them (GET /api/maps/resolve-link -
 // a browser can't, Google sends no CORS headers) and the address they lead to is read here.
 (function (window, $) {
@@ -56,6 +57,63 @@
       return Nadlan.api.get("/api/maps/resolve-link", { url: String(text).trim() }).then(function (res) { return parseLocation(res.url); });
     }
     return Promise.resolve(parseLocation(text));
+  }
+
+  /**
+   * A point inside a GeoJSON Polygon, near its middle: the centre of gravity when that lies inside (most Parcels), else
+   * the middle of the widest stretch across the Parcel at that latitude (L-shapes, bends - the centre can fall outside).
+   * @returns {{ lat: number, lng: number }}
+   */
+  function pointInside(geometry) {
+    var ring = geometry.coordinates[0];
+    var a = 0, cx = 0, cy = 0;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var cross = ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+      a += cross;
+      cx += (ring[j][0] + ring[i][0]) * cross;
+      cy += (ring[j][1] + ring[i][1]) * cross;
+    }
+    var c = a ? { lng: cx / (3 * a), lat: cy / (3 * a) } : { lng: ring[0][0], lat: ring[0][1] };
+    if (Nadlan.myLocation.containsPoint(geometry, c.lat, c.lng)) { return c; }
+    // Across the Parcel at the centre's latitude (holes included): inside between each pair of edge crossings.
+    var xs = [];
+    geometry.coordinates.forEach(function (r) {
+      for (var i = 0, j = r.length - 1; i < r.length; j = i++) {
+        var y1 = r[j][1], y2 = r[i][1];
+        if ((y1 > c.lat) !== (y2 > c.lat)) { xs.push(r[j][0] + (c.lat - y1) / (y2 - y1) * (r[i][0] - r[j][0])); }
+      }
+    });
+    xs.sort(function (p, q) { return p - q; });
+    var best = null;
+    for (var k = 0; k + 1 < xs.length; k += 2) { if (!best || xs[k + 1] - xs[k] > best[1] - best[0]) { best = [xs[k], xs[k + 1]]; } }
+    return best ? { lat: c.lat, lng: (best[0] + best[1]) / 2 } : { lat: ring[0][1], lng: ring[0][0] };
+  }
+
+  /** A Google Maps link with a pin at the point - opens in the Maps app on phones; no GreekPlot account needed. */
+  function googleMapsLink(p) {
+    return "https://www.google.com/maps/search/?api=1&query=" + p.lat.toFixed(6) + "%2C" + p.lng.toFixed(6);
+  }
+
+  /** Puts the text on the clipboard (resolves false when the browser won't, e.g. not https). */
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return legacyCopy(text); });
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+
+  function legacyCopy(text) {
+    var area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(area);
+    return ok;
   }
 
   /**
@@ -120,13 +178,16 @@
         map.panTo(here);
         if (map.getZoom() < 18) { map.setZoom(18); }
         options.onPin(p);
-      }, function (err) {
+      }).catch(function (err) {
         options.onError(err.message);
-      }).then(function () { busy = false; box.classList.remove("busy"); });
+      }).then(function () { busy = false; box.classList.remove("busy"); }); // after any error too: the box never stays "busy"
     });
 
     return { open: open, close: close };
   }
 
-  Nadlan.mapLinkPin = { parseLocation: parseLocation, isShortLink: isShortLink, createMapLinkPinControl: createMapLinkPinControl };
+  Nadlan.mapLinkPin = {
+    parseLocation: parseLocation, isShortLink: isShortLink, createMapLinkPinControl: createMapLinkPinControl,
+    pointInside: pointInside, googleMapsLink: googleMapsLink, copyText: copyText
+  };
 })(window, jQuery);

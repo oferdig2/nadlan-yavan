@@ -66,7 +66,7 @@ public static partial class MapLinkEndpoints
                 return current.ToString(); // a full Maps address: the browser reads the coordinates from it
             }
 
-            using var response = await Http.GetAsync(current, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var response = await AskGoogleAsync(current, ct);
             var location = response.Headers.Location;
             if ((int)response.StatusCode is >= 300 and < 400 && location is not null)
             {
@@ -79,6 +79,20 @@ public static partial class MapLinkEndpoints
         }
 
         throw new DomainValidationException("MAP_LINK_UNREADABLE", "This link goes through too many redirects.");
+    }
+
+    // Google slow (past the 8 s timeout) or unreachable: a clear message, not a 500. The user's own cancel still cancels.
+    private static async Task<HttpResponseMessage> AskGoogleAsync(Uri url, CancellationToken ct)
+    {
+        try
+        {
+            return await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+        {
+            throw new DomainValidationException("MAP_LINK_GOOGLE_UNREACHABLE",
+                "Couldn't reach Google to open this link. Try again, or paste the full link from the browser's address bar.");
+        }
     }
 
     private static bool IsShortLinkHost(string host) =>

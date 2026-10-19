@@ -64,6 +64,7 @@
             "<span class=\"card-title\">Parcel</span>" +
             "<span class=\"card-actions\">" +
               "<button type=\"button\" data-action=\"edit-parcel\" hidden>Edit</button>" +
+              "<button type=\"button\" data-action=\"location\" title=\"Copy a Google Maps link with a pin in this parcel - to send to people without GreekPlot\">Location</button>" +
               "<button type=\"button\" data-action=\"history\">History</button>" +
               "<button type=\"button\" data-action=\"expand\">Expand</button>" +
               "<button type=\"button\" class=\"card-icon\" data-action=\"pin\" aria-pressed=\"false\" title=\"Pin: keep this card while you click other parcels\">📌</button>" +
@@ -198,6 +199,20 @@
       $card.on("click", "[data-history]", function () {
         var assetId = Number($(this).data("history"));
         Nadlan.historyDialog.open({ entityType: "Asset", entityId: assetId, title: "Asset #" + assetId + " - history" });
+      });
+      // A Google Maps link with a pin inside the Parcel, on the clipboard (no GreekPlot account needed to open it).
+      $card.on("click", "[data-action=location]", function () {
+        var $button = $(this);
+        var geometry = state.details && state.details.geometry;
+        var got = geometry ? Promise.resolve(geometry) : Nadlan.api.get("/api/parcels/" + state.parcelId).then(function (d) { return d.geometry; });
+        got.then(function (g) {
+          var link = Nadlan.mapLinkPin.googleMapsLink(Nadlan.mapLinkPin.pointInside(g));
+          return Nadlan.mapLinkPin.copyText(link).then(function (copied) {
+            if (!copied) { window.prompt("Copy this Google Maps link:", link); return; }
+            $button.text("Copied ✓").attr("data-link", link);
+            setTimeout(function () { $button.text("Location"); }, 2000);
+          });
+        }).catch(function (err) { Nadlan.dialog.showError("Could not make the link", err); });
       });
       $card.on("click", "[data-action=history]", function () {
         Nadlan.historyDialog.open({ entityType: "Parcel", entityId: state.parcelId,
