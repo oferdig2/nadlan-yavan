@@ -217,8 +217,9 @@ public sealed class MySqlMapDropStore : IMapDropStore
         var rows = await conn.QueryAsync<DuplicateHit>(new CommandDefinition("""
             SELECT f.original_file_name AS FileName, f.file_size AS FileSize, f.file_attachment_id AS FileAttachmentId,
                    f.attached_to_type AS AttachedToType, f.attached_to_id AS AttachedToId,
-                   CASE WHEN f.attached_to_type = 'Parcel' THEN p.registry_id END AS RegistryId
+                   CASE WHEN f.attached_to_type = 'Parcel' THEN p.registry_id END AS RegistryId, t.category AS Category
             FROM file_attachment f
+            JOIN file_type t ON t.file_type_id = f.file_type_id
             LEFT JOIN parcel p ON f.attached_to_type = 'Parcel' AND p.parcel_id = f.attached_to_id
             WHERE f.upload_status = 'Ready' AND f.file_size IN @sizes
             """, new { sizes }, cancellationToken: ct));

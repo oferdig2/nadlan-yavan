@@ -91,6 +91,12 @@ public interface IFileAttachmentStore
     Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime startedBeforeUtc, int limit, CancellationToken ct = default);
 
     Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the row only while it is still an unassigned Map drop file uploaded before the cutoff (never one that was
+    /// assigned meanwhile). True if deleted.
+    /// </summary>
+    Task<bool> DeleteExpiredMapDropAsync(long fileAttachmentId, DateTime uploadedBeforeUtc, CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 /// <summary>Checks that the entity a file is being attached to exists.</summary>

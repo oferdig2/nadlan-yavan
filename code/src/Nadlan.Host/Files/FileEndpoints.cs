@@ -36,8 +36,16 @@ public static class FileEndpoints
                 return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls)));
             }
 
-            // A Parcel also shows videos of other Parcels that fly over it (Map drop time frames), each with its frames here.
-            items.AddRange(await mapDrop.ListLinkedFilesAsync(attachedToId, ct));
+            // A Parcel also shows videos of other Parcels that fly over it (Map drop time frames), each with its frames here -
+            // only if the caller may see the video's own (home) entity too: a frame is not a way around its rights.
+            foreach (var linked in await mapDrop.ListLinkedFilesAsync(attachedToId, ct))
+            {
+                if ((await policy.FileTargetAsync(me, linked.AttachedToType, linked.AttachedToId, ct)).CanView)
+                {
+                    items.Add(linked);
+                }
+            }
+
             var frames = await mapDrop.ListSegmentsOnParcelAsync(attachedToId, ct);
             return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls,
                 frames.TryGetValue(f.FileAttachmentId, out var mine) ? mine : null)));

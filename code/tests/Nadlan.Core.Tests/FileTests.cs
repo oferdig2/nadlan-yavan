@@ -126,6 +126,25 @@ public class FileTests
         Assert.DoesNotContain("response-content-disposition", provider.GetUrl("asset/5/a/x.jpg", ""));
     }
 
+    [Fact]
+    public async Task Map_drop_cleanup_never_deletes_a_file_assigned_meanwhile()
+    {
+        var (service, files, storage) = NewService();
+        var old = DateTime.UtcNow.AddDays(-6);
+        files.Rows.Add(new FileAttachment { FileAttachmentId = 1, AttachedToType = FileTargetTypes.MapDrop, AttachedToId = 4, StorageKey = "mapdrop/4/a.jpg", UploadStatus = FileUploadStatus.Ready, UploadedUtc = old, HasThumbnail = true });
+        files.Rows.Add(new FileAttachment { FileAttachmentId = 2, AttachedToType = FileTargetTypes.MapDrop, AttachedToId = 4, StorageKey = "mapdrop/4/b.mp4", UploadStatus = FileUploadStatus.Ready, UploadedUtc = old });
+        var cutoff = DateTime.UtcNow.AddDays(-5);
+
+        // File 2 was listed as expired, then assigned to a Parcel before the clean-up reached it.
+        files.Rows[1] = files.Rows[1] with { AttachedToType = FileTargetTypes.Parcel, AttachedToId = 7 };
+
+        Assert.True(await service.DeleteExpiredMapDropAsync(1, cutoff));
+        Assert.False(await service.DeleteExpiredMapDropAsync(2, cutoff));
+
+        Assert.Equal(new[] { "mapdrop/4/a.jpg", "mapdrop/4/a.jpg.thumb.jpg" }, storage.DeletedKeys);
+        Assert.Single(files.Rows, r => r.FileAttachmentId == 2 && r.AttachedToType == FileTargetTypes.Parcel);
+    }
+
     private static (FileService Service, FakeFiles Files, FakeStorage Storage) NewService()
     {
         var files = new FakeFiles();
@@ -174,6 +193,9 @@ public class FileTests
 
         public Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<FileType>>(new[] { new FileType(1, "PHOTO", "Photo", "Marketing", true, 10) });
+
+        public Task<bool> DeleteExpiredMapDropAsync(long id, DateTime before, CancellationToken ct = default)
+            => Task.FromResult(Rows.RemoveAll(r => r.FileAttachmentId == id && r.AttachedToType == FileTargetTypes.MapDrop && r.UploadedUtc < before) > 0);
     }
 
     private sealed class FakeTargets : IFileTargetResolver
@@ -199,6 +221,12 @@ public class FileTests
         public Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct = default) => Task.CompletedTask;
         public Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default) => Task.CompletedTask;
         public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default) => Task.FromResult(StoredSize);
-        public Task DeleteObjectAsync(string key, CancellationToken ct = default) => Task.CompletedTask;
+        public List<string> DeletedKeys { get; } = new();
+
+        public Task DeleteObjectAsync(string key, CancellationToken ct = default)
+        {
+            DeletedKeys.Add(key);
+            return Task.CompletedTask;
+        }
     }
 }

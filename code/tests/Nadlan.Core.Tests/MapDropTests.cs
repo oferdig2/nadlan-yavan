@@ -113,6 +113,17 @@ public class MapDropTests
         Assert.Empty(TrackSegmenter.Segment(Flight(5, 6, 4), Row));
     }
 
+    [Fact]
+    public void A_stored_track_reads_back()
+    {
+        var back = MapDropService.ReadTrackJson("[[0,38.507449,23.369184,95.8],[500,38.5075,23.3692,null],[1000,1,2]]");
+
+        Assert.Equal(3, back.Count);
+        Assert.Equal(new TrackPoint(0, 38.507449, 23.369184, 95.8), back[0]);
+        Assert.Null(back[1].RelAlt);
+        Assert.Empty(MapDropService.ReadTrackJson("not json"));
+    }
+
     [Theory]
     [InlineData(0, "0:00")]
     [InlineData(65_400, "1:05")]

@@ -260,6 +260,32 @@ public sealed class FileService
         await RecordAsync(file, ActivityActions.FileDeleted, "Deleted", ct);
     }
 
+    /// <summary>
+    /// Map drop clean-up of one file: the row goes first, and only while the file is still unassigned and expired; the
+    /// bytes go only if that row was deleted - so a file assigned to a Parcel a moment ago is never lost.
+    /// </summary>
+    public async Task<bool> DeleteExpiredMapDropAsync(long fileAttachmentId, DateTime uploadedBeforeUtc, CancellationToken ct = default)
+    {
+        EnsureConfigured();
+        var file = await _files.GetAsync(fileAttachmentId, ct);
+        if (file is null || file.AttachedToType != FileTargetTypes.MapDrop || !await _files.DeleteExpiredMapDropAsync(fileAttachmentId, uploadedBeforeUtc, ct))
+        {
+            return false;
+        }
+
+        if (file.UploadStatus == FileUploadStatus.Pending && file.S3UploadId is not null)
+        {
+            await _storage.AbortMultipartUploadAsync(file.StorageKey, file.S3UploadId, ct);
+        }
+        else
+        {
+            await _storage.DeleteObjectAsync(file.StorageKey, ct);
+            await DeleteThumbnailAsync(file, ct);
+        }
+
+        return true;
+    }
+
     /// <summary>The largest preview image accepted (a 480 px JPEG is 20-80 KB).</summary>
     public const int MaxThumbnailBytes = 300 * 1024;
 

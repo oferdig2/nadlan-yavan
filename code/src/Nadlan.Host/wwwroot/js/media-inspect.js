@@ -265,14 +265,15 @@
       if (!takenLocal) { takenLocal = normalizeTime(block); }
       if (ms < next) { return; }
       var lat, lng, alt;
-      var a = /latitude\s*:\s*(-?[\d.]+)\]?[\s\S]*?longitude\s*:\s*(-?[\d.]+)/i.exec(block);
+      // "longtitude": older DJI drones (Mavic Air 2, Mavic 2, Mini SE) spell it so; the Mini 3 Pro writes "longitude".
+      var a = /latitude\s*:\s*(-?[\d.]+)\]?[\s\S]*?longt?itude\s*:\s*(-?[\d.]+)/i.exec(block);
       if (a) { lat = parseFloat(a[1]); lng = parseFloat(a[2]); }
       else {
         // Older DJI: "GPS(23.3691,38.5074,19)" = longitude, latitude, satellites/altitude
         var g = /GPS\s*\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/i.exec(block);
         if (g) { lng = parseFloat(g[1]); lat = parseFloat(g[2]); }
       }
-      var h = /rel_alt\s*:\s*(-?[\d.]+)/i.exec(block) || /\bH\s*[:(]?\s*(-?[\d.]+)\s*m/i.exec(block);
+      var h = /rel_alt\s*:\s*(-?[\d.]+)/i.exec(block) || /\bH\s*[:(]?\s*(-?[\d.]+)\s*m/i.exec(block) || /\[altitude\s*:\s*(-?[\d.]+)/i.exec(block);
       if (h) { alt = parseFloat(h[1]); }
       if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0) || Math.abs(lat) > 90 || Math.abs(lng) > 180) { return; }
       points.push([ms, lat, lng, isFinite(alt) ? alt : null]);

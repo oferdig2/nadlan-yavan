@@ -168,6 +168,7 @@
           })
         : Nadlan.mediaInspect.inspect(file);
       reading.catch(function () { return {}; }).then(function (metadata) {
+        if (u.cancelled) { return; } // Cancel pressed while the file was being read: never upload it
         u.state = "queued";
         render();
         u.controller = Nadlan.fileUploads.upload(file,
@@ -281,9 +282,10 @@
         esc(registryId || "#" + parcelId) + (extra ? " <span class=\"muted\">" + extra + "</span>" : "") + "</span>";
     }
 
-    function itemHtml(i) {
-      var id = i.file.fileAttachmentId;
-      var st = state(id);
+    // A card's choices before the user touches it: document type, ticked time frames (long looks), the Parcel picked
+    // among overlapping ones. Also for cards not drawn (hidden by a filter), so "OK all found" sees the same choices.
+    function defaults(i) {
+      var st = state(i.file.fileAttachmentId);
       var kind = kindOfItem(i);
       var m = i.metadata || {};
       if (st.typeId === undefined) {
@@ -292,6 +294,20 @@
       // A plain "Video" that turned out to have a flight track (paired after upload) is a drone video - unless the user chose.
       var plainVideo = typeByCode("VIDEO"), droneVideo = typeByCode("DRONE_VIDEO");
       if (!st.typeTouched && kind === "video" && m.hasTrack && plainVideo && droneVideo && st.typeId === plainVideo.id) { st.typeId = droneVideo.id; }
+      if (kind === "video" && m.hasTrack) {
+        i.suggestions.forEach(function (s, k) { if (st.ticks[k] === undefined) { st.ticks[k] = s.longLook; } });
+      } else if (i.suggestions.length && st.chosen === undefined) {
+        st.chosen = i.suggestions[0].parcelId;
+      }
+      return st;
+    }
+
+    function itemHtml(i) {
+      var id = i.file.fileAttachmentId;
+      var st = state(id);
+      var kind = kindOfItem(i);
+      var m = i.metadata || {};
+      defaults(i);
       var thumb = i.file.thumbUrl
         ? "<img class=\"md-thumb\" src=\"" + esc(i.file.thumbUrl) + "\" alt=\"\">"
         : "<div class=\"md-thumb md-icon\">" + esc((i.file.originalFileName.split(".").pop() || "").slice(0, 4).toUpperCase()) + "</div>";
@@ -306,7 +322,6 @@
         where = "<div class=\"md-found\">" + chip(st.manual.parcelId, st.manual.registryId, "chosen", "chosen") +
           " <button type=\"button\" class=\"link\" data-act=\"pick\">change</button></div>";
       } else if (segs && segs.length) {
-        segs.forEach(function (s, k) { if (st.ticks[k] === undefined) { st.ticks[k] = s.longLook; } });
         var passed = segs.filter(function (s) { return !s.longLook; }).length;
         where = "<div class=\"md-segments\">" + segs.map(function (s, k) {
           return "<label class=\"md-seg" + (s.longLook ? "" : " passed") + "\"><input type=\"checkbox\" data-tick=\"" + k + "\"" + (st.ticks[k] ? " checked" : "") + "> " +
@@ -314,7 +329,6 @@
         }).join("") + "</div>" +
           (passed ? "<div class=\"muted md-small\">" + passed + " passed over (under 5 s) - not ticked</div>" : "");
       } else if (found(i)) {
-        if (st.chosen === undefined) { st.chosen = i.suggestions[0].parcelId; }
         where = "<div class=\"md-found\">" + i.suggestions.map(function (s) {
           return i.suggestions.length > 1
             ? "<label><input type=\"radio\" name=\"md-choose-" + id + "\" data-choose=\"" + s.parcelId + "\"" + (st.chosen === s.parcelId ? " checked" : "") + "> " + chip(s.parcelId, s.registryId) + "</label>"
@@ -383,7 +397,9 @@
     });
     $strip.on("click", "[data-upload] [data-act=cancel]", function () {
       var u = uploads.filter(function (x) { return x.id === Number($(this).closest("[data-upload]").data("upload")); }, this)[0];
-      if (u && u.controller) { u.controller.cancel(); } else if (u) { uploads = uploads.filter(function (x) { return x !== u; }); render(); }
+      if (!u) { return; }
+      u.cancelled = true;
+      if (u.controller) { u.controller.cancel(); } else { uploads = uploads.filter(function (x) { return x !== u; }); render(); badge(); }
     });
     $strip.on("click", "[data-upload] [data-act=retry]", function () {
       var u = uploads.filter(function (x) { return x.id === Number($(this).closest("[data-upload]").data("upload")); }, this)[0];
@@ -392,7 +408,7 @@
 
     // The assignment a card stands for: home Parcel + (videos with a track) the ticked time frames.
     function assignment(i) {
-      var st = state(i.file.fileAttachmentId);
+      var st = defaults(i);
       var m = i.metadata || {};
       if (st.manual) { return { parcelId: st.manual.parcelId, segments: [] }; }
       if (kindOfItem(i) === "video" && m.hasTrack) {

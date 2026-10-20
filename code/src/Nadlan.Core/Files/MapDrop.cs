@@ -61,7 +61,8 @@ public sealed record MapDropItem
 }
 
 /// <summary>An already-stored file with the same name and size as one being dropped (the user decides).</summary>
-public sealed record DuplicateHit(string FileName, long FileSize, long FileAttachmentId, string AttachedToType, long AttachedToId, string? RegistryId);
+public sealed record DuplicateHit(string FileName, long FileSize, long FileAttachmentId, string AttachedToType, long AttachedToId, string? RegistryId,
+    string? Category = null);
 
 public interface IMapDropStore
 {
@@ -234,7 +235,17 @@ public sealed class MapDropService
             throw new DomainValidationException("MAP_DROP_TOO_MANY", "Drop at most 2,000 files at once.");
         }
 
-        return await _store.FindDuplicatesAsync(files.Select(f => (FileService.CleanFileName(f.Name), f.Size)).ToList(), ct);
+        // Only files the caller could see anyway: the check must not reveal e.g. an ID scan's name on a hidden Contact.
+        var visible = new List<DuplicateHit>();
+        foreach (var hit in await _store.FindDuplicatesAsync(files.Select(f => (FileService.CleanFileName(f.Name), f.Size)).ToList(), ct))
+        {
+            if (me.CanSeeFileCategory(hit.Category) && (await _policy.FileTargetAsync(me, hit.AttachedToType, hit.AttachedToId, ct)).CanView)
+            {
+                visible.Add(hit);
+            }
+        }
+
+        return visible;
     }
 
     /// <summary>
@@ -259,6 +270,15 @@ public sealed class MapDropService
         IReadOnlyList<ParcelSuggestion> suggestions = Array.Empty<ParcelSuggestion>();
         string? trackJson = null;
 
+        // A video and its .srt upload side by side: the video's own reading may arrive after its track was stored. Then the
+        // stored track (and the .srt it came from) is kept and used again, not wiped.
+        var existing = await _store.GetMetadataAsync(fileAttachmentId, ct);
+        if (isVideo && track is not { Count: > 0 } && existing?.TrackJson is { Length: > 0 } storedJson)
+        {
+            track = ReadTrackJson(storedJson);
+            clean = clean with { TrackFileId = clean.TrackFileId ?? existing.TrackFileId };
+        }
+
         if (track is { Count: > 0 } && isVideo)
         {
             var points = ValidateTrack(track);
@@ -276,7 +296,7 @@ public sealed class MapDropService
 
         await _store.UpsertMetadataAsync(fileAttachmentId, clean with
         {
-            TrackJson = trackJson ?? (await _store.GetMetadataAsync(fileAttachmentId, ct))?.TrackJson,
+            TrackJson = trackJson ?? existing?.TrackJson,
             SuggestionsJson = JsonSerializer.Serialize(suggestions, Json),
         }, ct);
         return suggestions;
@@ -337,7 +357,17 @@ public sealed class MapDropService
     public async Task<IReadOnlyList<FileSegment>> ListSegmentsAsync(UserAccess me, long fileAttachmentId, CancellationToken ct = default)
     {
         await GetVisibleFileAsync(me, fileAttachmentId, ct);
-        return await _store.ListSegmentsAsync(fileAttachmentId, ct);
+        // Frames on Parcels the caller can't see are left out (their KAEK isn't shown either).
+        var visible = new List<FileSegment>();
+        foreach (var s in await _store.ListSegmentsAsync(fileAttachmentId, ct))
+        {
+            if ((await _policy.ParcelAsync(me, s.ParcelId, ct)).CanView)
+            {
+                visible.Add(s);
+            }
+        }
+
+        return visible;
     }
 
     /// <summary>A data-entry correction of a video's time frames (all of them, replaced).</summary>
@@ -350,8 +380,16 @@ public sealed class MapDropService
             throw new DomainValidationException("FILE_SEGMENTS_PARCEL_ONLY", "Time frames are for videos on a Parcel.");
         }
 
+        // The video itself is changed (its own Parcel's file rights), and so is every Parcel that loses a frame.
+        await _policy.RequireFileChangeAsync(me, file.AttachedToType, file.AttachedToId, file.UploadedByUserId,
+            await _fileService.CategoryOfAsync(file.FileTypeId, ct), ct);
         var frames = await ValidateSegmentsAsync(me, file, segments, ct);
         var before = await _store.ListSegmentsAsync(fileAttachmentId, ct);
+        foreach (var removed in before.Select(b => b.ParcelId).Distinct().Where(id => frames.All(f => f.ParcelId != id)))
+        {
+            await _policy.RequireParcelEditAsync(me, removed, ct);
+        }
+
         await _store.ReplaceSegmentsAsync(fileAttachmentId, frames, me.UserId, ct);
         var summary = frames.Count == 0 ? "none" : string.Join("; ", frames.GroupBy(f => f.ParcelId).Select(g => $"{g.First().RegistryId ?? "#" + g.Key} {FormatFrames(g)}"));
         await _activity.RecordAsync(new ActivityEntry(FileTargetTypes.Parcel, file.AttachedToId, ActivityActions.FileLinked,
@@ -362,16 +400,13 @@ public sealed class MapDropService
     public async Task<int> SweepExpiredAsync(CancellationToken ct = default)
     {
         var count = 0;
-        foreach (var id in await _store.ListExpiredAsync(DateTime.UtcNow - KeepFor, limit: 500, ct))
+        var cutoff = DateTime.UtcNow - KeepFor;
+        foreach (var id in await _store.ListExpiredAsync(cutoff, limit: 500, ct))
         {
-            try
+            // Re-checked at the moment of deleting: a file assigned since the list was read stays.
+            if (await _fileService.DeleteExpiredMapDropAsync(id, cutoff, ct))
             {
-                await _fileService.DeleteAsync(id, ct);
                 count++;
-            }
-            catch (EntityNotFoundException)
-            {
-                // gone meanwhile
             }
         }
 
@@ -453,8 +488,8 @@ public sealed class MapDropService
 
             if (!names.ContainsKey(s.ParcelId))
             {
-                // A Parcel the user can't see is "not found", like everywhere else.
-                await _policy.RequireParcelViewAsync(me, s.ParcelId, ct);
+                // Putting a video on a Parcel changes that Parcel: edit rights there ("not found" if it can't even be seen).
+                await _policy.RequireParcelEditAsync(me, s.ParcelId, ct);
                 names[s.ParcelId] = await RegistryIdAsync(s.ParcelId, ct);
             }
 
@@ -477,6 +512,21 @@ public sealed class MapDropService
 
         var found = await _parcels.QueryAsync(new ParcelQuery { Area = area, Scope = me.Scope, Limit = 5000 }, ct);
         return found.Select(p => (p.ParcelId, p.RegistryId, p.Geometry)).ToList();
+    }
+
+    /// <summary>The stored track: [[ms, lat, lng, relAlt], ...].</summary>
+    internal static IReadOnlyList<TrackPoint> ReadTrackJson(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<double?[][]>(json, Json)!
+                .Where(p => p is { Length: >= 3 } && p[0] is not null && p[1] is not null && p[2] is not null)
+                .Select(p => new TrackPoint((int)p[0]!.Value, p[1]!.Value, p[2]!.Value, p.Length > 3 ? p[3] : null)).ToList();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<TrackPoint>();
+        }
     }
 
     private static MediaMetadata Validate(MediaMetadata m)
