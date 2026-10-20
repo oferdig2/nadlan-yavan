@@ -45,7 +45,6 @@
       { name: "Business", month: 200, gb: 51200, requests: 125000000 },
       { name: "Premium", month: 1000, gb: 51200, requests: 500000000 }
     ],
-    mediaConvertMinute: 0.015, // 1080p H.264 web copy, Basic tier (AWS lists 0.0075-0.015; the higher one used)
     // Google: per 1,000 events by monthly volume; the first events of each month are free.
     mapsDynamic: { free: 10000, tiers: [[100000, 7], [500000, 5.6], [1000000, 4.2], [5000000, 2.1], [Infinity, 0.53]] },
     maps3d: { free: 1000, tiers: [[100000, 6], [500000, 5.1], [1000000, 4.2], [5000000, 3.3], [Infinity, 2.4]] }
@@ -54,8 +53,8 @@
   // Today's usage (AWS, read 2026-10-20 09:27 UTC) as the starting values.
   var DEFAULTS = {
     storedGb: 1.8, uploadsPerMonth: 200, viewers: 50, videosPerViewer: 3, videoMb: 250, photosPerViewer: 20, photoMb: 8,
-    webCopies: false, visits: 500, mbPerVisit: 3, mapUsers: 10, mapOpensPerUser: 100, presentations: 50,
-    server: "t3.micro", diskGb: 20, snapshotGb: 10, videoMinutesConverted: 0, domainYear: 0
+    visits: 500, mbPerVisit: 3, mapUsers: 10, mapOpensPerUser: 100, presentations: 50,
+    server: "t3.micro", diskGb: 20, snapshotGb: 10, domainYear: 0
   };
   var PRESET_500 = { viewers: 500, videosPerViewer: 3, videoMb: 250, photosPerViewer: 20, photoMb: 8 };
 
@@ -88,7 +87,7 @@
     var P = PRICES, lines = [];
     function line(group, item, quantity, free, cost, note) { lines.push({ group: group, item: item, quantity: quantity, free: free, cost: cost, note: note || "" }); }
 
-    var videoMb = i.webCopies ? i.videoMb * 6 / 36 : i.videoMb; // web copy at ~6 Mbit/s instead of the drone's ~36
+    var videoMb = i.videoMb;
     var cdnGb = i.viewers * (i.videosPerViewer * videoMb + i.photosPerViewer * i.photoMb) / 1024;
     // A video plays as a run of range requests (~1 per 2 MB); a photo is 2 (photo + thumbnail).
     var cdnRequests = i.viewers * (i.videosPerViewer * Math.max(1, videoMb / 2) + i.photosPerViewer * 2);
@@ -111,19 +110,16 @@
     var cfData = afterFree(cdnGb, P.cfFreeGb, P.cfTiers);
     var cfReq = Math.max(0, cdnRequests - P.cfFreeRequests) * P.cfHttpsPer10k / 10000;
     var cfFn = Math.max(0, cdnRequests - P.cfFunctionFree) * P.cfFunctionPer1M / 1000000;
-    line("CDN (CloudFront)", "Video and photo traffic", gbText(cdnGb), "1 TB", cfData);
-    line("CDN (CloudFront)", "Requests", num(cdnRequests), "10 million", cfReq);
-    line("CDN (CloudFront)", "Path-check function", num(cdnRequests), "2 million", cfFn);
+    line("CDN (streaming)", "Video and photo traffic", gbText(cdnGb), "1 TB", cfData);
+    line("CDN (streaming)", "Requests", num(cdnRequests), "10 million", cfReq);
+    line("CDN (streaming)", "Path-check function", num(cdnRequests), "2 million", cfFn);
     var plan = P.cfPlans.filter(function (p) { return cdnGb <= p.gb && cdnRequests <= p.requests; })[0];
     var payg = cfData + cfReq + cfFn;
 
-    if (i.videoMinutesConverted > 0) {
-      line("Video web copies", "MediaConvert 1080p (planned)", num(i.videoMinutesConverted) + " min", "-", i.videoMinutesConverted * P.mediaConvertMinute);
-    }
     line("Google Maps", "Map loads (Dynamic Maps)", num(mapLoads), "10,000", tiered(mapLoads, P.mapsDynamic.free, P.mapsDynamic.tiers, 1000));
     line("Google Maps", "3D presentations (Photorealistic 3D)", num(i.presentations), "1,000", tiered(i.presentations, P.maps3d.free, P.maps3d.tiers, 1000),
       "Assumes one billable 3D event per presentation opened");
-    if (i.domainYear > 0) { line("Other", "Domain greekplot.com", "1 month", "-", i.domainYear / 12); }
+    if (i.domainYear > 0) { line("Server", "Domain greekplot.com", "1 month", "-", i.domainYear / 12); }
 
     var total = lines.reduce(function (s, l) { return s + l.cost; }, 0);
     return { lines: lines, total: total, cdnGb: cdnGb, cdnRequests: cdnRequests, webGb: webGb, mapLoads: mapLoads, plan: plan, payg: payg, videoMb: videoMb };
@@ -138,9 +134,7 @@
       ["videosPerViewer", "Videos each person watches", ""],
       ["videoMb", "Average video size (MB)", "Alon's drone videos: 100-340 MB each (about 36 Mbit/s)."],
       ["photosPerViewer", "Photos each person opens", ""],
-      ["photoMb", "Average photo size (MB)", "Drone photos: 5-10 MB."],
-      ["webCopies", "Serve light web copies of videos (~6 Mbit/s instead of ~36)", "Planned. About 1/6 of the traffic; costs the conversion below.", "checkbox"],
-      ["videoMinutesConverted", "Video minutes converted per month", "Only with web copies: the length of newly uploaded videos."]]],
+      ["photoMb", "Average photo size (MB)", "Drone photos: 5-10 MB."]]],
     ["Website and maps", [
       ["visits", "Website visits per month", "Each time someone opens GreekPlot."],
       ["mbPerVisit", "MB per visit", "Pages and map data from our server (not the map images, which come from Google)."],
@@ -168,7 +162,6 @@
       ["CDN traffic (CloudFront, Europe)", "Videos and photos to viewers", "1 TB / month", "$0.085 per GB (first 10 TB)", "", "", money(0.085), money(0.085 * 100), money(0.085 * 1024)],
       ["CDN requests", "Each photo, each piece of a video", "10 million / month", "$" + P.cfHttpsPer10k + " per 10,000", money(P.cfHttpsPer10k / 10), money(P.cfHttpsPer10k), "", "", ""],
       ["CDN function", "Blocks internal folders on every request", "2 million / month", "$0.10 per million", money(0.0001), money(0.001), "", "", ""],
-      ["Video web copies (MediaConvert)", "Planned: light copies for smooth playback", "-", "$" + P.mediaConvertMinute + " per video minute", "", "", "", "", ""],
       ["Google map loads (Dynamic Maps)", "Each time the map page opens", "10,000 / month", "$7 per 1,000 (to 100K), then less", money(7), money(70), "", "", ""],
       ["Google 3D (Photorealistic 3D)", "3D presentation", "1,000 / month", "$6 per 1,000 (to 100K), then less", money(6), money(60), "", "", ""],
       ["Google sign-in", "Sign in with Google", "Always free", "$0", "", "", "", "", ""],
@@ -195,7 +188,6 @@
     out.push("- Internet data out from AWS: first 100 GB/month free (all services), then $0.09/GB first 10 TB, $0.085 next 40 TB.");
     out.push("- CloudFront pay-as-you-go: always free 1 TB data out, 10 million HTTPS requests and 2 million function runs per month; then Europe $0.085/GB first 10 TB, $0.08 next 40 TB, $0.06 next 100 TB; HTTPS $0.012 per 10,000 requests; functions $0.10 per million. S3 to CloudFront traffic is free.");
     out.push("- CloudFront flat-rate plans (no overage charges): " + P.cfPlans.map(function (p) { return p.name + " $" + p.month + "/month (" + gbText(p.gb) + ", " + num(p.requests) + " requests)"; }).join("; ") + ".");
-    out.push("- Video web copies (AWS MediaConvert 1080p H.264): about $" + P.mediaConvertMinute + " per minute of video.");
     out.push("- Google Maps Dynamic Maps: first 10,000 loads/month free, then per 1,000: $7 to 100K, $5.60 to 500K, $4.20 to 1M, $2.10 to 5M, $0.53 above.");
     out.push("- Google Photorealistic 3D: first 1,000/month free, then per 1,000: $6 to 100K, $5.10 to 500K, $4.20 to 1M.");
     out.push("- Free: Google sign-in, Let's Encrypt certificate.");
@@ -216,10 +208,18 @@
     $panel.append($("<div class=\"meta-toolbar\"><h3>Costs</h3></div>").append($("<span class=\"muted\"></span>")
       .text("What GreekPlot pays Amazon and Google, and a calculator for any scenario. List prices as of " + P.asOf + ", USD.")));
 
-    $panel.append($("<h4 class=\"costs-h\"></h4>").text("Prices"), priceTable(),
+    // Three sections that fold: Prices (closed), Your scenario (open), Cost table (closed); the total stays in view.
+    function section(title, open) {
+      var $d = $("<details class=\"costs-section\"></details>").prop("open", open).append($("<summary></summary>").text(title));
+      $panel.append($d);
+      return $d;
+    }
+    section("Prices", false).append(priceTable(),
       $("<p class=\"muted small\"></p>").text("CloudFront also offers flat-rate plans instead of paying per GB: " +
         P.cfPlans.map(function (p) { return p.name + " $" + p.month + "/month (" + gbText(p.gb) + ", " + num(p.requests) + " requests)"; }).join(" · ") +
-        ". Google 3D and map loads get cheaper per 1,000 at higher volumes (shown in Copy for AI)."));
+        ". Google 3D and map loads get cheaper per 1,000 at higher volumes (shown in Copy for AI)."),
+      $("<p class=\"muted small\"></p>").append("Sources: ",
+        P.sources.map(function (s, k) { return $("<span></span>").append(k ? " · " : "", $("<a target=\"_blank\" rel=\"noopener\"></a>").attr("href", s[1]).text(s[0])); })));
 
     var $form = $("<form class=\"costs-form\" autocomplete=\"off\"></form>");
     FIELDS.forEach(function (g) {
@@ -250,10 +250,10 @@
       $("<button type=\"button\" class=\"btn\" data-act=\"reset\">Back to today's usage</button>"),
       $("<button type=\"button\" class=\"btn btn-primary\" data-act=\"copy\">Copy for AI</button>"),
       $("<span class=\"muted small\" data-role=\"copied\" hidden>Copied - paste it into any AI chat and add your question.</span>"));
-    var $result = $("<section class=\"costs-result\"></section>");
-    $panel.append($("<h4 class=\"costs-h\"></h4>").text("Your scenario"), $form, $buttons, $result,
-      $("<p class=\"muted small\"></p>").append("Sources: ",
-        P.sources.map(function (s, k) { return $("<span></span>").append(k ? " · " : "", $("<a target=\"_blank\" rel=\"noopener\"></a>").attr("href", s[1]).text(s[0])); })));
+    section("Your scenario", true).append($form, $buttons);
+    var $total = $("<section class=\"costs-summary\"></section>").appendTo($panel);
+    var $result = $("<div class=\"costs-result\"></div>");
+    section("Cost table", false).append($result);
 
     function inputs() {
       var i = {};
@@ -268,19 +268,38 @@
 
     function render() {
       var i = inputs(), r = calculate(i);
-      var $t = $("<table class=\"meta-table\"><thead><tr><th>Group</th><th>Item</th><th>Amount</th><th>Free</th><th class=\"num\">Per month</th></tr></thead><tbody></tbody></table>");
+      // Subtotal per group, in the order the groups first appear (Server, Files, CDN (streaming), Google Maps).
+      var groups = [];
       r.lines.forEach(function (l) {
-        $t.find("tbody").append($("<tr></tr>").attr("title", l.note).append(
-          $("<td></td>").text(l.group), $("<td></td>").text(l.item), $("<td></td>").text(l.quantity), $("<td></td>").text(l.free),
-          $("<td class=\"num\"></td>").text(money(l.cost))));
+        var g = groups.filter(function (x) { return x.name === l.group; })[0];
+        if (!g) { g = { name: l.group, lines: [], total: 0 }; groups.push(g); }
+        g.lines.push(l);
+        g.total += l.cost;
+      });
+
+      var $t = $("<table class=\"meta-table\"><thead><tr><th>Item</th><th>Amount</th><th>Free</th><th class=\"num\">Per month</th></tr></thead><tbody></tbody></table>");
+      groups.forEach(function (g) {
+        g.lines.forEach(function (l) {
+          $t.find("tbody").append($("<tr></tr>").attr("title", l.note).append(
+            $("<td></td>").text(l.item), $("<td></td>").text(l.quantity), $("<td></td>").text(l.free), $("<td class=\"num\"></td>").text(money(l.cost))));
+        });
+        $t.find("tbody").append($("<tr class=\"costs-subtotal\"></tr>").append(
+          $("<td colspan=\"3\"></td>").text(g.name), $("<td class=\"num\"></td>").text(money(g.total))));
       });
       $t.append($("<tfoot></tfoot>").append($("<tr class=\"costs-total\"></tr>").append(
-        $("<td colspan=\"4\"></td>").text("Total per month (about " + money(r.total * 12) + " a year)"), $("<td class=\"num\"></td>").text(money(r.total)))));
-      var cdn = "CDN: " + gbText(r.cdnGb) + " and " + num(r.cdnRequests) + " requests a month" +
-        (i.webCopies ? " (videos as web copies, ~" + num(r.videoMb) + " MB each)" : "") + ". Pay-as-you-go: " + money(r.payg) + "/month" +
-        (r.plan ? "; cheapest flat-rate plan that covers it: " + r.plan.name + " at " + money(r.plan.month) + "/month." : "; above every flat-rate plan's limits.");
-      $result.empty().append($t, $("<p class=\"small\"></p>").text(cdn),
-        $("<p class=\"muted small\"></p>").text("Estimates from list prices; the AWS and Google invoices are the real numbers. Taxes not included. Hover a line for its assumption."));
+        $("<td colspan=\"3\"></td>").text("Total per month"), $("<td class=\"num\"></td>").text(money(r.total)))));
+      $result.empty().append($t, $("<p class=\"muted small\"></p>").text("Hover a line for its assumption."));
+
+      // Always in view: the total, the subtotals, and the CDN plan hint.
+      $total.empty().append(
+        $("<div class=\"costs-total-line\"></div>").append($("<span></span>").text("Total per month"),
+          $("<strong></strong>").text(money(r.total)), $("<span class=\"muted\"></span>").text("about " + money(r.total * 12) + " a year")),
+        $("<div class=\"costs-groups\"></div>").append(groups.map(function (g) {
+          return $("<span></span>").append(document.createTextNode(g.name + " "), $("<b></b>").text(money(g.total)));
+        })),
+        $("<p class=\"small\"></p>").text("Streaming: " + gbText(r.cdnGb) + " and " + num(r.cdnRequests) + " requests a month; pay-as-you-go " +
+          money(r.payg) + "/month" + (r.plan ? ", or the CloudFront flat-rate " + r.plan.name + " plan at " + money(r.plan.month) + "/month." : "; above every flat-rate plan's limits.")),
+        $("<p class=\"muted small\"></p>").text("Estimates from list prices; the AWS and Google invoices are the real numbers. Taxes not included."));
     }
 
     $form.on("input change", render);

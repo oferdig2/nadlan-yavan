@@ -54,3 +54,11 @@
 .costs-form .small { margin-top: 1px; }
 .costs-result { margin-top: 10px; }
 .costs-total td { font-weight: 700; border-top: 2px solid var(--border); }
+.costs-subtotal td { font-weight: 600; background: var(--bg); }
+.costs-section { margin: 10px 0; }
+.costs-section > summary { cursor: pointer; font-weight: 600; font-size: 15px; padding: 6px 0; }
+.costs-section[open] > summary { margin-bottom: 6px; }
+.costs-summary { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+.costs-total-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 15px; }
+.costs-total-line strong { font-size: 24px; }
+.costs-groups { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 4px; font-size: 13px; }
