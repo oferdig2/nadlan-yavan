@@ -1,6 +1,6 @@
 // Admin page composition: one tab per section; each tab is rebuilt when opened so it shows fresh data.
 // Tabs show by permission (Users/Roles: MANAGE_USERS, Contacts: contact permissions, lists: MANAGE_METADATA; Server,
-// Web files, Downloads, Settings: the Admins in MachineAdminAccess);
+// Web files, Downloads, Settings: the Admins in MachineAdminAccess; Costs: the Admin role);
 // the server enforces the same rules on every call.
 (function (window, $) {
   "use strict";
@@ -34,6 +34,8 @@
       Nadlan.initializeAdminDownloads($panel);
     } else if (tab === "settings") {
       Nadlan.initializeAdminSettings($panel);
+    } else if (tab === "costs") {
+      Nadlan.initializeAdminCosts($panel);
     } else {
       Nadlan.initializeMetadataTableEditor($panel, $.extend({ table: tab }, LISTS[tab]));
     }
@@ -49,6 +51,7 @@
 
     Nadlan.session.applyRequires();
     $("[data-machine-admin]").prop("hidden", !Nadlan.session.user().machineAdmin);
+    $("[data-admin-only]").prop("hidden", !Nadlan.session.user().isAdmin); // Costs: list prices + calculator, Admin role
     var allowed = $("[data-tab]").filter(function () { return !this.hidden; }).map(function () { return $(this).data("tab"); }).get();
     if (!allowed.length) {
       $("#admin-panel").html("<div class=\"muted\">You have no administration rights. <a href=\"/\">Back to the map</a></div>");
