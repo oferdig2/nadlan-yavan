@@ -25,13 +25,22 @@ public static class FileEndpoints
 
         // Files of one entity, only in the categories the caller may see (Scenario 23: hidden files are not even listed).
         group.MapGet("/", async (string? attachedToType, long attachedToId, UserAccess me, AccessPolicy policy,
-            IFileAttachmentStore files, IFileUrlProvider urls, CancellationToken ct) =>
+            IFileAttachmentStore files, IMapDropStore mapDrop, IFileUrlProvider urls, CancellationToken ct) =>
         {
             var type = FileTargetTypes.Normalize(attachedToType)
                 ?? throw new DomainValidationException("FILE_TARGET_INVALID", "Unknown attachedToType.");
             await policy.RequireFileTargetViewAsync(me, type, attachedToId, ct);
-            var items = await files.ListReadyAsync(type, attachedToId, ct);
-            return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls)));
+            var items = (await files.ListReadyAsync(type, attachedToId, ct)).ToList();
+            if (type != FileTargetTypes.Parcel)
+            {
+                return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls)));
+            }
+
+            // A Parcel also shows videos of other Parcels that fly over it (Map drop time frames), each with its frames here.
+            items.AddRange(await mapDrop.ListLinkedFilesAsync(attachedToId, ct));
+            var frames = await mapDrop.ListSegmentsOnParcelAsync(attachedToId, ct);
+            return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls,
+                frames.TryGetValue(f.FileAttachmentId, out var mine) ? mine : null)));
         });
 
         // What the Files dialog may offer for this entity.
@@ -116,6 +125,12 @@ public static class FileEndpoints
 
         uploads.MapPost("/", async (StartUploadDto dto, UserAccess me, AccessPolicy policy, FileService service, CancellationToken ct) =>
         {
+            // Map drop uploads are always in the uploader's own name (attached_to_id = their user id).
+            if (FileTargetTypes.Normalize(dto.AttachedToType) == FileTargetTypes.MapDrop && dto.AttachedToId != me.UserId)
+            {
+                throw new DomainValidationException("MAP_DROP_OWNER", "Map drop uploads are in your own name.");
+            }
+
             await policy.RequireFileUploadAsync(me, dto.AttachedToType ?? "", dto.AttachedToId, await service.CategoryOfAsync(dto.FileTypeId, ct), ct);
             return Results.Ok(await service.StartUploadAsync(new StartUploadRequest(
                 dto.AttachedToType ?? "", dto.AttachedToId, dto.FileTypeId, dto.FileName ?? "", dto.MimeType, dto.FileSize, me.UserId), ct));
@@ -177,8 +192,10 @@ public static class FileEndpoints
         }
     }
 
-    private static object ToDto(FileListItem f, IFileUrlProvider urls) => new
+    /// <param name="segments">a video's time frames on the Parcel being listed (Map drop); null = none</param>
+    internal static object ToDto(FileListItem f, IFileUrlProvider urls, IReadOnlyList<FileSegment>? segments = null) => new
     {
+        segments = segments?.Select(s => new { startMs = s.StartMs, endMs = s.EndMs, source = s.Source }),
         fileAttachmentId = f.FileAttachmentId,
         fileTypeId = f.FileTypeId,
         fileTypeCode = f.FileTypeCode,

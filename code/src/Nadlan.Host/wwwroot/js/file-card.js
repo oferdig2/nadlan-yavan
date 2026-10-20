@@ -23,17 +23,31 @@
   }
 
   // Media viewer above every dialog; closes on ×, Esc or a click outside the media.
-  function openViewer(mediaKind, url, name) {
+  // startMs/endMs (optional, videos): a time frame on a Parcel (Map drop) - play starts there and pauses once at its end;
+  // pressing play again goes on.
+  function openViewer(mediaKind, url, name, startMs, endMs) {
     var esc = Nadlan.format.escapeHtml;
+    var frame = mediaKind === "video" && startMs >= 0 ? " · " + fmtTime(startMs) + (endMs > startMs ? "–" + fmtTime(endMs) : "") : "";
     var $viewer = $(
       "<div class=\"media-viewer\" role=\"dialog\" aria-label=\"" + esc(name) + "\">" +
-        "<div class=\"media-viewer-bar\"><span>" + esc(name) + "</span>" +
+        "<div class=\"media-viewer-bar\"><span>" + esc(name) + esc(frame) + "</span>" +
           "<a class=\"media-viewer-open\" href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noopener\">Open in new tab</a>" +
           "<button type=\"button\" class=\"media-viewer-close\" title=\"Close (Esc)\">×</button></div>" +
         (mediaKind === "video"
           ? "<video class=\"media-viewer-media\" controls autoplay playsinline src=\"" + esc(url) + "\"></video>"
           : "<img class=\"media-viewer-media\" src=\"" + esc(url) + "\" alt=\"" + esc(name) + "\">") +
       "</div>").appendTo(document.body);
+
+    var video = $viewer.find("video")[0];
+    if (video && startMs > 0) {
+      video.addEventListener("loadedmetadata", function () { video.currentTime = startMs / 1000; }, { once: true });
+    }
+    if (video && endMs > 0) {
+      var stopAt = endMs / 1000;
+      video.addEventListener("timeupdate", function onTime() {
+        if (video.currentTime >= stopAt) { video.pause(); video.removeEventListener("timeupdate", onTime); }
+      });
+    }
 
     function close() {
       $viewer.find("video").each(function () { this.pause(); this.removeAttribute("src"); this.load(); }); // stop downloading
@@ -55,7 +69,8 @@
     if (!b) { return; }
     e.preventDefault();
     e.stopPropagation();
-    openViewer(b.getAttribute("data-view-file"), b.getAttribute("data-url"), b.getAttribute("data-name"));
+    openViewer(b.getAttribute("data-view-file"), b.getAttribute("data-url"), b.getAttribute("data-name"),
+      b.hasAttribute("data-start") ? Number(b.getAttribute("data-start")) : undefined, b.hasAttribute("data-end") ? Number(b.getAttribute("data-end")) : undefined);
   }, true);
 
   function thumbHtml(file) {
@@ -78,16 +93,40 @@
     }
   }
 
+  function fmtTime(ms) {
+    var s = Math.floor(ms / 1000);
+    return s >= 3600 ? Math.floor(s / 3600) + ":" + ("0" + Math.floor(s / 60) % 60).slice(-2) + ":" + ("0" + s % 60).slice(-2)
+      : Math.floor(s / 60) + ":" + ("0" + s % 60).slice(-2);
+  }
+
+  // A video's time frames on the Parcel being shown (Map drop): one play button each, starting there.
+  function segmentsHtml(file) {
+    var esc = Nadlan.format.escapeHtml;
+    if (!file.segments || !file.segments.length || kind(file) !== "video") { return ""; }
+    return "<div class=\"file-segments\">" + file.segments.map(function (s) {
+      return "<button type=\"button\" class=\"file-segment\" data-view-file=\"video\" data-url=\"" + esc(file.url) + "\" data-name=\"" +
+        esc(file.caption || file.originalFileName) + "\" data-start=\"" + s.startMs + "\" data-end=\"" + s.endMs + "\" title=\"Play this part\">&#9654; " +
+        fmtTime(s.startMs) + "–" + fmtTime(s.endMs) + "</button>";
+    }).join("") + "</div>";
+  }
+
   /** @returns {string} HTML for one card; data-file-id carries the id for click handling. */
   function renderFileCard(file) {
     var esc = Nadlan.format.escapeHtml;
-    return "<div class=\"file-card\" data-file-id=\"" + file.fileAttachmentId + "\" title=\"Click to edit details\">" +
+    var html = "<div class=\"file-card\" data-file-id=\"" + file.fileAttachmentId + "\" title=\"Click to edit details\">" +
       "<div class=\"file-thumb-wrap\">" + thumbHtml(file) + "</div>" +
       "<div class=\"file-title\">" + esc(file.caption || file.originalFileName) + "</div>" +
       "<div class=\"file-sub muted\">" + esc(file.fileTypeName) + " · " + Nadlan.formatFileSize(file.fileSize) + "</div>" +
+      segmentsHtml(file) +
       "</div>";
+    // On a Parcel with time frames, ▶ on the picture starts at the first one too.
+    if (file.segments && file.segments.length && kind(file) === "video") {
+      html = html.replace("data-view-file=\"video\" data-url=", "data-view-file=\"video\" data-start=\"" + file.segments[0].startMs + "\" data-end=\"" + file.segments[0].endMs + "\" data-url=");
+    }
+    return html;
   }
 
   Nadlan.renderFileCard = renderFileCard;
+  Nadlan.mediaViewer = { open: openViewer, formatTime: fmtTime };
   Nadlan.fileKind = kind;
 })(window, jQuery);

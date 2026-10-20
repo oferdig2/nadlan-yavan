@@ -1,0 +1,532 @@
+using System.Globalization;
+using System.Text.Json;
+using Nadlan.Core.Activity;
+using Nadlan.Core.Geo;
+using Nadlan.Core.Parcels;
+using Nadlan.Core.Security;
+using Nadlan.Core.Validation;
+
+namespace Nadlan.Core.Files;
+
+/// <summary>What was read from inside a file (EXIF / DJI XMP / MP4 header / the .srt beside it). Null = not found.</summary>
+public sealed record MediaMetadata
+{
+    public string? TakenLocal { get; init; }
+    public string? CameraMake { get; init; }
+    public string? CameraModel { get; init; }
+    public double? Latitude { get; init; }
+    public double? Longitude { get; init; }
+    public decimal? RelAltitudeM { get; init; }
+    public decimal? AbsAltitudeM { get; init; }
+    public decimal? GimbalYaw { get; init; }
+    public decimal? GimbalPitch { get; init; }
+    public string? GpsStatus { get; init; }
+    public decimal? DurationS { get; init; }
+    public int? Width { get; init; }
+    public int? Height { get; init; }
+    public int? BitrateKbps { get; init; }
+    public string? VideoCodec { get; init; }
+    public bool? IndexAtEnd { get; init; }
+    public DateTime? SourceModifiedUtc { get; init; }
+    public long? TrackFileId { get; init; }
+    public string? TrackJson { get; init; }
+    public string? SuggestionsJson { get; init; }
+}
+
+/// <summary>One point of a flight track: milliseconds into the video, position, height above take-off.</summary>
+public readonly record struct TrackPoint(int Ms, double Lat, double Lng, double? RelAlt);
+
+/// <summary>
+/// A Parcel found for a file. Photos: no times. Videos with a track: one entry per stretch over the Parcel (a Parcel
+/// flown over twice has two). LongLook = at least <see cref="TrackSegmenter.LongLookMs"/> - ticked by default in the UI.
+/// </summary>
+public sealed record ParcelSuggestion(long ParcelId, string? RegistryId, int? StartMs = null, int? EndMs = null, bool LongLook = true);
+
+/// <summary>A time frame of a video on one Parcel.</summary>
+public sealed record FileSegment(long ParcelId, int StartMs, int EndMs, string Source = FileSegmentSources.Manual, string? RegistryId = null);
+
+public static class FileSegmentSources
+{
+    public const string Track = "Track";
+    public const string Manual = "Manual";
+}
+
+/// <summary>A Map drop file for the review strip: the file, who dropped it, and what was found in it.</summary>
+public sealed record MapDropItem
+{
+    public required FileListItem File { get; init; }
+    public long? UploadedByUserId { get; init; }
+    public string? UploadedByName { get; init; }
+    public MediaMetadata? Metadata { get; init; }
+}
+
+/// <summary>An already-stored file with the same name and size as one being dropped (the user decides).</summary>
+public sealed record DuplicateHit(string FileName, long FileSize, long FileAttachmentId, string AttachedToType, long AttachedToId, string? RegistryId);
+
+public interface IMapDropStore
+{
+    Task<IReadOnlyList<MapDropItem>> ListAsync(CancellationToken ct = default);
+    Task<MediaMetadata?> GetMetadataAsync(long fileAttachmentId, CancellationToken ct = default);
+    Task UpsertMetadataAsync(long fileAttachmentId, MediaMetadata metadata, CancellationToken ct = default);
+
+    /// <summary>MapDrop → Parcel with its document type. False if the file is no longer in Map drop (assigned meanwhile).</summary>
+    Task<bool> AssignAsync(long fileAttachmentId, long parcelId, int fileTypeId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<FileSegment>> ListSegmentsAsync(long fileAttachmentId, CancellationToken ct = default);
+    Task ReplaceSegmentsAsync(long fileAttachmentId, IReadOnlyList<FileSegment> segments, long? userId, CancellationToken ct = default);
+
+    /// <summary>Time frames on one Parcel, per video (the Parcel's own videos and videos of other Parcels linked here).</summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<FileSegment>>> ListSegmentsOnParcelAsync(long parcelId, CancellationToken ct = default);
+
+    /// <summary>Ready videos whose home is elsewhere but which have a time frame on this Parcel.</summary>
+    Task<IReadOnlyList<FileListItem>> ListLinkedFilesAsync(long parcelId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<DuplicateHit>> FindDuplicatesAsync(IReadOnlyList<(string Name, long Size)> files, CancellationToken ct = default);
+
+    /// <summary>Map drop files (Ready or Pending) uploaded before the cutoff.</summary>
+    Task<IReadOnlyList<long>> ListExpiredAsync(DateTime uploadedBeforeUtc, int limit, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Flight track → Parcels with time frames: the Parcel(s) under each point, runs of the same Parcel(s) joined, GPS
+/// flicker at a boundary (a run shorter than <see cref="FlickerMs"/>) folded into the run before it, and each Parcel's
+/// touching stretches merged. Pure: no database (unit-tested on a real DJI track).
+/// </summary>
+public static class TrackSegmenter
+{
+    public const int FlickerMs = 1000;
+    public const int LongLookMs = 5000;
+
+    public static IReadOnlyList<ParcelSuggestion> Segment(IReadOnlyList<TrackPoint> points, IReadOnlyList<(long Id, string? RegistryId, GeoPolygon Geometry)> parcels)
+    {
+        if (points.Count == 0)
+        {
+            return Array.Empty<ParcelSuggestion>();
+        }
+
+        var boxes = parcels.Select(p => (p.Id, p.RegistryId, p.Geometry, Box: p.Geometry.Bounds())).ToList();
+        string KeyOf(TrackPoint t)
+        {
+            var hits = boxes.Where(b => t.Lng >= b.Box.West && t.Lng <= b.Box.East && t.Lat >= b.Box.South && t.Lat <= b.Box.North
+                                         && b.Geometry.Contains(new GeoPoint(t.Lng, t.Lat)))
+                .Select(b => b.Id).OrderBy(id => id);
+            return string.Join("+", hits);
+        }
+
+        // Runs of the same Parcel set; a run lasts until the next run starts (the last one until its last point).
+        var runs = new List<(string Key, int Start, int End)>();
+        foreach (var t in points)
+        {
+            var key = KeyOf(t);
+            if (runs.Count > 0 && runs[^1].Key == key)
+            {
+                runs[^1] = (key, runs[^1].Start, t.Ms);
+            }
+            else
+            {
+                if (runs.Count > 0)
+                {
+                    runs[^1] = (runs[^1].Key, runs[^1].Start, t.Ms);
+                }
+
+                runs.Add((key, t.Ms, t.Ms));
+            }
+        }
+
+        var merged = new List<(string Key, int Start, int End)>();
+        foreach (var r in runs)
+        {
+            if (merged.Count > 0 && (r.End - r.Start < FlickerMs || merged[^1].Key == r.Key))
+            {
+                merged[^1] = (merged[^1].Key, merged[^1].Start, r.End);
+            }
+            else
+            {
+                merged.Add(r);
+            }
+        }
+
+        // The first run can itself be flicker (a blip at take-off): fold it into the second.
+        if (merged.Count > 1 && merged[0].End - merged[0].Start < FlickerMs)
+        {
+            merged[1] = (merged[1].Key, merged[0].Start, merged[1].End);
+            merged.RemoveAt(0);
+        }
+
+        var names = parcels.ToDictionary(p => p.Id, p => p.RegistryId);
+        var result = new List<ParcelSuggestion>();
+        foreach (var group in merged.Where(m => m.Key.Length > 0)
+                     .SelectMany(m => m.Key.Split('+').Select(id => (Id: long.Parse(id, CultureInfo.InvariantCulture), m.Start, m.End)))
+                     .GroupBy(x => x.Id))
+        {
+            var spans = group.OrderBy(x => x.Start).Select(x => (x.Start, x.End)).ToList();
+            var joined = new List<(int Start, int End)>();
+            foreach (var s in spans)
+            {
+                if (joined.Count > 0 && s.Start <= joined[^1].End)
+                {
+                    joined[^1] = (joined[^1].Start, Math.Max(joined[^1].End, s.End));
+                }
+                else
+                {
+                    joined.Add(s);
+                }
+            }
+
+            result.AddRange(joined.Where(j => j.End > j.Start)
+                .Select(j => new ParcelSuggestion(group.Key, names[group.Key], j.Start, j.End, j.End - j.Start >= LongLookMs)));
+        }
+
+        return result.OrderBy(s => s.StartMs).ThenBy(s => s.ParcelId).ToList();
+    }
+}
+
+/// <summary>
+/// Map drop (owner, 2026-10-20): media dropped on the map are uploaded unassigned, inspected in the browser, matched to
+/// Parcels here, then assigned by an Admin or Data person - or deleted (5 days after upload at the latest).
+/// Only a video with a flight track can cover several Parcels (time frames); everything else goes to one Parcel.
+/// </summary>
+public sealed class MapDropService
+{
+    public static readonly TimeSpan KeepFor = TimeSpan.FromDays(5);
+    public const int MaxTrackPoints = 20_000;   // 2 a second = 2.7 hours of flight
+    public const int MaxSegments = 200;
+
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    private readonly IMapDropStore _store;
+    private readonly IFileAttachmentStore _files;
+    private readonly IParcelStore _parcels;
+    private readonly AccessPolicy _policy;
+    private readonly FileService _fileService;
+    private readonly IActivityLog _activity;
+
+    public MapDropService(IMapDropStore store, IFileAttachmentStore files, IParcelStore parcels, AccessPolicy policy, FileService fileService,
+        IActivityLog? activity = null)
+    {
+        _store = store;
+        _files = files;
+        _parcels = parcels;
+        _policy = policy;
+        _fileService = fileService;
+        _activity = activity ?? NullActivityLog.Instance;
+    }
+
+    public static void RequireMapDrop(UserAccess me)
+    {
+        if (!me.Has(Permissions.MapDrop))
+        {
+            throw new ForbiddenException("MAP_DROP_FORBIDDEN", "Map drop is for Admins and Data persons.");
+        }
+    }
+
+    public Task<IReadOnlyList<MapDropItem>> ListAsync(UserAccess me, CancellationToken ct = default)
+    {
+        RequireMapDrop(me);
+        return _store.ListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<DuplicateHit>> FindDuplicatesAsync(UserAccess me, IReadOnlyList<(string Name, long Size)> files, CancellationToken ct = default)
+    {
+        RequireMapDrop(me);
+        if (files.Count > 2000)
+        {
+            throw new DomainValidationException("MAP_DROP_TOO_MANY", "Drop at most 2,000 files at once.");
+        }
+
+        return await _store.FindDuplicatesAsync(files.Select(f => (FileService.CleanFileName(f.Name), f.Size)).ToList(), ct);
+    }
+
+    /// <summary>
+    /// Stores what the browser read from the file and finds its Parcels: a photo's position → the Parcel(s) it is in;
+    /// a video's flight track → Parcels with time frames. Returns the suggestions (also stored).
+    /// </summary>
+    public async Task<IReadOnlyList<ParcelSuggestion>> SaveInspectionAsync(UserAccess me, long fileAttachmentId, MediaMetadata metadata,
+        IReadOnlyList<TrackPoint>? track, CancellationToken ct = default)
+    {
+        RequireMapDrop(me);
+        var file = await GetMapDropFileAsync(fileAttachmentId, ct);
+        var clean = Validate(metadata);
+        var isVideo = file.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+        if (clean.TrackFileId is { } trackFileId)
+        {
+            // The .srt the track was read from: a file this user can see, else not recorded.
+            var trackFile = await _files.GetAsync(trackFileId, ct);
+            var visible = trackFile is { UploadStatus: FileUploadStatus.Ready }
+                          && (await _policy.FileTargetAsync(me, trackFile.AttachedToType, trackFile.AttachedToId, ct)).CanView;
+            clean = clean with { TrackFileId = visible ? trackFileId : null };
+        }
+        IReadOnlyList<ParcelSuggestion> suggestions = Array.Empty<ParcelSuggestion>();
+        string? trackJson = null;
+
+        if (track is { Count: > 0 } && isVideo)
+        {
+            var points = ValidateTrack(track);
+            trackJson = JsonSerializer.Serialize(points.Select(p => new object?[] { p.Ms, Math.Round(p.Lat, 7), Math.Round(p.Lng, 7), p.RelAlt is { } a ? Math.Round(a, 1) : null }), Json);
+            var parcels = await ParcelsAroundAsync(me, points.Select(p => (p.Lat, p.Lng)).ToList(), ct);
+            suggestions = TrackSegmenter.Segment(points, parcels);
+            clean = clean with { Latitude = clean.Latitude ?? points[0].Lat, Longitude = clean.Longitude ?? points[0].Lng };
+        }
+        else if (clean is { Latitude: { } lat, Longitude: { } lng })
+        {
+            var parcels = await ParcelsAroundAsync(me, new[] { (lat, lng) }, ct);
+            suggestions = parcels.Where(p => p.Geometry.Contains(new GeoPoint(lng, lat)))
+                .Select(p => new ParcelSuggestion(p.Id, p.RegistryId)).ToList();
+        }
+
+        await _store.UpsertMetadataAsync(fileAttachmentId, clean with
+        {
+            TrackJson = trackJson ?? (await _store.GetMetadataAsync(fileAttachmentId, ct))?.TrackJson,
+            SuggestionsJson = JsonSerializer.Serialize(suggestions, Json),
+        }, ct);
+        return suggestions;
+    }
+
+    /// <summary>
+    /// Assigns a Map drop file to its home Parcel with a document type. A video may also get time frames on several
+    /// Parcels (its home included). The .srt it was read from goes along to the same Parcel.
+    /// </summary>
+    public async Task AssignAsync(UserAccess me, long fileAttachmentId, long parcelId, int fileTypeId, IReadOnlyList<FileSegment>? segments,
+        CancellationToken ct = default)
+    {
+        RequireMapDrop(me);
+        var file = await GetMapDropFileAsync(fileAttachmentId, ct);
+        var category = await _fileService.CategoryOfAsync(fileTypeId, ct)
+                       ?? throw new DomainValidationException("FILE_TYPE_REQUIRED", "Select a document type.");
+        await _policy.RequireFileUploadAsync(me, FileTargetTypes.Parcel, parcelId, category, ct);
+        var types = await _files.ListTypesAsync(ct);
+        if (!types.Any(t => t.Id == fileTypeId && t.IsActive))
+        {
+            throw new DomainValidationException("FILE_TYPE_REQUIRED", "Select a document type.");
+        }
+
+        var frames = await ValidateSegmentsAsync(me, file, segments ?? Array.Empty<FileSegment>(), ct);
+        if (!await _store.AssignAsync(fileAttachmentId, parcelId, fileTypeId, ct))
+        {
+            throw new DomainValidationException("MAP_DROP_ALREADY_ASSIGNED", "Someone assigned this file a moment ago.");
+        }
+
+        if (frames.Count > 0)
+        {
+            await _store.ReplaceSegmentsAsync(fileAttachmentId, frames, me.UserId, ct);
+        }
+
+        var parcelName = await RegistryIdAsync(parcelId, ct);
+        await _activity.RecordAsync(new ActivityEntry(FileTargetTypes.Parcel, parcelId, ActivityActions.FileUploaded,
+            $"Added {file.OriginalFileName} from Map drop.", new { file.FileAttachmentId, file.FileSize, category }), ct);
+        foreach (var other in frames.Where(f => f.ParcelId != parcelId).GroupBy(f => f.ParcelId))
+        {
+            await _activity.RecordAsync(new ActivityEntry(FileTargetTypes.Parcel, other.Key, ActivityActions.FileLinked,
+                $"Video {file.OriginalFileName} (on Parcel {parcelName}) shown here: {FormatFrames(other)}.",
+                new { file.FileAttachmentId, category }), ct);
+        }
+
+        // The flight track travels with its video.
+        var metadata = await _store.GetMetadataAsync(fileAttachmentId, ct);
+        if (metadata?.TrackFileId is { } trackId && await _files.GetAsync(trackId, ct) is { AttachedToType: FileTargetTypes.MapDrop } track)
+        {
+            var trackType = types.FirstOrDefault(t => t.Code == "DRONE_TRACK" && t.IsActive)?.Id ?? fileTypeId;
+            if (await _store.AssignAsync(trackId, parcelId, trackType, ct))
+            {
+                await _activity.RecordAsync(new ActivityEntry(FileTargetTypes.Parcel, parcelId, ActivityActions.FileUploaded,
+                    $"Added {track.OriginalFileName} from Map drop.", new { track.FileAttachmentId, track.FileSize, category }), ct);
+            }
+        }
+    }
+
+    public async Task<IReadOnlyList<FileSegment>> ListSegmentsAsync(UserAccess me, long fileAttachmentId, CancellationToken ct = default)
+    {
+        await GetVisibleFileAsync(me, fileAttachmentId, ct);
+        return await _store.ListSegmentsAsync(fileAttachmentId, ct);
+    }
+
+    /// <summary>A data-entry correction of a video's time frames (all of them, replaced).</summary>
+    public async Task ReplaceSegmentsAsync(UserAccess me, long fileAttachmentId, IReadOnlyList<FileSegment> segments, CancellationToken ct = default)
+    {
+        RequireMapDrop(me);
+        var file = await GetVisibleFileAsync(me, fileAttachmentId, ct);
+        if (file.AttachedToType != FileTargetTypes.Parcel)
+        {
+            throw new DomainValidationException("FILE_SEGMENTS_PARCEL_ONLY", "Time frames are for videos on a Parcel.");
+        }
+
+        var frames = await ValidateSegmentsAsync(me, file, segments, ct);
+        var before = await _store.ListSegmentsAsync(fileAttachmentId, ct);
+        await _store.ReplaceSegmentsAsync(fileAttachmentId, frames, me.UserId, ct);
+        var summary = frames.Count == 0 ? "none" : string.Join("; ", frames.GroupBy(f => f.ParcelId).Select(g => $"{g.First().RegistryId ?? "#" + g.Key} {FormatFrames(g)}"));
+        await _activity.RecordAsync(new ActivityEntry(FileTargetTypes.Parcel, file.AttachedToId, ActivityActions.FileLinked,
+            $"Time frames of {file.OriginalFileName} set: {summary}.", new { file.FileAttachmentId, before = before.Count, after = frames.Count }), ct);
+    }
+
+    /// <summary>Deletes Map drop files uploaded more than <see cref="KeepFor"/> ago. Returns how many.</summary>
+    public async Task<int> SweepExpiredAsync(CancellationToken ct = default)
+    {
+        var count = 0;
+        foreach (var id in await _store.ListExpiredAsync(DateTime.UtcNow - KeepFor, limit: 500, ct))
+        {
+            try
+            {
+                await _fileService.DeleteAsync(id, ct);
+                count++;
+            }
+            catch (EntityNotFoundException)
+            {
+                // gone meanwhile
+            }
+        }
+
+        return count;
+    }
+
+    public static string FormatTime(int ms)
+    {
+        var s = ms / 1000;
+        return s >= 3600 ? $"{s / 3600}:{s / 60 % 60:00}:{s % 60:00}" : $"{s / 60}:{s % 60:00}";
+    }
+
+    private static string FormatFrames(IEnumerable<FileSegment> frames)
+        => string.Join(", ", frames.OrderBy(f => f.StartMs).Select(f => $"{FormatTime(f.StartMs)}-{FormatTime(f.EndMs)}"));
+
+    private async Task<string> RegistryIdAsync(long parcelId, CancellationToken ct)
+        => (await _parcels.GetAsync(parcelId, ct))?.RegistryId ?? "#" + parcelId;
+
+    private async Task<FileAttachment> GetMapDropFileAsync(long fileAttachmentId, CancellationToken ct)
+    {
+        var file = await _files.GetAsync(fileAttachmentId, ct);
+        if (file is null || file.AttachedToType != FileTargetTypes.MapDrop)
+        {
+            throw new EntityNotFoundException("File", fileAttachmentId);
+        }
+
+        if (file.UploadStatus != FileUploadStatus.Ready)
+        {
+            throw new DomainValidationException("FILE_NOT_READY", "The file is still uploading.");
+        }
+
+        return file;
+    }
+
+    private async Task<FileAttachment> GetVisibleFileAsync(UserAccess me, long fileAttachmentId, CancellationToken ct)
+    {
+        var file = await _files.GetAsync(fileAttachmentId, ct);
+        if (file is not { UploadStatus: FileUploadStatus.Ready }
+            || !(await _policy.FileTargetAsync(me, file.AttachedToType, file.AttachedToId, ct)).CanView
+            || !me.CanSeeFileCategory(await _fileService.CategoryOfAsync(file.FileTypeId, ct)))
+        {
+            throw new EntityNotFoundException("File", fileAttachmentId);
+        }
+
+        return file;
+    }
+
+    private async Task<IReadOnlyList<FileSegment>> ValidateSegmentsAsync(UserAccess me, FileAttachment file, IReadOnlyList<FileSegment> segments, CancellationToken ct)
+    {
+        if (segments.Count == 0)
+        {
+            return Array.Empty<FileSegment>();
+        }
+
+        if (!file.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainValidationException("FILE_SEGMENTS_VIDEO_ONLY", "Only a video can be split over several Parcels.");
+        }
+
+        if (segments.Count > MaxSegments)
+        {
+            throw new DomainValidationException("FILE_SEGMENTS_TOO_MANY", $"At most {MaxSegments} time frames per video.");
+        }
+
+        var duration = (await _store.GetMetadataAsync(file.FileAttachmentId, ct))?.DurationS;
+        var result = new List<FileSegment>();
+        var names = new Dictionary<long, string?>();
+        foreach (var s in segments)
+        {
+            if (s.StartMs < 0 || s.EndMs <= s.StartMs)
+            {
+                throw new DomainValidationException("FILE_SEGMENT_TIMES", $"A time frame must end after it starts ({FormatTime(Math.Max(0, s.StartMs))}-{FormatTime(Math.Max(0, s.EndMs))}).");
+            }
+
+            if (duration is { } d && s.EndMs > (int)Math.Ceiling(d * 1000m) + 1000)
+            {
+                throw new DomainValidationException("FILE_SEGMENT_TIMES", $"The video is only {FormatTime((int)(d * 1000m))} long.");
+            }
+
+            if (!names.ContainsKey(s.ParcelId))
+            {
+                // A Parcel the user can't see is "not found", like everywhere else.
+                await _policy.RequireParcelViewAsync(me, s.ParcelId, ct);
+                names[s.ParcelId] = await RegistryIdAsync(s.ParcelId, ct);
+            }
+
+            var source = s.Source == FileSegmentSources.Track ? FileSegmentSources.Track : FileSegmentSources.Manual;
+            result.Add(new FileSegment(s.ParcelId, s.StartMs, s.EndMs, source, names[s.ParcelId]));
+        }
+
+        return result.OrderBy(s => s.StartMs).ThenBy(s => s.ParcelId).ToList();
+    }
+
+    private async Task<IReadOnlyList<(long Id, string? RegistryId, GeoPolygon Geometry)>> ParcelsAroundAsync(UserAccess me,
+        IReadOnlyList<(double Lat, double Lng)> points, CancellationToken ct)
+    {
+        const double margin = 0.0005; // ~50 m
+        var area = new GeoBounds(points.Min(p => p.Lng) - margin, points.Min(p => p.Lat) - margin, points.Max(p => p.Lng) + margin, points.Max(p => p.Lat) + margin);
+        if (area.East - area.West > 0.5 || area.North - area.South > 0.5)
+        {
+            return Array.Empty<(long, string?, GeoPolygon)>(); // a broken track spanning tens of km: find nothing rather than everything
+        }
+
+        var found = await _parcels.QueryAsync(new ParcelQuery { Area = area, Scope = me.Scope, Limit = 5000 }, ct);
+        return found.Select(p => (p.ParcelId, p.RegistryId, p.Geometry)).ToList();
+    }
+
+    private static MediaMetadata Validate(MediaMetadata m)
+    {
+        static string? Text(string? s, int max) => string.IsNullOrWhiteSpace(s) ? null : (s.Trim().Length <= max ? s.Trim() : s.Trim()[..max]);
+        static decimal? Range(decimal? v, decimal min, decimal max) => v is { } x && x >= min && x <= max ? Math.Round(x, 3) : null;
+        var hasPosition = m.Latitude is { } lat && m.Longitude is { } lng && Math.Abs(lat) <= 90 && Math.Abs(lng) <= 180 && !(lat == 0 && lng == 0);
+        var taken = Text(m.TakenLocal, 19);
+        if (taken is not null && !DateTime.TryParseExact(taken, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        {
+            taken = null;
+        }
+
+        return new MediaMetadata
+        {
+            TakenLocal = taken,
+            CameraMake = Text(m.CameraMake, 60),
+            CameraModel = Text(m.CameraModel, 80),
+            Latitude = hasPosition ? m.Latitude : null,
+            Longitude = hasPosition ? m.Longitude : null,
+            RelAltitudeM = Range(m.RelAltitudeM, -10000, 100000),
+            AbsAltitudeM = Range(m.AbsAltitudeM, -10000, 100000),
+            GimbalYaw = Range(m.GimbalYaw, -360, 360),
+            GimbalPitch = Range(m.GimbalPitch, -180, 180),
+            GpsStatus = Text(m.GpsStatus, 20),
+            DurationS = Range(m.DurationS, 0, 1_000_000),
+            Width = m.Width is > 0 and < 100_000 ? m.Width : null,
+            Height = m.Height is > 0 and < 100_000 ? m.Height : null,
+            BitrateKbps = m.BitrateKbps is > 0 and < 10_000_000 ? m.BitrateKbps : null,
+            VideoCodec = Text(m.VideoCodec, 20),
+            IndexAtEnd = m.IndexAtEnd,
+            SourceModifiedUtc = m.SourceModifiedUtc is { } t && t.Year is > 1990 and < 2200 ? DateTime.SpecifyKind(t.ToUniversalTime(), DateTimeKind.Utc) : null,
+            TrackFileId = m.TrackFileId,
+        };
+    }
+
+    private static IReadOnlyList<TrackPoint> ValidateTrack(IReadOnlyList<TrackPoint> track)
+    {
+        if (track.Count > MaxTrackPoints)
+        {
+            throw new DomainValidationException("TRACK_TOO_LONG", $"A flight track can have at most {MaxTrackPoints:N0} points (2 a second).");
+        }
+
+        var points = track.Where(p => p.Ms >= 0 && Math.Abs(p.Lat) <= 90 && Math.Abs(p.Lng) <= 180 && !(p.Lat == 0 && p.Lng == 0))
+            .OrderBy(p => p.Ms).ToList();
+        if (points.Count == 0)
+        {
+            throw new DomainValidationException("TRACK_EMPTY", "The flight track has no usable positions.");
+        }
+
+        return points;
+    }
+}

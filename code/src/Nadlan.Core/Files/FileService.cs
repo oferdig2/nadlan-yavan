@@ -48,9 +48,17 @@ public sealed class FileService
 
     // History goes on the entity the file belongs to (the Asset or Parcel page shows it). The category is kept so the
     // history only shows file entries to users who may see that category.
+    // Map drop files belong to no entity yet: their history starts on the Parcel they are assigned to (MapDropService).
     private async Task RecordAsync(FileAttachment file, string action, string verb, CancellationToken ct)
-        => await _activity.RecordAsync(new ActivityEntry(file.AttachedToType, file.AttachedToId, action,
+    {
+        if (file.AttachedToType == FileTargetTypes.MapDrop)
+        {
+            return;
+        }
+
+        await _activity.RecordAsync(new ActivityEntry(file.AttachedToType, file.AttachedToId, action,
             $"{verb} {file.OriginalFileName}.", new { file.FileAttachmentId, file.FileSize, category = await CategoryOfAsync(file.FileTypeId, ct) }), ct);
+    }
 
     /// <summary>The file_type.category (Legal, Marketing, ...) of a type id, or null if unknown.</summary>
     public async Task<string?> CategoryOfAsync(int fileTypeId, CancellationToken ct = default)

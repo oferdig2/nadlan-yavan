@@ -34,6 +34,9 @@ public static class Permissions
     public const string UploadOwnAssetFile = "UPLOAD_OWN_ASSET_FILE";
     public const string UploadAssignedAssetFile = "UPLOAD_ASSIGNED_ASSET_FILE";
 
+    /// <summary>Drop media on the map, then assign it to Parcels - and correct video time frames (Admin, Data person).</summary>
+    public const string MapDrop = "MAP_DROP";
+
     // Administration
     public const string ManageUsers = "MANAGE_USERS";
     public const string ManageMetadata = "MANAGE_METADATA";

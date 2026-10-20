@@ -196,6 +196,10 @@ public sealed class AccessPolicy
                 var self = u.UserId == attachedToId;
                 // A user's own files (ID scans, passports): the user and Admins only - user administration is Admin-only.
                 return new ObjectRights(self || u.IsAdmin, self || u.IsAdmin);
+            case FileTargetTypes.MapDrop:
+                // Not assigned yet: every Map drop user sees and handles all of them (one drops, another assigns).
+                var mapDrop = u.Has(Permissions.MapDrop);
+                return new ObjectRights(mapDrop, mapDrop);
             default:
                 return ObjectRights.None;
         }

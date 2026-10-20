@@ -75,6 +75,7 @@
 
     parcelOverlay = Nadlan.createParcelMapOverlay(map, {
       onClick: function (p, domEvent) {
+        if (mapDrop && mapDrop.isPicking()) { mapDrop.picked(p); return; } // Map drop: this click assigns a file
         if (!quickEntryOn()) { popups.showParcel(p); return; }
         // While a row is open every click adds or removes (no lost row on a plain click, and it works by touch).
         var rowClick = Nadlan.parcelQuickEntry.inRow() || (domEvent && (domEvent.ctrlKey || domEvent.metaKey));
@@ -86,7 +87,10 @@
       onFilterChange: function () { if (state.mode === "parcels") { reload(); } }
     });
     assetOverlay = Nadlan.createAssetMapOverlay(map, {
-      onClick: function (group) { popups.showParcel(group); },
+      onClick: function (group) {
+        if (mapDrop && mapDrop.isPicking()) { mapDrop.picked(group); return; }
+        popups.showParcel(group);
+      },
       isSelected: function (id) { return selection.has(id); }
     });
     assetOverlay.setVisible(false);
@@ -516,6 +520,34 @@
         },
         onShowParcel: showParcelById
       }).catch(function (err) { setStatus(err.message, true); });
+    }
+
+    // Map drop (Admin, Data person): media dropped on the page; hovering a found KAEK shows that Parcel, a click on the
+    // map assigns a file that wasn't found.
+    var mapDrop = null;
+    if (Nadlan.session.can("MAP_DROP") && Nadlan.mapDrop) {
+      var dropHighlight = Nadlan.createMapHighlight(map);
+      var geometryCache = {};
+      var shownDropParcel = null;
+      mapDrop = Nadlan.mapDrop.init({
+        setStatus: setStatus,
+        showParcel: function (parcelId) {
+          if (shownDropParcel === parcelId) { return; }
+          shownDropParcel = parcelId;
+          var got = geometryCache[parcelId] || (geometryCache[parcelId] = Nadlan.api.get("/api/parcels/" + parcelId).then(function (d) { return d.geometry; }));
+          got.then(function (geometry) {
+            if (shownDropParcel !== parcelId) { return; }
+            dropHighlight.set([{ id: parcelId, geometry: geometry, color: Nadlan.mapHighlightColors.selected }]);
+            fitGeometry(geometry, 18);
+          }, function (err) { delete geometryCache[parcelId]; setStatus(err.message, true); });
+        },
+        onAssigned: function (parcelId) {
+          popups.refreshParcel(parcelId);
+          reloadSoon();
+        }
+      });
+      var reloadTimer = null;
+      var reloadSoon = function () { clearTimeout(reloadTimer); reloadTimer = setTimeout(function () { reload(); }, 800); };
     }
 
     filters.setMode("parcels");

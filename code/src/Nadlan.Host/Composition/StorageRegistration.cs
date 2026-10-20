@@ -28,6 +28,8 @@ public static class StorageRegistration
         });
         services.AddSingleton<FileService>();
         services.AddHostedService<Nadlan.Host.Files.AbandonedUploadSweeper>();
+        services.AddSingleton<MapDropService>();
+        services.AddHostedService<Nadlan.Host.Files.MapDropSweeper>();
         return services;
     }
 

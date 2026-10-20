@@ -24,6 +24,9 @@ public static class ActivityActions
     public const string ContactEdited = "ContactEdited";
     public const string FileUploaded = "FileUploaded";
     public const string FileDeleted = "FileDeleted";
+
+    /// <summary>A video shown on another Parcel too, or its time frames changed (Map drop, migration 016).</summary>
+    public const string FileLinked = "FileLinked";
     public const string UserCreated = "UserCreated";
     public const string UserEdited = "UserEdited";
     public const string UserDeleted = "UserDeleted";

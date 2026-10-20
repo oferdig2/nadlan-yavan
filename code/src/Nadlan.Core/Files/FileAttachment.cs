@@ -9,7 +9,10 @@ public static class FileTargetTypes
     public const string Contact = "Contact";
     public const string User = "User";
 
-    public static readonly IReadOnlyList<string> All = new[] { Parcel, Asset, Portfolio, Contact, User };
+    /// <summary>Map drop: not assigned yet; attached_to_id = the uploader's user id (migration 016).</summary>
+    public const string MapDrop = "MapDrop";
+
+    public static readonly IReadOnlyList<string> All = new[] { Parcel, Asset, Portfolio, Contact, User, MapDrop };
 
     /// <summary>Returns the canonical spelling, or null if unknown.</summary>
     public static string? Normalize(string? value)

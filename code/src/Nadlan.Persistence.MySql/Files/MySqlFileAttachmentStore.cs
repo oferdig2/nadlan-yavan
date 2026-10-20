@@ -126,6 +126,7 @@ public sealed class MySqlFileTargetResolver : IFileTargetResolver
         [FileTargetTypes.Portfolio] = ("portfolio", "portfolio_id"),
         [FileTargetTypes.Contact] = ("contact", "contact_id"),
         [FileTargetTypes.User] = ("app_user", "user_id"),
+        [FileTargetTypes.MapDrop] = ("app_user", "user_id"), // the uploader
     };
 
     private readonly MySqlDatabase _db;

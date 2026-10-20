@@ -1,0 +1,74 @@
+/* Map drop (map-drop.js): header button, a full-width strip of file cards at the bottom (the map stays visible above),
+   and a full-window drop target while files are dragged over the page. */
+.map-drop-button { position: relative; }
+.map-drop-badge { margin-left: 6px; padding: 0 7px; border-radius: 10px; background: #f59e0b; color: #111827; font-size: 12px; font-weight: 600; }
+
+.map-drop-panel {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; height: min(46vh, 440px);
+  display: flex; flex-direction: column; background: var(--surface); border-top: 2px solid var(--accent);
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.18);
+}
+.map-drop-panel[hidden] { display: none; }
+.map-drop-head { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.map-drop-filters { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.map-drop-filters button { border: 0; background: none; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 13px; color: var(--text); }
+.map-drop-filters button.active { background: var(--accent); color: #fff; }
+.map-drop-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+
+.map-drop-strip { flex: 1; display: flex; gap: 10px; padding: 10px 12px; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
+.map-drop-zone { flex: 0 0 340px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+  border: 2px dashed var(--border); border-radius: 10px; padding: 12px; cursor: pointer; }
+.map-drop-zone.compact { flex-basis: 150px; }
+.map-drop-zone.compact .drop-hint { display: none; }
+.map-drop-zone.drag-over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+.map-drop-card { flex: 0 0 230px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--surface); font-size: 13px; overflow-y: auto; }
+.map-drop-card.picking { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+.map-drop-card.uploading { opacity: 0.85; }
+.map-drop-card progress { width: 100%; }
+.md-thumb-wrap { position: relative; }
+.md-thumb { width: 100%; height: 110px; object-fit: cover; border-radius: 6px; background: var(--bg); display: block; }
+.md-icon { display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--muted); }
+.md-thumb-wrap .file-view-btn { position: absolute; right: 6px; bottom: 6px; }
+.md-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-meta { font-size: 12px; }
+.md-small { font-size: 11px; }
+.md-warn { color: #b45309; }
+.md-chip { display: inline-block; margin: 1px 0; padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 14%, transparent);
+  font-family: ui-monospace, Consolas, monospace; font-size: 12px; cursor: pointer; }
+.md-chip:hover, .md-chip.chosen { background: #facc15; color: #111827; }
+.md-segments { display: flex; flex-direction: column; gap: 1px; max-height: 120px; overflow-y: auto; }
+.md-seg { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.md-seg.passed { opacity: 0.7; }
+.md-play { font-size: 12px; }
+.md-notfound { font-style: italic; }
+.md-picking { font-size: 12px; background: color-mix(in srgb, var(--accent) 8%, transparent); padding: 4px; border-radius: 6px; }
+.md-picking .input { width: 110px; padding: 2px 6px; }
+.md-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
+.md-foot select { width: 100%; }
+.md-buttons { display: flex; gap: 4px; align-items: center; }
+.md-buttons .card-icon { margin-left: auto; }
+.map-drop-dups { max-height: 240px; overflow: auto; }
+
+.map-drop-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  background: rgba(15, 23, 42, 0.45); border: 4px dashed #facc15; }
+.map-drop-overlay[hidden] { display: none; }
+.map-drop-overlay div { pointer-events: none; padding: 18px 28px; border-radius: 12px; background: #111827; color: #fff; font-size: 20px; font-weight: 600; }
+
+/* While a card waits for a Parcel: a crosshair on the map. */
+body.map-drop-picking .map { cursor: crosshair; }
+
+/* Time frames on file cards (Parcel files) and in the file details dialog */
+.file-segments { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.file-segment { border: 1px solid var(--border); background: var(--surface); border-radius: 5px; padding: 0 5px; font-size: 11px; cursor: pointer; color: var(--accent); }
+.file-frames { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.frame-row { display: flex; gap: 4px; align-items: center; margin: 3px 0; }
+.frame-row [data-f=kaek] { flex: 1; min-width: 0; }
+.frame-row [data-f=start], .frame-row [data-f=end] { width: 64px; }
+
+@media (max-width: 600px) {
+  .map-drop-panel { height: 55vh; }
+  .map-drop-card { flex-basis: 200px; }
+  .map-drop-zone { flex-basis: 200px; }
+}
