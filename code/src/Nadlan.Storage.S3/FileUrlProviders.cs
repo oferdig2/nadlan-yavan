@@ -88,10 +88,29 @@ public sealed class CloudFrontSignedUrlProvider : IFileUrlProvider, IDisposable
     public string GetUrl(string storageKey)
         => _signer.Sign(FileUrlProviderFactory.CloudFrontUrl(_options, storageKey), DateTimeOffset.UtcNow.AddMinutes(_options.Delivery.UrlMinutes));
 
+    /// <summary>
+    /// Opened under <paramref name="downloadName"/>: S3 keeps the uploader's file name as the object's Content-Disposition, so
+    /// customer pages must override it. The override is S3's response-content-disposition, passed through by the distribution
+    /// (it is the one query string in its cache key) and covered by the signature like the rest of the URL.
+    /// </summary>
+    public string GetUrl(string storageKey, string downloadName)
+    {
+        var url = FileUrlProviderFactory.CloudFrontUrl(_options, storageKey);
+        if (!string.IsNullOrEmpty(downloadName))
+        {
+            url += "?response-content-disposition=" + Uri.EscapeDataString($"inline; filename=\"{downloadName.Replace("\"", "")}\"");
+        }
+
+        return _signer.Sign(url, DateTimeOffset.UtcNow.AddMinutes(_options.Delivery.UrlMinutes));
+    }
+
     public void Dispose() => _signer.Dispose();
 }
 
-/// <summary>Public CDN: plain CloudFront URLs. Only for content that may be public (no per-file permissions).</summary>
+/// <summary>
+/// Public CDN: plain CloudFront URLs. Only for content that may be public (no per-file permissions) - never for a
+/// distribution over a folder that also holds _backups (database dumps).
+/// </summary>
 public sealed class CloudFrontPublicUrlProvider : IFileUrlProvider
 {
     private readonly StorageOptions _options;

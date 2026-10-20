@@ -96,6 +96,36 @@ public class FileTests
         Assert.True(rsa.VerifyData(Encoding.UTF8.GetBytes(policy), signature, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1));
     }
 
+    [Fact]
+    public void CloudFront_signed_url_carries_the_customer_file_name_inside_the_signature()
+    {
+        using var rsa = RSA.Create(2048);
+        var options = new StorageOptions
+        {
+            RootFolder = "nadlan/prod",
+            Delivery = new()
+            {
+                Mode = DeliveryModes.CloudFrontSigned, CloudFrontDomain = "d1.cloudfront.net", CloudFrontOriginPath = "/nadlan/prod",
+                KeyPairId = "K2ABCDEF", PrivateKeyPem = rsa.ExportRSAPrivateKeyPem(), UrlMinutes = 60,
+            },
+        };
+        using var provider = new CloudFrontSignedUrlProvider(options);
+
+        var signed = provider.GetUrl("asset/5/a/ID_scan_Papadopoulos.jpg", "photo \"1\".jpg");
+
+        var uri = new Uri(signed);
+        var query = uri.Query.TrimStart('?').Split('&').Select(p => p.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);
+        Assert.Equal("inline; filename=\"photo 1.jpg\"", Uri.UnescapeDataString(query["response-content-disposition"]));
+        // The policy's Resource is the URL with the override but without the signing parameters.
+        var resource = signed[..signed.IndexOf("&Expires=", StringComparison.Ordinal)];
+        Assert.StartsWith("https://d1.cloudfront.net/asset/5/a/ID_scan_Papadopoulos.jpg?response-content-disposition=", resource);
+        var policy = "{\"Statement\":[{\"Resource\":\"" + resource + "\",\"Condition\":{\"DateLessThan\":{\"AWS:EpochTime\":" + query["Expires"] + "}}}]}";
+        var signature = Convert.FromBase64String(query["Signature"].Replace('-', '+').Replace('_', '=').Replace('~', '/'));
+        Assert.True(rsa.VerifyData(Encoding.UTF8.GetBytes(policy), signature, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1));
+        // No name asked: the plain signed URL, as before.
+        Assert.DoesNotContain("response-content-disposition", provider.GetUrl("asset/5/a/x.jpg", ""));
+    }
+
     private static (FileService Service, FakeFiles Files, FakeStorage Storage) NewService()
     {
         var files = new FakeFiles();
