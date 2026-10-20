@@ -32,3 +32,6 @@ App_Data/
 
 # Database backups brought down from the server (personal data, secrets) - never commit
 Backups/
+
+# Customer media (drone/phone photos and videos, GBs) brought to this PC for inspection - never commit
+MediaAssets/
