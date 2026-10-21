@@ -295,8 +295,10 @@ public sealed class MapDropService
             }
             clean = clean with { Latitude = clean.Latitude ?? points[0].Lat, Longitude = clean.Longitude ?? points[0].Lng };
         }
-        else if (clean is { Latitude: { } lat, Longitude: { } lng })
+        else if (clean is { Latitude: { } lat, Longitude: { } lng } && (isVideo || file.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
         {
+            // A photo's (or phone video's) own position. A lone .srt keeps its first point for the card, but gets no
+            // Parcel of its own: it belongs to its video.
             var parcels = await ParcelsAroundAsync(me, new[] { (lat, lng) }, ct);
             suggestions = parcels.Where(p => p.Geometry.Contains(new GeoPoint(lng, lat)))
                 .Select(p => new ParcelSuggestion(p.Id, p.RegistryId)).ToList();

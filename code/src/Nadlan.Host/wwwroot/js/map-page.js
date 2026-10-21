@@ -529,6 +529,23 @@
       var dropHighlight = Nadlan.createMapHighlight(map);
       var geometryCache = {};
       var shownDropParcel = null;
+      var dropMarker = null;
+      // A file's coordinate where no Parcel was found: a marker there and the map on it - anywhere, also far from the areas.
+      var showDropPoint = function (lat, lng, name) {
+        var here = { lat: lat, lng: lng };
+        if (!dropMarker) {
+          dropMarker = new google.maps.Marker({ map: map, position: here, zIndex: 9997 });
+        } else {
+          dropMarker.setPosition(here);
+          dropMarker.setMap(map);
+        }
+        dropMarker.setTitle((name ? name + ": " : "") + lat.toFixed(6) + ", " + lng.toFixed(6));
+        dropHighlight.set([]);
+        shownDropParcel = null;
+        map.panTo(here);
+        if (map.getZoom() < 17) { map.setZoom(17); }
+        setStatus("Marked " + (name ? name + " at " : "") + lat.toFixed(6) + ", " + lng.toFixed(6) + ".");
+      };
       mapDrop = Nadlan.mapDrop.init({
         setStatus: setStatus,
         showParcel: function (parcelId) {
@@ -544,6 +561,13 @@
         onAssigned: function (parcelId) {
           popups.refreshParcel(parcelId);
           reloadSoon();
+        },
+        showPoint: showDropPoint,
+        clearPoint: function () { if (dropMarker) { dropMarker.setMap(null); } },
+        // "+ Parcel here": the map on that spot, then the New parcel tool (the marker shows where to draw around).
+        newParcelAt: function (lat, lng) {
+          showDropPoint(lat, lng);
+          $("[data-tool=new-parcel]").trigger("click");
         }
       });
       var reloadTimer = null;
