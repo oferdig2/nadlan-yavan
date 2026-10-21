@@ -223,7 +223,17 @@
         reload();
       },
       onDrawRectangle: startRectangle,
-      onClearRectangle: function () { rectangle.clear(); }
+      onClearRectangle: function () { rectangle.clear(); },
+      // 📍 beside an area name: the map flies to that whole area (its Parcels' extent), whatever is being searched.
+      onShowArea: function (areaId) {
+        Nadlan.api.get("/api/parcels/extent", { areaId: areaId }).then(function (e) {
+          if (!e.count) { setStatus("No Parcels you can see in " + (e.area || "that area") + "."); return; }
+          var message = "Showing " + e.area + " (" + e.count.toLocaleString("en-US") + " parcels).";
+          state.afterMoveMessage = message;
+          map.fitBounds({ west: e.west, south: e.south, east: e.east, north: e.north }, 40);
+          setStatus(message);
+        }, function (err) { setStatus(err.message, true); });
+      }
     });
 
     var results = Nadlan.initializeResultsPanel(document.getElementById("results"), {
@@ -279,6 +289,7 @@
     var requestSeq = 0;
     // doneMessage: shown once the search finished (e.g. "Asset #12 created."), instead of clearing the status line.
     function reload(doneMessage) {
+      state.doneMessage = typeof doneMessage === "string" ? doneMessage : ""; // every way the search can finish shows it
       // Claim a sequence number first: any search still in flight (maybe for the other mode) is now stale,
       // even if this reload can't run a search of its own.
       var seq = ++requestSeq;
@@ -307,7 +318,7 @@
         (mode === "assets" ? assetOverlay : parcelOverlay).setItems(res.items);
         results.setItems(res.items, res.truncated);
         if (state.fitAfterLoad) { state.fitAfterLoad = false; fitItems(res.items); }
-        setStatus(typeof doneMessage === "string" ? doneMessage : "");
+        setStatus(state.doneMessage);
         if (state.standingAt) { showWhereIStand(res.items); }
         if (state.pinAt) { showPinnedParcel(res.items); }
       }, function (err) {
@@ -341,12 +352,12 @@
         showSurface(null);
         results.setMessage(res.count.toLocaleString("en-US") + " parcels match - too many to draw. " +
           (state.scope === "everywhere" ? "Search the visible map or a drawn rectangle, or narrow the filter." : "Zoom in, or narrow the filter."));
-        setStatus("");
+        setStatus(state.doneMessage || "");
         return;
       }
       results.setMessage(res.count.toLocaleString("en-US") + " parcels - too many to draw one by one, so they show as one surface. " +
         (state.scope === "view" ? "Zoom in a little to see them separately." : "Search the visible map, or draw a smaller rectangle, to see them separately."));
-      setStatus("");
+      setStatus(state.doneMessage || "");
       var cached = surfaces.fine;
       if (cached && cached.version === res.coverageVersion) { showSurface("fine"); return; }
       loadSurface(seq, "fine");
@@ -368,7 +379,7 @@
         parcelOverlay.setItems([]);
         setCounts(res.kindCounts);
         results.setMessage(res.count.toLocaleString("en-US") + " parcel(s). Zoom in to see them one by one and to list them - or click the surface.");
-        setStatus("");
+        setStatus(state.doneMessage || "");
         var cached = surfaces[level];
         if (cached && cached.version === res.coverageVersion) { showSurface(level); return; }
         loadSurface(seq, level);
@@ -385,7 +396,7 @@
         }
         surfaces[level] = { version: res.version, surface: res.surface };
         showSurface(level);
-        setStatus("");
+        setStatus(state.doneMessage || "");
       }, function (err) { if (seq === requestSeq) { setStatus("Overview failed: " + err.message, true); } });
     }
 
@@ -476,7 +487,10 @@
       var kind = drawKind();
       var changed = kind !== lastDrawKind;
       lastDrawKind = kind;
-      if (state.scope === "view" || changed) { reload(); }
+      // A message that belongs to this move (e.g. "Showing Paros") stays: the search it starts shows it when done.
+      var message = state.afterMoveMessage;
+      state.afterMoveMessage = null;
+      if (state.scope === "view" || changed) { reload(message); }
     });
 
     $("[data-view]").on("click", function () { setMode($(this).data("view")); });

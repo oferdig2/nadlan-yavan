@@ -41,6 +41,11 @@
 
 .checks { border: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 2px 12px; }
 .checks legend { color: var(--muted); padding: 0 0 2px; font-size: 13px; }
+/* An area name with its 📍 "show on the map" (map-filter-panel.js): the pin shows on hover/focus; always on touch screens. */
+.check-go { display: inline-flex; align-items: center; gap: 2px; }
+.area-go { border: 0; background: none; padding: 0 2px; cursor: pointer; font-size: 13px; line-height: 1; opacity: 0; transition: opacity 0.12s; }
+.check-go:hover .area-go, .area-go:focus-visible { opacity: 1; }
+@media (hover: none) { .area-go { opacity: 0.7; } }
 
 .form-error { color: var(--error); background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
 .warn { color: var(--warn-text); }

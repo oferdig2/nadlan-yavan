@@ -5,17 +5,23 @@
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
 
-  function checks(name, list) {
+  // goTo: a 📍 beside each name (shown on hover) that shows that area on the map - geographic areas.
+  function checks(name, list, goTo) {
     var esc = Nadlan.format.escapeHtml;
     return list.map(function (x) {
-      return "<label class=\"check\"><input type=\"checkbox\" data-filter=\"" + name + "\" value=\"" + x.id + "\"> " + esc(x.name) + "</label>";
+      var box = "<label class=\"check\"><input type=\"checkbox\" data-filter=\"" + name + "\" value=\"" + x.id + "\"> " + esc(x.name) + "</label>";
+      return goTo
+        ? "<span class=\"check-go\">" + box + "<button type=\"button\" class=\"area-go\" data-area-go=\"" + x.id + "\" title=\"Show " + esc(x.name) +
+          " on the map\" aria-label=\"Show " + esc(x.name) + " on the map\">&#x1F4CD;</button></span>"
+        : box;
     }).join("");
   }
 
   /**
    * @param {jQuery|HTMLElement} container
    * @param {{ reference: object, onApply: function(): void, onScopeChange: function(string): void,
-   *           onDrawRectangle: function(): void, onClearRectangle: function(): void }} options
+   *           onDrawRectangle: function(): void, onClearRectangle: function(): void, onShowArea?: function(number): void }} options
+   *        onShowArea(geographicAreaId): the 📍 beside an area name - the map shows that whole area
    */
   function initializeMapFilterPanel(container, options) {
     var ref = options.reference;
@@ -37,7 +43,7 @@
           "<label class=\"check\"><input type=\"checkbox\" data-kaek=\"real\"> Real KAEK</label>" +
           "<label class=\"check\"><input type=\"checkbox\" data-kaek=\"provisional\"> Provisional (TMP-)</label>" +
         "</fieldset>" +
-        "<fieldset class=\"checks\"><legend>Geographic area</legend>" + checks("areaIds", Nadlan.reference.active(ref.geographicAreas)) + "</fieldset>" +
+        "<fieldset class=\"checks\"><legend>Geographic area</legend>" + checks("areaIds", Nadlan.reference.active(ref.geographicAreas), !!options.onShowArea) + "</fieldset>" +
         "<div data-assets-only>" +
           "<div class=\"form-row\">" +
             "<label>Price from<input class=\"input\" data-filter=\"priceMin\" inputmode=\"decimal\"></label>" +
@@ -67,6 +73,7 @@
     $root.find("form").on("submit", function (e) { e.preventDefault(); options.onApply(); });
     $scope.on("change", function () { options.onScopeChange($scope.val()); });
     $root.on("click", "[data-role=draw-rect]", function () { options.onDrawRectangle(); });
+    $root.on("click", "[data-area-go]", function (e) { e.preventDefault(); options.onShowArea(Number($(this).data("areaGo"))); });
     $root.on("click", "[data-role=clear-rect]", function () { options.onClearRectangle(); });
     $root.on("click", "[data-role=reset]", function () {
       $root.find("input[data-filter]:not(:checkbox)").val(""); // checkbox values are the ids - never blank them

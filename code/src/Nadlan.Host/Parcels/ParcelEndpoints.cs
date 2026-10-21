@@ -106,8 +106,19 @@ public static class ParcelEndpoints
 
         // Where the map starts: around the Parcels the user may see - in the start area (Maps:StartArea, Skroponeria)
         // if it has any, else around all of them. Null bounds = no Parcels yet (the page keeps its default view).
-        group.MapGet("/extent", async (UserAccess me, IParcelStore parcels, IGeographicAreaStore areas, IOptions<NadlanOptions> options, CancellationToken ct) =>
+        // Where the map opens: the start area's Parcels (or all the user may see). With areaId: that one geographic area
+        // (the 📍 beside an area name in the side panel). Only Parcels the caller may see count; a stray one far away is ignored.
+        group.MapGet("/extent", async (int? areaId, UserAccess me, IParcelStore parcels, IGeographicAreaStore areas, IOptions<NadlanOptions> options, CancellationToken ct) =>
         {
+            if (areaId is { } id)
+            {
+                var area = (await areas.ListAsync(ct)).FirstOrDefault(a => a.GeographicAreaId == id);
+                var inArea = area is null ? Array.Empty<GeoPoint>() : await parcels.ListAnchorsAsync(new ParcelQuery { GeographicAreaIds = new[] { id }, Scope = me.Scope }, ct);
+                return ParcelExtent.Of(inArea) is GeoBounds ab
+                    ? Results.Ok(new { count = inArea.Count, area = area!.Name, west = ab.West, south = ab.South, east = ab.East, north = ab.North })
+                    : Results.Ok(new { count = 0, area = area?.Name });
+            }
+
             var wanted = options.Value.Maps.StartArea;
             var start = string.IsNullOrWhiteSpace(wanted) ? null : (await areas.ListAsync(ct)).FirstOrDefault(a => a.IsActive &&
                 (string.Equals(a.Code, wanted, StringComparison.OrdinalIgnoreCase) || string.Equals(a.Name, wanted, StringComparison.OrdinalIgnoreCase)));
