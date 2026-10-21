@@ -145,6 +145,19 @@ public class FileTests
         Assert.Single(files.Rows, r => r.FileAttachmentId == 2 && r.AttachedToType == FileTargetTypes.Parcel);
     }
 
+    [Fact]
+    public async Task Map_drop_cleanup_names_the_object_left_behind_when_S3_fails()
+    {
+        var (service, files, storage) = NewService();
+        files.Rows.Add(new FileAttachment { FileAttachmentId = 3, AttachedToType = FileTargetTypes.MapDrop, AttachedToId = 4, StorageKey = "mapdrop/4/c.jpg", UploadStatus = FileUploadStatus.Ready, UploadedUtc = DateTime.UtcNow.AddDays(-6) });
+        storage.FailDeletes = true;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteExpiredMapDropAsync(3, DateTime.UtcNow.AddDays(-5)));
+
+        Assert.Contains("mapdrop/4/c.jpg", ex.Message);
+        Assert.Empty(files.Rows); // the row went first - nothing can lose an assigned file
+    }
+
     private static (FileService Service, FakeFiles Files, FakeStorage Storage) NewService()
     {
         var files = new FakeFiles();
@@ -223,8 +236,15 @@ public class FileTests
         public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default) => Task.FromResult(StoredSize);
         public List<string> DeletedKeys { get; } = new();
 
+        public bool FailDeletes { get; set; }
+
         public Task DeleteObjectAsync(string key, CancellationToken ct = default)
         {
+            if (FailDeletes)
+            {
+                throw new IOException("S3 unavailable");
+            }
+
             DeletedKeys.Add(key);
             return Task.CompletedTask;
         }

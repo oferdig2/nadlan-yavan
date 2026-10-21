@@ -60,6 +60,9 @@ public sealed record MapDropItem
     public MediaMetadata? Metadata { get; init; }
 }
 
+/// <summary>One clean-up round: files deleted, and what failed (e.g. an S3 object that couldn't be removed).</summary>
+public sealed record MapDropSweepResult(int Deleted, IReadOnlyList<string> Failures);
+
 /// <summary>An already-stored file with the same name and size as one being dropped (the user decides).</summary>
 public sealed record DuplicateHit(string FileName, long FileSize, long FileAttachmentId, string AttachedToType, long AttachedToId, string? RegistryId,
     string? Category = null);
@@ -192,6 +195,7 @@ public sealed class MapDropService
     public static readonly TimeSpan KeepFor = TimeSpan.FromDays(5);
     public const int MaxTrackPoints = 20_000;   // 2 a second = 2.7 hours of flight
     public const int MaxSegments = 200;
+    public const int MaxSuggestions = 500;   // a card with more is unusable; the longest stretches are kept
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -285,6 +289,10 @@ public sealed class MapDropService
             trackJson = JsonSerializer.Serialize(points.Select(p => new object?[] { p.Ms, Math.Round(p.Lat, 7), Math.Round(p.Lng, 7), p.RelAlt is { } a ? Math.Round(a, 1) : null }), Json);
             var parcels = await ParcelsAroundAsync(me, points.Select(p => (p.Lat, p.Lng)).ToList(), ct);
             suggestions = TrackSegmenter.Segment(points, parcels);
+            if (suggestions.Count > MaxSuggestions)
+            {
+                suggestions = suggestions.OrderByDescending(x => x.EndMs - x.StartMs).Take(MaxSuggestions).OrderBy(x => x.StartMs).ThenBy(x => x.ParcelId).ToList();
+            }
             clean = clean with { Latitude = clean.Latitude ?? points[0].Lat, Longitude = clean.Longitude ?? points[0].Lng };
         }
         else if (clean is { Latitude: { } lat, Longitude: { } lng })
@@ -396,21 +404,32 @@ public sealed class MapDropService
             $"Time frames of {file.OriginalFileName} set: {summary}.", new { file.FileAttachmentId, before = before.Count, after = frames.Count }), ct);
     }
 
-    /// <summary>Deletes Map drop files uploaded more than <see cref="KeepFor"/> ago. Returns how many.</summary>
-    public async Task<int> SweepExpiredAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Deletes Map drop files uploaded more than <see cref="KeepFor"/> ago. One file failing (S3 down) doesn't stop the
+    /// others; each failure comes back for the log.
+    /// </summary>
+    public async Task<MapDropSweepResult> SweepExpiredAsync(CancellationToken ct = default)
     {
         var count = 0;
+        var failures = new List<string>();
         var cutoff = DateTime.UtcNow - KeepFor;
         foreach (var id in await _store.ListExpiredAsync(cutoff, limit: 500, ct))
         {
-            // Re-checked at the moment of deleting: a file assigned since the list was read stays.
-            if (await _fileService.DeleteExpiredMapDropAsync(id, cutoff, ct))
+            try
             {
-                count++;
+                // Re-checked at the moment of deleting: a file assigned since the list was read stays.
+                if (await _fileService.DeleteExpiredMapDropAsync(id, cutoff, ct))
+                {
+                    count++;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failures.Add(ex.Message);
             }
         }
 
-        return count;
+        return new MapDropSweepResult(count, failures);
     }
 
     public static string FormatTime(int ms)

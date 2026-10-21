@@ -129,10 +129,15 @@ public sealed class MapDropSweeper : BackgroundService
             {
                 try
                 {
-                    var deleted = await _mapDrop.SweepExpiredAsync(stoppingToken);
-                    if (deleted > 0)
+                    var result = await _mapDrop.SweepExpiredAsync(stoppingToken);
+                    if (result.Deleted > 0)
                     {
-                        _log.LogInformation("Map drop: deleted {Count} file(s) not assigned within {Days} days.", deleted, MapDropService.KeepFor.TotalDays);
+                        _log.LogInformation("Map drop: deleted {Count} file(s) not assigned within {Days} days.", result.Deleted, MapDropService.KeepFor.TotalDays);
+                    }
+
+                    foreach (var failure in result.Failures)
+                    {
+                        _log.LogWarning("Map drop clean-up: {Failure}", failure);
                     }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)

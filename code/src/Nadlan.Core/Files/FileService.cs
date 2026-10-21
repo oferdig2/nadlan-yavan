@@ -273,14 +273,22 @@ public sealed class FileService
             return false;
         }
 
-        if (file.UploadStatus == FileUploadStatus.Pending && file.S3UploadId is not null)
+        try
         {
-            await _storage.AbortMultipartUploadAsync(file.StorageKey, file.S3UploadId, ct);
+            if (file.UploadStatus == FileUploadStatus.Pending && file.S3UploadId is not null)
+            {
+                await _storage.AbortMultipartUploadAsync(file.StorageKey, file.S3UploadId, ct);
+            }
+            else
+            {
+                await _storage.DeleteObjectAsync(file.StorageKey, ct);
+                await DeleteThumbnailAsync(file, ct);
+            }
         }
-        else
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await _storage.DeleteObjectAsync(file.StorageKey, ct);
-            await DeleteThumbnailAsync(file, ct);
+            // The row is gone, so nothing will retry it: name the object left behind (storage cost only) for the log.
+            throw new InvalidOperationException($"Map drop file {fileAttachmentId} was removed, but its S3 object {file.StorageKey} could not be deleted: {ex.Message}", ex);
         }
 
         return true;

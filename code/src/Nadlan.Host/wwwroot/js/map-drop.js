@@ -39,7 +39,7 @@
             "<button type=\"button\" data-filter=\"notfound\">Not found</button></span>" +
           "<span class=\"map-drop-actions\">" +
             "<button type=\"button\" class=\"btn btn-small btn-primary\" data-act=\"ok-all\">OK all found</button>" +
-            "<button type=\"button\" class=\"btn btn-small\" data-act=\"delete-all\">Delete unassigned…</button>" +
+            "<button type=\"button\" class=\"btn btn-small\" data-act=\"delete-all\" title=\"Deletes the unassigned files you uploaded\">Delete my unassigned…</button>" +
             "<button type=\"button\" class=\"card-icon\" data-act=\"close\" title=\"Close (uploads continue)\">×</button>" +
           "</span>" +
         "</header>" +
@@ -478,11 +478,15 @@
         .then(function (yes) { if (yes) { return deleteFiles(track ? [i, track] : [i]); } });
     });
 
+    // Only the caller's own uploads: someone else's files may be waiting for them to assign (🗑 on a card still deletes one).
     $panel.on("click", "[data-act=delete-all]", function () {
-      if (!items.length) { return; }
-      var bytes = items.reduce(function (t, i) { return t + i.file.fileSize; }, 0);
-      Nadlan.dialog.confirm("Delete unassigned", "Delete all <strong>" + items.length + "</strong> unassigned file(s) (" + Nadlan.formatFileSize(bytes) + ")? This removes them from storage.", "Delete all")
-        .then(function (yes) { if (yes) { return deleteFiles(items.slice()); } });
+      var mine = items.filter(function (i) { return i.uploadedByUserId === me.userId; });
+      var others = items.length - mine.length;
+      var keep = others ? " <strong>" + others + "</strong> file(s) uploaded by others stay." : "";
+      if (!mine.length) { Nadlan.dialog.confirm("Delete unassigned", "None of the unassigned files are yours." + keep, "OK"); return; }
+      var bytes = mine.reduce(function (t, i) { return t + i.file.fileSize; }, 0);
+      Nadlan.dialog.confirm("Delete unassigned", "Delete your <strong>" + mine.length + "</strong> unassigned file(s) (" + Nadlan.formatFileSize(bytes) + ")? This removes them from storage." + keep, "Delete")
+        .then(function (yes) { if (yes) { return deleteFiles(mine); } });
     });
 
     // Manual assignment: a click on a Parcel on the map (map-page calls picked()), or a typed KAEK.
