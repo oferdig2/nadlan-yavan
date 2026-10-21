@@ -302,6 +302,14 @@
       return st;
     }
 
+    // An .srt waiting for its video: still uploading in this page (they join when it's done), or not dropped.
+    function trackStatus(i) {
+      var base = Nadlan.mediaInspect.baseName(i.file.originalFileName);
+      var video = uploads.filter(function (u) { return Nadlan.mediaInspect.baseName(u.name) === base && /.(mp4|mov|m4v)$/i.test(u.name); })[0];
+      return video ? "Flight track of " + esc(video.name) + " - joins its card when that upload is done"
+        : "Flight track - drop its video (" + esc(base.toUpperCase()) + ".MP4) to use it";
+    }
+
     function itemHtml(i) {
       var id = i.file.fileAttachmentId;
       var st = state(id);
@@ -336,7 +344,7 @@
         }).join(" ") + (i.suggestions.length > 1 ? "<div class=\"muted md-small\">Parcels overlap here - pick one</div>" : "") + "</div>";
       } else {
         where = "<div class=\"md-notfound muted\">" + (!i.inspected ? "Checking…" : kind === "video" && !m.hasTrack ? "No location (no .srt flight track)"
-          : kind === "track" ? "Flight track - its video isn't here" : m.latitude !== undefined && m.latitude !== null ? "Not on a Parcel you can see" : "No location in the file") + "</div>";
+          : kind === "track" ? trackStatus(i) : m.latitude !== undefined && m.latitude !== null ? "Not on a Parcel you can see" : "No location in the file") + "</div>";
       }
       var warn = m.gpsStatus && /invalid/i.test(m.gpsStatus) && found(i)
         ? "<div class=\"md-warn md-small\" title=\"DJI marks the GPS reading invalid: it was right on some of his photos and 24 km off on one\">GPS marked invalid by the drone - check the Parcel</div>" : "";
