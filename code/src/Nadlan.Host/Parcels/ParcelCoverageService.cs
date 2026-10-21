@@ -93,21 +93,26 @@ public sealed class ParcelCoverageService : BackgroundService
         }
 
         var watch = Stopwatch.StartNew();
-        var all = await _parcels.ListAllGeometriesAsync(ct);
+        // One geographic area at a time (only its Parcels in memory), on a worker thread: uniting all of Greece at once ran
+        // the server out of its 200 MB heap at 13,952 Parcels (2026-10-21).
+        var areas = await _parcels.CountByGeographicAreaAsync(ct);
+        var surfaces = await Task.Run(() => ParcelCoverageByArea.BuildAsync(areas, ParcelKinds.All, CoverageLevel.All,
+            (areaId, token) => _parcels.ListGeometriesInAreaAsync(areaId, token), ct), ct);
+
         // One surface per ParcelKinds value (its map colour): { "done": MultiPolygon, "partial": ..., "todo": ..., "vertices": n }.
-        var json = await Task.Run(() => CoverageLevel.All.ToDictionary(level => level.Name, level =>
+        var json = CoverageLevel.All.ToDictionary(level => level.Name, level =>
         {
             var parts = new List<string>();
             var vertices = 0;
             foreach (var kind in ParcelKinds.All)
             {
-                var surface = ParcelCoverageBuilder.Build(all.Where(p => p.Kind == kind).Select(p => p.Geometry).ToList(), level);
+                var surface = surfaces[level.Name][kind];
                 vertices += ParcelCoverageBuilder.VertexCount(surface);
                 parts.Add($"\"{kind}\":{MultiPolygonJson(surface)}");
             }
 
             return $"{{{string.Join(",", parts)},\"vertices\":{vertices}}}";
-        }), ct);
+        });
 
         _current = new Snapshot(version, DateTime.UtcNow, fingerprint.Count, json);
         _lastComputedUtc = DateTime.UtcNow;

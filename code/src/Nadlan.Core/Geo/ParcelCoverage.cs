@@ -19,8 +19,12 @@ public sealed record CoverageLevel(string Name, double CloseMetres, double Simpl
     /// <summary>Neighbourhood view (zoom 12 up to the detail zoom): blocks, with roads still visible.</summary>
     public static readonly CoverageLevel Mid = new("mid", 2, 2, 60_000);
 
-    /// <summary>Detail zoom, but more Parcels in view than the browser draws one by one: close to the real outlines.</summary>
-    public static readonly CoverageLevel Fine = new("fine", 0.5, 0.5, 150_000);
+    /// <summary>
+    /// Detail zoom, but more Parcels in view than the browser draws one by one: close to the real outlines. No closing
+    /// (buffer out and back in): at this zoom a 0.5 m sliver is invisible, and closing was the step that ran the server
+    /// out of memory (2026-10-21, 13,952 Parcels under the 200 MB heap limit).
+    /// </summary>
+    public static readonly CoverageLevel Fine = new("fine", 0, 0.5, 150_000);
 
     public static readonly IReadOnlyList<CoverageLevel> All = new[] { Overview, Mid, Fine };
 }
@@ -65,7 +69,8 @@ public static class ParcelCoverageBuilder
                 return result;
             }
 
-            level = level with { CloseMetres = Math.Max(1, level.CloseMetres * 2), SimplifyMetres = Math.Max(1, level.SimplifyMetres * 2) };
+            // A level without closing (Fine) stays without: only simplify harder.
+            level = level with { CloseMetres = level.CloseMetres > 0 ? Math.Max(1, level.CloseMetres * 2) : 0, SimplifyMetres = Math.Max(1, level.SimplifyMetres * 2) };
         }
     }
 
@@ -119,5 +124,46 @@ public static class ParcelCoverageBuilder
         var rings = new List<IReadOnlyList<GeoPoint>> { Ring(polygon.ExteriorRing) };
         rings.AddRange(polygon.InteriorRings.Where(h => Factory.CreatePolygon((LinearRing)h).Area >= minHoleArea).Select(Ring));
         return new GeoPolygon(rings);
+    }
+}
+
+/// <summary>
+/// The zoomed-out surfaces built one geographic area at a time (owner, 2026-10-21): Paros, Anti Paros, Skroponeria,
+/// Karystos ... are kilometres apart, so uniting them together gains nothing, while uniting all of Greece at once needed
+/// more memory than the server has. Only one area's Parcels are in memory at a time; the finished surfaces are small.
+/// Each area gets its share of a level's vertex budget (by Parcel count), so the browser gets about as much as before.
+/// </summary>
+public static class ParcelCoverageByArea
+{
+    /// <summary>The smallest budget an area gets: a small area's surface still keeps its shape.</summary>
+    public const int MinAreaVertexBudget = 2_000;
+
+    /// <summary>level name -> kind -> surface polygons (all areas together).</summary>
+    public static async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, List<GeoPolygon>>>> BuildAsync(
+        IReadOnlyList<(int? AreaId, long Count)> areas, IReadOnlyList<string> kinds, IReadOnlyList<CoverageLevel> levels,
+        Func<int?, CancellationToken, Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>>> loadArea, CancellationToken ct = default)
+    {
+        var result = levels.ToDictionary(l => l.Name, _ => kinds.ToDictionary(k => k, _ => new List<GeoPolygon>()));
+        var total = Math.Max(1, areas.Sum(a => a.Count));
+        foreach (var area in areas.Where(a => a.Count > 0))
+        {
+            ct.ThrowIfCancellationRequested();
+            var parcels = await loadArea(area.AreaId, ct);
+            var share = (double)area.Count / total;
+            foreach (var level in levels)
+            {
+                var budget = Math.Max(MinAreaVertexBudget, (int)(level.VertexBudget * share));
+                foreach (var kind in kinds)
+                {
+                    var ofKind = parcels.Where(p => p.Kind == kind).Select(p => p.Geometry).ToList();
+                    if (ofKind.Count > 0)
+                    {
+                        result[level.Name][kind].AddRange(ParcelCoverageBuilder.Build(ofKind, level with { VertexBudget = budget }));
+                    }
+                }
+            }
+        }
+
+        return result.ToDictionary(l => l.Key, l => (IReadOnlyDictionary<string, List<GeoPolygon>>)l.Value);
     }
 }

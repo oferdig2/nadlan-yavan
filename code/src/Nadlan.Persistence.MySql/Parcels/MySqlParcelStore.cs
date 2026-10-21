@@ -208,6 +208,23 @@ public sealed class MySqlParcelStore : IParcelStore
         return rows.Select(r => (r.Kind, GeoPolygon.FromWkt(r.Wkt))).ToList();
     }
 
+    public async Task<IReadOnlyList<(int? AreaId, long Count)>> CountByGeographicAreaAsync(CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<(int? AreaId, long Count)>(new CommandDefinition(
+            "SELECT p.geographic_area_id, COUNT(*) FROM parcel p GROUP BY p.geographic_area_id ORDER BY p.geographic_area_id", cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListGeometriesInAreaAsync(int? areaId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        var rows = await conn.QueryAsync<(string Kind, string Wkt)>(new CommandDefinition(
+            $"SELECT {KindSql}, ST_AsText(p.geometry, 'axis-order=long-lat') FROM parcel p WHERE p.geographic_area_id <=> @areaId",
+            new { areaId }, cancellationToken: ct));
+        return rows.Select(r => (r.Kind, GeoPolygon.FromWkt(r.Wkt))).ToList();
+    }
+
     /// <summary>
     /// A MySQL named lock on its own connection: held until disposed, shared by every app instance on this database.
     /// Waits up to 20 s for a save in progress (an overlap check takes well under a second).

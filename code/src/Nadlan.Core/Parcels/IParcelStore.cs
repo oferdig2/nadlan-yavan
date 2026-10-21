@@ -107,6 +107,12 @@ public interface IParcelStore
     /// <summary>Every Parcel's polygon and whether its KAEK is provisional - input for the zoomed-out surface.</summary>
     Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default);
 
+    /// <summary>How many Parcels each geographic area has (null = Parcels without an area). For the per-area overview.</summary>
+    Task<IReadOnlyList<(int? AreaId, long Count)>> CountByGeographicAreaAsync(CancellationToken ct = default) => throw new NotSupportedException();
+
+    /// <summary>The kind and shape of every Parcel in one geographic area (null = the Parcels without an area).</summary>
+    Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListGeometriesInAreaAsync(int? areaId, CancellationToken ct = default) => throw new NotSupportedException();
+
     /// <summary>One corner per matching Parcel (same filters and access rules, no limit): enough to know where they lie.</summary>
     Task<IReadOnlyList<GeoPoint>> ListAnchorsAsync(ParcelQuery query, CancellationToken ct = default);
 

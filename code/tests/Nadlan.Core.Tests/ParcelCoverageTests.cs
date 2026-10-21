@@ -94,6 +94,42 @@ public class ParcelCoverageTests
     }
 
     [Fact]
+    public async Task The_overview_is_built_one_area_at_a_time_with_the_same_result()
+    {
+        // Two areas far apart (100 km): uniting them together or one by one gives the same surfaces.
+        var areaA = new[] { Square(0, 0), Square(51, 0), Square(0, 50.5) };
+        var areaB = new[] { Square(100_000, 0), Square(100_051, 0) };
+        var loads = new List<int?>();
+        var areas = new List<(int? AreaId, long Count)> { (1, 3), (2, 2), (null, 0) };
+        Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> Load(int? id, CancellationToken ct)
+        {
+            loads.Add(id);
+            var shapes = id == 1 ? areaA : areaB;
+            return Task.FromResult<IReadOnlyList<(string, GeoPolygon)>>(shapes.Select(g => (ParcelKinds.Todo, g)).ToList());
+        }
+
+        var byArea = await ParcelCoverageByArea.BuildAsync(areas, ParcelKinds.All, CoverageLevel.All, Load);
+        var together = ParcelCoverageBuilder.Build(areaA.Concat(areaB).ToList(), CoverageLevel.Mid);
+
+        Assert.Equal(new int?[] { 1, 2 }, loads);                     // each area loaded once; an empty one never
+        Assert.Equal(together.Count, byArea["mid"][ParcelKinds.Todo].Count);
+        Assert.Equal(2, byArea["mid"][ParcelKinds.Todo].Count);       // one block per area
+        Assert.Empty(byArea["mid"][ParcelKinds.Done]);
+    }
+
+    [Fact]
+    public void The_fine_level_does_not_close_gaps_even_when_over_budget()
+    {
+        var parcels = new[] { Square(0, 0), Square(50.4, 0) };        // 0.4 m apart: closing would join them
+
+        Assert.Equal(0, CoverageLevel.Fine.CloseMetres);
+        Assert.Equal(2, ParcelCoverageBuilder.Build(parcels, CoverageLevel.Fine).Count);
+        // Over budget, the escalation only simplifies harder: no surface ever spans both parcels (> 100 m wide).
+        var tight = ParcelCoverageBuilder.Build(parcels, CoverageLevel.Fine with { VertexBudget = 4 });
+        Assert.All(tight, p => Assert.True((p.Bounds().East - p.Bounds().West) * 111_320 * Math.Cos(38.6 * Math.PI / 180) < 60, "a merged surface"));
+    }
+
+    [Fact]
     public void A_self_crossing_legacy_polygon_does_not_break_the_union()
     {
         GeoPoint P(double x, double y) => new(Lon0 + x * MetreLon, Lat0 + y * MetreLat);
