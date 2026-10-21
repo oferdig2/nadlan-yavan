@@ -35,3 +35,18 @@ Backups/
 
 # Customer media (drone/phone photos and videos, GBs) brought to this PC for inspection - never commit
 MediaAssets/
+
+# Media never goes into git, wherever it is dropped (videos, drone flight tracks, camera raw/HEIC) - S3 holds media
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.m4v
+*.avi
+*.mkv
+*.srt
+*.SRT
+*.dng
+*.DNG
+*.heic
+*.HEIC
