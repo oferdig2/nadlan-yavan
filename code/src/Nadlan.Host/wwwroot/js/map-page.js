@@ -228,10 +228,8 @@
       onShowArea: function (areaId) {
         Nadlan.api.get("/api/parcels/extent", { areaId: areaId }).then(function (e) {
           if (!e.count) { setStatus("No Parcels you can see in " + (e.area || "that area") + "."); return; }
-          var message = "Showing " + e.area + " (" + e.count.toLocaleString("en-US") + " parcels).";
-          state.afterMoveMessage = message;
+          announceAfterMove("Showing " + e.area + " (" + e.count.toLocaleString("en-US") + " parcels).");
           map.fitBounds({ west: e.west, south: e.south, east: e.east, north: e.north }, 40);
-          setStatus(message);
         }, function (err) { setStatus(err.message, true); });
       }
     });
@@ -483,6 +481,14 @@
       return map.getZoom() < 12 ? "overview" : "mid";
     }
     var lastDrawKind = null;
+    // A message for a move about to happen (fly to an area, a marker): shown now and again when the search the move starts
+    // finishes. Unused after 3 s (the map didn't move, so no search came), it expires - a later pan doesn't bring it back.
+    function announceAfterMove(message) {
+      state.afterMoveMessage = message;
+      setStatus(message);
+      setTimeout(function () { if (state.afterMoveMessage === message) { state.afterMoveMessage = null; } }, 3000);
+    }
+
     map.addListener("idle", function () {
       var kind = drawKind();
       var changed = kind !== lastDrawKind;
@@ -556,9 +562,9 @@
         dropMarker.setTitle((name ? name + ": " : "") + lat.toFixed(6) + ", " + lng.toFixed(6));
         dropHighlight.set([]);
         shownDropParcel = null;
+        announceAfterMove("Marked " + (name ? name + " at " : "") + lat.toFixed(6) + ", " + lng.toFixed(6) + ".");
         map.panTo(here);
         if (map.getZoom() < 17) { map.setZoom(17); }
-        setStatus("Marked " + (name ? name + " at " : "") + lat.toFixed(6) + ", " + lng.toFixed(6) + ".");
       };
       mapDrop = Nadlan.mapDrop.init({
         setStatus: setStatus,
