@@ -72,3 +72,7 @@ body.map-drop-picking .map { cursor: crosshair; }
   .map-drop-card { flex-basis: 200px; }
   .map-drop-zone { flex-basis: 200px; }
 }
+
+/* A file's coordinate when no Parcel was found there (click = marker on the map; + Parcel here = draw one) */
+.md-point { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; }
+.md-point .link { font-family: ui-monospace, Consolas, monospace; }

@@ -58,7 +58,7 @@
     // ------------------------------------------------------------------ open / close, badge
 
     function open() { $panel.prop("hidden", false); $("body").addClass("map-drop-open"); render(); }
-    function close() { $panel.prop("hidden", true); $("body").removeClass("map-drop-open"); stopPicking(); }
+    function close() { $panel.prop("hidden", true); $("body").removeClass("map-drop-open"); stopPicking(); if (options.clearPoint) { options.clearPoint(); } }
 
     $button.on("click", function () { if ($panel.prop("hidden")) { open(); } else { close(); } });
     $panel.on("click", "[data-act=close]", close);
@@ -164,7 +164,9 @@
         ? (file.text ? file.text() : Promise.resolve("")).then(function (text) {
             var t = Nadlan.mediaInspect.parseSrt(text);
             tracks[Nadlan.mediaInspect.baseName(file.name)] = { points: t.points, takenLocal: t.takenLocal };
-            return { takenLocal: t.takenLocal };
+            // Its first point goes on its own card (where the flight starts), also when its video never comes.
+            var first = t.points[0];
+            return first ? { takenLocal: t.takenLocal, latitude: first[1], longitude: first[2] } : { takenLocal: t.takenLocal };
           })
         : Nadlan.mediaInspect.inspect(file);
       reading.catch(function () { return {}; }).then(function (metadata) {
@@ -302,6 +304,16 @@
       return st;
     }
 
+    // Where a file is when no Parcel was found there: the coordinate (a track: its first point), a click shows it on the map;
+    // "+ Parcel here" starts drawing a new Parcel at that spot (for users who may create Parcels).
+    function pointHtml(m, isTrack) {
+      var text = m.latitude.toFixed(6) + ", " + m.longitude.toFixed(6);
+      return "<div class=\"md-point\"><button type=\"button\" class=\"link\" data-point=\"" + m.latitude + "," + m.longitude + "\" title=\"Show this spot on the map\">&#x1F4CD; " +
+        text + "</button>" + (isTrack ? " <span class=\"muted md-small\">start of flight</span>" : "") +
+        (Nadlan.session.can("EDIT_ALL_PARCELS") ? " <button type=\"button\" class=\"btn btn-small\" data-act=\"parcel-here\" data-point=\"" + m.latitude + "," + m.longitude + "\" title=\"Draw a new Parcel around this spot\">+ Parcel here</button>" : "") +
+        "</div>";
+    }
+
     // An .srt waiting for its video: still uploading in this page (they join when it's done), or not dropped.
     function trackStatus(i) {
       var base = Nadlan.mediaInspect.baseName(i.file.originalFileName);
@@ -343,8 +355,12 @@
             : chip(s.parcelId, s.registryId);
         }).join(" ") + (i.suggestions.length > 1 ? "<div class=\"muted md-small\">Parcels overlap here - pick one</div>" : "") + "</div>";
       } else {
-        where = "<div class=\"md-notfound muted\">" + (!i.inspected ? "Checking…" : kind === "video" && !m.hasTrack ? "No location (no .srt flight track)"
-          : kind === "track" ? trackStatus(i) : m.latitude !== undefined && m.latitude !== null ? "Not on a Parcel you can see" : "No location in the file") + "</div>";
+        var hasPoint = m.latitude !== undefined && m.latitude !== null && m.longitude !== undefined && m.longitude !== null;
+        where = "<div class=\"md-notfound muted\">" + (!i.inspected ? "Checking…"
+          : kind === "track" ? trackStatus(i)
+          : hasPoint ? (kind === "video" && m.hasTrack ? "The flight crosses no Parcel you can see" : "Not on a Parcel you can see")
+          : kind === "video" ? "No location (no .srt flight track)" : "No location in the file") + "</div>" +
+          (i.inspected && hasPoint ? pointHtml(m, kind === "track" || m.hasTrack) : "");
       }
       var warn = m.gpsStatus && /invalid/i.test(m.gpsStatus) && found(i)
         ? "<div class=\"md-warn md-small\" title=\"DJI marks the GPS reading invalid: it was right on some of his photos and 24 km off on one\">GPS marked invalid by the drone - check the Parcel</div>" : "";
@@ -397,6 +413,12 @@
     $strip.on("change", "[data-tick]", function () { state(cardId(this)).ticks[$(this).data("tick")] = this.checked; render(); });
     $strip.on("change", "[data-choose]", function () { state(cardId(this)).chosen = Number($(this).data("choose")); });
     $strip.on("mouseenter click", ".md-chip", function () { options.showParcel(Number($(this).data("parcel"))); });
+    function pointOf(el) { var p = String($(el).attr("data-point")).split(","); return { lat: Number(p[0]), lng: Number(p[1]) }; }
+    $strip.on("click", "button.link[data-point]", function () {
+      var p = pointOf(this);
+      options.showPoint(p.lat, p.lng, $(this).closest(".map-drop-card").find(".md-name").text());
+    });
+    $strip.on("click", "[data-act=parcel-here]", function () { var p = pointOf(this); options.newParcelAt(p.lat, p.lng); });
     $strip.on("click", "[data-play]", function (e) {
       e.preventDefault();
       var i = item(cardId(this));
