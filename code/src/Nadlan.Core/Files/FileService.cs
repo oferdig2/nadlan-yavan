@@ -48,9 +48,17 @@ public sealed class FileService
 
     // History goes on the entity the file belongs to (the Asset or Parcel page shows it). The category is kept so the
     // history only shows file entries to users who may see that category.
+    // Map drop files belong to no entity yet: their history starts on the Parcel they are assigned to (MapDropService).
     private async Task RecordAsync(FileAttachment file, string action, string verb, CancellationToken ct)
-        => await _activity.RecordAsync(new ActivityEntry(file.AttachedToType, file.AttachedToId, action,
+    {
+        if (file.AttachedToType == FileTargetTypes.MapDrop)
+        {
+            return;
+        }
+
+        await _activity.RecordAsync(new ActivityEntry(file.AttachedToType, file.AttachedToId, action,
             $"{verb} {file.OriginalFileName}.", new { file.FileAttachmentId, file.FileSize, category = await CategoryOfAsync(file.FileTypeId, ct) }), ct);
+    }
 
     /// <summary>The file_type.category (Legal, Marketing, ...) of a type id, or null if unknown.</summary>
     public async Task<string?> CategoryOfAsync(int fileTypeId, CancellationToken ct = default)
@@ -250,6 +258,40 @@ public sealed class FileService
         }
 
         await RecordAsync(file, ActivityActions.FileDeleted, "Deleted", ct);
+    }
+
+    /// <summary>
+    /// Map drop clean-up of one file: the row goes first, and only while the file is still unassigned and expired; the
+    /// bytes go only if that row was deleted - so a file assigned to a Parcel a moment ago is never lost.
+    /// </summary>
+    public async Task<bool> DeleteExpiredMapDropAsync(long fileAttachmentId, DateTime uploadedBeforeUtc, CancellationToken ct = default)
+    {
+        EnsureConfigured();
+        var file = await _files.GetAsync(fileAttachmentId, ct);
+        if (file is null || file.AttachedToType != FileTargetTypes.MapDrop || !await _files.DeleteExpiredMapDropAsync(fileAttachmentId, uploadedBeforeUtc, ct))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (file.UploadStatus == FileUploadStatus.Pending && file.S3UploadId is not null)
+            {
+                await _storage.AbortMultipartUploadAsync(file.StorageKey, file.S3UploadId, ct);
+            }
+            else
+            {
+                await _storage.DeleteObjectAsync(file.StorageKey, ct);
+                await DeleteThumbnailAsync(file, ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The row is gone, so nothing will retry it: name the object left behind (storage cost only) for the log.
+            throw new InvalidOperationException($"Map drop file {fileAttachmentId} was removed, but its S3 object {file.StorageKey} could not be deleted: {ex.Message}", ex);
+        }
+
+        return true;
     }
 
     /// <summary>The largest preview image accepted (a 480 px JPEG is 20-80 KB).</summary>

@@ -55,6 +55,7 @@ app.MapAssetEndpoints();
 app.MapContactEndpoints();
 app.MapPortfolioEndpoints();
 app.MapFileEndpoints();
+app.MapMapDropEndpoints(); // Map drop: drop media on the map, inspect, assign to Parcels, video time frames
 app.MapPresentationEndpoints();
 app.MapActivityEndpoints();
 app.MapAdminEndpoints();

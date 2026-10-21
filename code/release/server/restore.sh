@@ -104,6 +104,16 @@ fi
 step "Schema"
 run_dbtool "$RELEASE_DIR" migrate
 
+if [[ "$MODE" == "--keep-server-identity" ]]; then
+    # After migrate (an older dump has no Map drop tables yet). A PC database's unassigned Map drop files are that PC's
+    # uploads, in that PC's storage folder: forget the rows here, so this server's 5-day clean-up never deletes those
+    # objects from S3. Assigned files stay; who corrected a video's time frames is cleared like the other user ids.
+    mysql --defaults-file="$CNF" "$DB" -e "
+        DELETE FROM file_attachment WHERE attached_to_type = 'MapDrop';
+        UPDATE file_segment SET updated_by_user_id = NULL;"
+    echo "Map drop files waiting on the copied database were left out (they belong to that PC)."
+fi
+
 PHASE=done
 trap - ERR INT TERM HUP
 step "Starting the app"

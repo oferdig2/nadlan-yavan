@@ -126,6 +126,38 @@ public class FileTests
         Assert.DoesNotContain("response-content-disposition", provider.GetUrl("asset/5/a/x.jpg", ""));
     }
 
+    [Fact]
+    public async Task Map_drop_cleanup_never_deletes_a_file_assigned_meanwhile()
+    {
+        var (service, files, storage) = NewService();
+        var old = DateTime.UtcNow.AddDays(-6);
+        files.Rows.Add(new FileAttachment { FileAttachmentId = 1, AttachedToType = FileTargetTypes.MapDrop, AttachedToId = 4, StorageKey = "mapdrop/4/a.jpg", UploadStatus = FileUploadStatus.Ready, UploadedUtc = old, HasThumbnail = true });
+        files.Rows.Add(new FileAttachment { FileAttachmentId = 2, AttachedToType = FileTargetTypes.MapDrop, AttachedToId = 4, StorageKey = "mapdrop/4/b.mp4", UploadStatus = FileUploadStatus.Ready, UploadedUtc = old });
+        var cutoff = DateTime.UtcNow.AddDays(-5);
+
+        // File 2 was listed as expired, then assigned to a Parcel before the clean-up reached it.
+        files.Rows[1] = files.Rows[1] with { AttachedToType = FileTargetTypes.Parcel, AttachedToId = 7 };
+
+        Assert.True(await service.DeleteExpiredMapDropAsync(1, cutoff));
+        Assert.False(await service.DeleteExpiredMapDropAsync(2, cutoff));
+
+        Assert.Equal(new[] { "mapdrop/4/a.jpg", "mapdrop/4/a.jpg.thumb.jpg" }, storage.DeletedKeys);
+        Assert.Single(files.Rows, r => r.FileAttachmentId == 2 && r.AttachedToType == FileTargetTypes.Parcel);
+    }
+
+    [Fact]
+    public async Task Map_drop_cleanup_names_the_object_left_behind_when_S3_fails()
+    {
+        var (service, files, storage) = NewService();
+        files.Rows.Add(new FileAttachment { FileAttachmentId = 3, AttachedToType = FileTargetTypes.MapDrop, AttachedToId = 4, StorageKey = "mapdrop/4/c.jpg", UploadStatus = FileUploadStatus.Ready, UploadedUtc = DateTime.UtcNow.AddDays(-6) });
+        storage.FailDeletes = true;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteExpiredMapDropAsync(3, DateTime.UtcNow.AddDays(-5)));
+
+        Assert.Contains("mapdrop/4/c.jpg", ex.Message);
+        Assert.Empty(files.Rows); // the row went first - nothing can lose an assigned file
+    }
+
     private static (FileService Service, FakeFiles Files, FakeStorage Storage) NewService()
     {
         var files = new FakeFiles();
@@ -174,6 +206,9 @@ public class FileTests
 
         public Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<FileType>>(new[] { new FileType(1, "PHOTO", "Photo", "Marketing", true, 10) });
+
+        public Task<bool> DeleteExpiredMapDropAsync(long id, DateTime before, CancellationToken ct = default)
+            => Task.FromResult(Rows.RemoveAll(r => r.FileAttachmentId == id && r.AttachedToType == FileTargetTypes.MapDrop && r.UploadedUtc < before) > 0);
     }
 
     private sealed class FakeTargets : IFileTargetResolver
@@ -199,6 +234,19 @@ public class FileTests
         public Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct = default) => Task.CompletedTask;
         public Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default) => Task.CompletedTask;
         public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default) => Task.FromResult(StoredSize);
-        public Task DeleteObjectAsync(string key, CancellationToken ct = default) => Task.CompletedTask;
+        public List<string> DeletedKeys { get; } = new();
+
+        public bool FailDeletes { get; set; }
+
+        public Task DeleteObjectAsync(string key, CancellationToken ct = default)
+        {
+            if (FailDeletes)
+            {
+                throw new IOException("S3 unavailable");
+            }
+
+            DeletedKeys.Add(key);
+            return Task.CompletedTask;
+        }
     }
 }

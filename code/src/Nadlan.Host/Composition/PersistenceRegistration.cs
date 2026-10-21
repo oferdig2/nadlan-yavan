@@ -34,6 +34,7 @@ public static class PersistenceRegistration
         services.AddSingleton<IPortfolioStore, MySqlPortfolioStore>();
         services.AddSingleton<IReferenceDataStore, MySqlReferenceDataStore>();
         services.AddSingleton<IFileAttachmentStore, MySqlFileAttachmentStore>();
+        services.AddSingleton<IMapDropStore, MySqlMapDropStore>();
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
         services.AddSingleton<MySqlActivityLog>();
         services.AddSingleton<IActivityLog>(sp => new Nadlan.Host.Activity.BestEffortActivityLog(

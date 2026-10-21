@@ -105,6 +105,15 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         return rows.ToList();
     }
 
+    public async Task<bool> DeleteExpiredMapDropAsync(long fileAttachmentId, DateTime uploadedBeforeUtc, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM file_attachment
+            WHERE file_attachment_id = @fileAttachmentId AND attached_to_type = 'MapDrop' AND uploaded_utc < @uploadedBeforeUtc
+            """, new { fileAttachmentId, uploadedBeforeUtc }, cancellationToken: ct)) == 1;
+    }
+
     public async Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
@@ -126,6 +135,7 @@ public sealed class MySqlFileTargetResolver : IFileTargetResolver
         [FileTargetTypes.Portfolio] = ("portfolio", "portfolio_id"),
         [FileTargetTypes.Contact] = ("contact", "contact_id"),
         [FileTargetTypes.User] = ("app_user", "user_id"),
+        [FileTargetTypes.MapDrop] = ("app_user", "user_id"), // the uploader
     };
 
     private readonly MySqlDatabase _db;

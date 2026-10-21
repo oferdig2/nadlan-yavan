@@ -9,7 +9,10 @@ public static class FileTargetTypes
     public const string Contact = "Contact";
     public const string User = "User";
 
-    public static readonly IReadOnlyList<string> All = new[] { Parcel, Asset, Portfolio, Contact, User };
+    /// <summary>Map drop: not assigned yet; attached_to_id = the uploader's user id (migration 016).</summary>
+    public const string MapDrop = "MapDrop";
+
+    public static readonly IReadOnlyList<string> All = new[] { Parcel, Asset, Portfolio, Contact, User, MapDrop };
 
     /// <summary>Returns the canonical spelling, or null if unknown.</summary>
     public static string? Normalize(string? value)
@@ -88,6 +91,12 @@ public interface IFileAttachmentStore
     Task<IReadOnlyList<FileAttachment>> ListStalePendingAsync(DateTime startedBeforeUtc, int limit, CancellationToken ct = default);
 
     Task<IReadOnlyList<FileType>> ListTypesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the row only while it is still an unassigned Map drop file uploaded before the cutoff (never one that was
+    /// assigned meanwhile). True if deleted.
+    /// </summary>
+    Task<bool> DeleteExpiredMapDropAsync(long fileAttachmentId, DateTime uploadedBeforeUtc, CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 /// <summary>Checks that the entity a file is being attached to exists.</summary>

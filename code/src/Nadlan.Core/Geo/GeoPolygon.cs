@@ -39,6 +39,59 @@ public sealed class GeoPolygon
 
     public IReadOnlyList<GeoPoint> Exterior => Rings[0];
 
+    /// <summary>
+    /// Is the point inside (in the exterior ring and in no hole)? Plane math on lon/lat, ray casting - the same rule as
+    /// the map's my-location.js containsPoint, so the server and the page agree (Parcels are metres across: no curvature).
+    /// </summary>
+    public bool Contains(GeoPoint p)
+    {
+        if (!InRing(Rings[0], p))
+        {
+            return false;
+        }
+
+        for (var h = 1; h < Rings.Count; h++)
+        {
+            if (InRing(Rings[h], p))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool InRing(IReadOnlyList<GeoPoint> ring, GeoPoint p)
+    {
+        var inside = false;
+        for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++)
+        {
+            var a = ring[i];
+            var b = ring[j];
+            if ((a.Lat > p.Lat) != (b.Lat > p.Lat) && p.Lon < (b.Lon - a.Lon) * (p.Lat - a.Lat) / (b.Lat - a.Lat) + a.Lon)
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
+    /// <summary>Bounding box: (west, south, east, north).</summary>
+    public (double West, double South, double East, double North) Bounds()
+    {
+        double w = double.MaxValue, s = double.MaxValue, e = double.MinValue, n = double.MinValue;
+        foreach (var p in Rings[0])
+        {
+            w = Math.Min(w, p.Lon);
+            e = Math.Max(e, p.Lon);
+            s = Math.Min(s, p.Lat);
+            n = Math.Max(n, p.Lat);
+        }
+
+        return (w, s, e, n);
+    }
+
     /// <summary>WKT in lon-lat order. Callers storing to MySQL must pass axis-order=long-lat.</summary>
     public string ToWkt()
     {
