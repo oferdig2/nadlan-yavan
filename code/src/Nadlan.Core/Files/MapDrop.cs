@@ -42,6 +42,10 @@ public readonly record struct TrackPoint(int Ms, double Lat, double Lng, double?
 /// </summary>
 public sealed record ParcelSuggestion(long ParcelId, string? RegistryId, int? StartMs = null, int? EndMs = null, bool LongLook = true);
 
+/// <summary>A video a Map drop .srt may belong to (same name): where it is, and whether it already has a flight track.</summary>
+public sealed record TrackVideoCandidate(long FileAttachmentId, string FileName, string AttachedToType, long AttachedToId, string? RegistryId,
+    bool HasTrack, string StorageKey);
+
 /// <summary>A time frame of a video on one Parcel.</summary>
 public sealed record FileSegment(long ParcelId, int StartMs, int EndMs, string Source = FileSegmentSources.Manual, string? RegistryId = null);
 
@@ -89,6 +93,9 @@ public interface IMapDropStore
 
     /// <summary>Map drop files (Ready or Pending) uploaded before the cutoff.</summary>
     Task<IReadOnlyList<long>> ListExpiredAsync(DateTime uploadedBeforeUtc, int limit, CancellationToken ct = default);
+
+    /// <summary>Ready videos whose file name without its extension is <paramref name="baseName"/> (any case), on any target.</summary>
+    Task<IReadOnlyList<long>> FindVideoIdsByBaseNameAsync(string baseName, CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 /// <summary>
@@ -286,13 +293,16 @@ public sealed class MapDropService
         if (track is { Count: > 0 } && isVideo)
         {
             var points = ValidateTrack(track);
-            trackJson = JsonSerializer.Serialize(points.Select(p => new object?[] { p.Ms, Math.Round(p.Lat, 7), Math.Round(p.Lng, 7), p.RelAlt is { } a ? Math.Round(a, 1) : null }), Json);
-            var parcels = await ParcelsAroundAsync(me, points.Select(p => (p.Lat, p.Lng)).ToList(), ct);
-            suggestions = TrackSegmenter.Segment(points, parcels);
-            if (suggestions.Count > MaxSuggestions)
-            {
-                suggestions = suggestions.OrderByDescending(x => x.EndMs - x.StartMs).Take(MaxSuggestions).OrderBy(x => x.StartMs).ThenBy(x => x.ParcelId).ToList();
-            }
+            trackJson = SerializeTrack(points);
+            suggestions = await SegmentAsync(me, points, ct);
+            clean = clean with { Latitude = clean.Latitude ?? points[0].Lat, Longitude = clean.Longitude ?? points[0].Lng };
+        }
+        else if (track is { Count: > 0 } && IsTrackFile(file))
+        {
+            // A .srt keeps its own flight, so it can be linked to its video later - also one uploaded long before
+            // (LinkTrackToVideoAsync). No Parcel of its own: it belongs to its video.
+            var points = ValidateTrack(track);
+            trackJson = SerializeTrack(points);
             clean = clean with { Latitude = clean.Latitude ?? points[0].Lat, Longitude = clean.Longitude ?? points[0].Lng };
         }
         else if (clean is { Latitude: { } lat, Longitude: { } lng } && (isVideo || file.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)))
@@ -362,6 +372,141 @@ public sealed class MapDropService
                     $"Added {track.OriginalFileName} from Map drop.", new { track.FileAttachmentId, track.FileSize, category }), ct);
             }
         }
+    }
+
+    /// <summary>
+    /// Videos that a Map drop .srt may belong to: same name without the extension (DJI_0949.SRT - DJI_0949.MP4), already on a
+    /// Parcel or still in Map drop, that the caller can see. Newest first.
+    /// </summary>
+    public async Task<IReadOnlyList<TrackVideoCandidate>> FindVideosForTrackAsync(UserAccess me, long trackFileId, CancellationToken ct = default)
+    {
+        RequireMapDrop(me);
+        var srt = await GetMapDropFileAsync(trackFileId, ct);
+        RequireTrackFile(srt);
+        var result = new List<TrackVideoCandidate>();
+        foreach (var id in await _store.FindVideoIdsByBaseNameAsync(Path.GetFileNameWithoutExtension(srt.OriginalFileName), ct))
+        {
+            FileAttachment video;
+            try { video = await GetVisibleFileAsync(me, id, ct); }
+            catch (EntityNotFoundException) { continue; }
+
+            var registryId = video.AttachedToType == FileTargetTypes.Parcel ? await RegistryIdAsync(video.AttachedToId, ct) : null;
+            var hasTrack = (await _store.GetMetadataAsync(id, ct))?.TrackJson is { Length: > 0 };
+            result.Add(new TrackVideoCandidate(video.FileAttachmentId, video.OriginalFileName, video.AttachedToType, video.AttachedToId, registryId,
+                hasTrack, video.StorageKey));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// A Map drop .srt joined to its video, found by name (FindVideosForTrackAsync): the video's flight track and time-frame
+    /// suggestions come from the .srt. A video still in Map drop gets them on its own card (assigned as usual, the .srt
+    /// goes along). A video already on a Parcel: the frames are returned for the .srt's card, applied by ApplyTrackToVideoAsync.
+    /// </summary>
+    public async Task<IReadOnlyList<ParcelSuggestion>> LinkTrackToVideoAsync(UserAccess me, long trackFileId, long videoFileId, CancellationToken ct = default)
+    {
+        RequireMapDrop(me);
+        var srt = await GetMapDropFileAsync(trackFileId, ct);
+        RequireTrackFile(srt);
+        var stored = (await _store.GetMetadataAsync(trackFileId, ct))?.TrackJson;
+        var points = stored is { Length: > 0 } ? ReadTrackJson(stored) : Array.Empty<TrackPoint>();
+        if (points.Count == 0)
+        {
+            throw new DomainValidationException("MAP_DROP_TRACK_MISSING",
+                $"{srt.OriginalFileName} was uploaded before flight tracks were kept: delete it here and drop it again.");
+        }
+
+        var video = await GetVisibleFileAsync(me, videoFileId, ct);
+        if (!video.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainValidationException("FILE_SEGMENTS_VIDEO_ONLY", "Only a video can be split over several Parcels.");
+        }
+
+        var existing = await _store.GetMetadataAsync(videoFileId, ct) ?? new MediaMetadata();
+        if (video.AttachedToType == FileTargetTypes.MapDrop)
+        {
+            return await SaveInspectionAsync(me, videoFileId, existing with { TrackFileId = trackFileId, TrackJson = null, SuggestionsJson = null }, points, ct);
+        }
+
+        if (video.AttachedToType != FileTargetTypes.Parcel)
+        {
+            throw new EntityNotFoundException("File", videoFileId);
+        }
+
+        // Changing a video on a Parcel: that Parcel's file rights (the frames' own Parcels are checked when applied).
+        await _policy.RequireFileChangeAsync(me, video.AttachedToType, video.AttachedToId, video.UploadedByUserId,
+            await _fileService.CategoryOfAsync(video.FileTypeId, ct), ct);
+        var suggestions = await SegmentAsync(me, points, ct);
+        await _store.UpsertMetadataAsync(videoFileId, existing with
+        {
+            TrackFileId = trackFileId,
+            TrackJson = SerializeTrack(points),
+            SuggestionsJson = JsonSerializer.Serialize(suggestions, Json),
+            Latitude = existing.Latitude ?? points[0].Lat,
+            Longitude = existing.Longitude ?? points[0].Lng,
+        }, ct);
+        return suggestions;
+    }
+
+    /// <summary>
+    /// The ticked time frames of a linked .srt applied to its video on a Parcel (frames replaced, with the same rights and
+    /// history as a data-entry correction), and the .srt moved to the video's Parcel.
+    /// </summary>
+    public async Task ApplyTrackToVideoAsync(UserAccess me, long trackFileId, long videoFileId, IReadOnlyList<FileSegment> segments, CancellationToken ct = default)
+    {
+        RequireMapDrop(me);
+        var srt = await GetMapDropFileAsync(trackFileId, ct);
+        RequireTrackFile(srt);
+        var video = await GetVisibleFileAsync(me, videoFileId, ct);
+        if (video.AttachedToType != FileTargetTypes.Parcel)
+        {
+            throw new DomainValidationException("MAP_DROP_VIDEO_NOT_ON_PARCEL", "That video is still in Map drop: assign it from its own card.");
+        }
+
+        if ((await _store.GetMetadataAsync(videoFileId, ct))?.TrackFileId != trackFileId)
+        {
+            throw new DomainValidationException("MAP_DROP_NOT_LINKED", "Link the flight track to the video first.");
+        }
+
+        var types = await _files.ListTypesAsync(ct);
+        var trackType = types.FirstOrDefault(t => t.Code == "DRONE_TRACK" && t.IsActive)?.Id ?? srt.FileTypeId;
+        var trackCategory = await _fileService.CategoryOfAsync(trackType, ct);
+        await _policy.RequireFileUploadAsync(me, FileTargetTypes.Parcel, video.AttachedToId, trackCategory, ct); // before anything changes
+
+        await ReplaceSegmentsAsync(me, videoFileId, segments, ct);
+        if (await _store.AssignAsync(trackFileId, video.AttachedToId, trackType, ct))
+        {
+            await _activity.RecordAsync(new ActivityEntry(FileTargetTypes.Parcel, video.AttachedToId, ActivityActions.FileUploaded,
+                $"Added {srt.OriginalFileName} from Map drop (flight track of {video.OriginalFileName}).",
+                new { srt.FileAttachmentId, srt.FileSize, category = trackCategory }), ct);
+        }
+    }
+
+    private static bool IsTrackFile(FileAttachment file) => file.OriginalFileName.EndsWith(".srt", StringComparison.OrdinalIgnoreCase);
+
+    private static void RequireTrackFile(FileAttachment file)
+    {
+        if (!IsTrackFile(file))
+        {
+            throw new DomainValidationException("MAP_DROP_NOT_A_TRACK", "Only a .srt flight track can be linked to a video.");
+        }
+    }
+
+    private static string SerializeTrack(IReadOnlyList<TrackPoint> points) =>
+        JsonSerializer.Serialize(points.Select(p => new object?[] { p.Ms, Math.Round(p.Lat, 7), Math.Round(p.Lng, 7), p.RelAlt is { } a ? Math.Round(a, 1) : null }), Json);
+
+    /// <summary>A flight track's Parcels with time frames (at most <see cref="MaxSuggestions"/>, the longest stretches).</summary>
+    private async Task<IReadOnlyList<ParcelSuggestion>> SegmentAsync(UserAccess me, IReadOnlyList<TrackPoint> points, CancellationToken ct)
+    {
+        var parcels = await ParcelsAroundAsync(me, points.Select(p => (p.Lat, p.Lng)).ToList(), ct);
+        IReadOnlyList<ParcelSuggestion> suggestions = TrackSegmenter.Segment(points, parcels);
+        if (suggestions.Count > MaxSuggestions)
+        {
+            suggestions = suggestions.OrderByDescending(x => x.EndMs - x.StartMs).Take(MaxSuggestions).OrderBy(x => x.StartMs).ThenBy(x => x.ParcelId).ToList();
+        }
+
+        return suggestions;
     }
 
     public async Task<IReadOnlyList<FileSegment>> ListSegmentsAsync(UserAccess me, long fileAttachmentId, CancellationToken ct = default)

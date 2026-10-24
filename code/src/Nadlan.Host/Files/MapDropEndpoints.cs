@@ -17,6 +17,10 @@ public static class MapDropEndpoints
 
     public sealed record AssignDto(long ParcelId, int FileTypeId, SegmentDto[]? Segments);
 
+    public sealed record LinkDto(long VideoFileId);
+
+    public sealed record ApplyDto(long VideoFileId, SegmentDto[]? Segments);
+
     public sealed record NameSizeDto(string? Name, long Size);
 
     public sealed record DuplicatesDto(NameSizeDto[]? Files);
@@ -64,6 +68,26 @@ public static class MapDropEndpoints
         {
             await service.AssignAsync(me, fileAttachmentId, dto.ParcelId, dto.FileTypeId, ToSegments(dto.Segments), ct);
             return Results.Ok(new { fileAttachmentId, parcelId = dto.ParcelId });
+        });
+
+        // A .srt dropped on its own: the videos it may belong to (same name), on a Parcel or still in Map drop.
+        group.MapGet("/{fileAttachmentId:long}/videos", async (long fileAttachmentId, UserAccess me, MapDropService service, IFileUrlProvider urls,
+            CancellationToken ct) =>
+            Results.Ok((await service.FindVideosForTrackAsync(me, fileAttachmentId, ct)).Select(v => new
+            {
+                fileAttachmentId = v.FileAttachmentId, fileName = v.FileName, attachedToType = v.AttachedToType, attachedToId = v.AttachedToId,
+                registryId = v.RegistryId, hasTrack = v.HasTrack, url = urls.GetUrl(v.StorageKey),
+            })));
+
+        // ... joined to one of them: the video's time frames from the .srt (see MapDropService.LinkTrackToVideoAsync).
+        group.MapPost("/{fileAttachmentId:long}/link", async (long fileAttachmentId, LinkDto dto, UserAccess me, MapDropService service, CancellationToken ct) =>
+            Results.Ok(new { suggestions = await service.LinkTrackToVideoAsync(me, fileAttachmentId, dto.VideoFileId, ct) }));
+
+        // ... and the ticked frames applied to that video on its Parcel; the .srt goes to the same Parcel.
+        group.MapPost("/{fileAttachmentId:long}/apply", async (long fileAttachmentId, ApplyDto dto, UserAccess me, MapDropService service, CancellationToken ct) =>
+        {
+            await service.ApplyTrackToVideoAsync(me, fileAttachmentId, dto.VideoFileId, ToSegments(dto.Segments), ct);
+            return Results.Ok(new { fileAttachmentId, videoFileId = dto.VideoFileId });
         });
 
         // A video's time frames on Parcels: read by anyone who sees the file, corrected by Map drop users (data entry).

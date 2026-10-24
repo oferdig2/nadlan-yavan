@@ -190,7 +190,9 @@
           if (kind === "track") { tracks[Nadlan.mediaInspect.baseName(file.name)].fileAttachmentId = fileAttachmentId; }
           u.state = "checking";
           renderUpload(u);
-          return Nadlan.api.put("/api/map-drop/" + fileAttachmentId + "/inspection", { metadata: metadata, track: null });
+          // A .srt keeps its own flight on the server, so it can be linked to its video later (also from another page).
+          var ownTrack = kind === "track" ? (tracks[Nadlan.mediaInspect.baseName(file.name)] || {}).points || null : null;
+          return Nadlan.api.put("/api/map-drop/" + fileAttachmentId + "/inspection", { metadata: metadata, track: ownTrack && ownTrack.length ? ownTrack : null });
         }).then(loadSoon, function (err) {
           if (err && err.cancelled) { return; }
           if (u.fileAttachmentId) { loadSoon(); return; } // uploaded; the reading couldn't be stored - the card shows it as not found
@@ -314,12 +316,39 @@
         "</div>";
     }
 
-    // An .srt waiting for its video: still uploading in this page (they join when it's done), or not dropped.
+    // An .srt waiting for its video: still uploading in this page (they join when it's done), already in GreekPlot (found by
+    // name: link it), or not there at all.
     function trackStatus(i) {
       var base = Nadlan.mediaInspect.baseName(i.file.originalFileName);
       var video = uploads.filter(function (u) { return Nadlan.mediaInspect.baseName(u.name) === base && /.(mp4|mov|m4v)$/i.test(u.name); })[0];
-      return video ? "Flight track of " + esc(video.name) + " - joins its card when that upload is done"
-        : "Flight track - drop its video (" + esc(base.toUpperCase()) + ".MP4) to use it";
+      if (video) { return "Flight track of " + esc(video.name) + " - joins its card when that upload is done"; }
+      var st = state(i.file.fileAttachmentId);
+      if (st.link) {
+        return "Flight track of " + esc(st.link.fileName) + " on Parcel " + esc(st.link.registryId || "#" + st.link.attachedToId) +
+          (st.link.suggestions.length ? " - tick its time frames, then OK" : " - the flight crosses no Parcel you can see");
+      }
+      if (st.videos === undefined) { loadVideos(i); }
+      if (!st.videos) { return "Flight track - looking for its video…"; }
+      if (!st.videos.length) { return "Flight track - drop its video (" + esc(base.toUpperCase()) + ".MP4) to use it"; }
+      return "Flight track of:" + st.videos.map(function (v) {
+        return "<div class=\"md-link-video\">" + esc(v.fileName) + " " +
+          (v.attachedToType === "Parcel" ? "on Parcel " + esc(v.registryId || "#" + v.attachedToId) : "in Map drop") +
+          " <button type=\"button\" class=\"btn btn-small\" data-link-video=\"" + v.fileAttachmentId + "\"" + (st.busy ? " disabled" : "") + ">Link</button></div>";
+      }).join("");
+    }
+
+    // The videos an .srt may belong to (same name), asked once per card.
+    function loadVideos(i) {
+      var st = state(i.file.fileAttachmentId);
+      st.videos = null;
+      Nadlan.api.get("/api/map-drop/" + i.file.fileAttachmentId + "/videos").then(function (list) { st.videos = list; render(); },
+        function () { st.videos = []; render(); });
+    }
+
+    // The ticked frames of a .srt linked to a video on a Parcel - or null when there's nothing to apply.
+    function linkedFrames(st) {
+      var ticked = st.link.suggestions.filter(function (s, k) { return st.linkTicks[k]; });
+      return ticked.length ? ticked.map(function (s) { return { parcelId: s.parcelId, startMs: s.startMs, endMs: s.endMs, source: "Track" }; }) : null;
     }
 
     function itemHtml(i) {
@@ -341,6 +370,15 @@
       if (st.manual) {
         where = "<div class=\"md-found\">" + chip(st.manual.parcelId, st.manual.registryId, "chosen", "chosen") +
           " <button type=\"button\" class=\"link\" data-act=\"pick\">change</button></div>";
+      } else if (kind === "track" && st.link && st.link.suggestions.length) {
+        // A .srt linked to its video on a Parcel: the video's frames, ticked like on a video's own card.
+        var lsegs = st.link.suggestions;
+        var lpassed = lsegs.filter(function (s) { return !s.longLook; }).length;
+        where = "<div class=\"md-notfound muted\">" + trackStatus(i) + "</div><div class=\"md-segments\">" + lsegs.map(function (s, k) {
+          return "<label class=\"md-seg" + (s.longLook ? "" : " passed") + "\"><input type=\"checkbox\" data-link-tick=\"" + k + "\"" + (st.linkTicks[k] ? " checked" : "") + "> " +
+            chip(s.parcelId, s.registryId) + " <button type=\"button\" class=\"link md-play\" data-link-play=\"" + k + "\" title=\"Play this part\">" + fmtTime(s.startMs) + "–" + fmtTime(s.endMs) + "</button></label>";
+        }).join("") + "</div>" +
+          (lpassed ? "<div class=\"muted md-small\">" + lpassed + " passed over (under 5 s) - not ticked</div>" : "");
       } else if (segs && segs.length) {
         var passed = segs.filter(function (s) { return !s.longLook; }).length;
         where = "<div class=\"md-segments\">" + segs.map(function (s, k) {
@@ -365,7 +403,8 @@
       var warn = m.gpsStatus && /invalid/i.test(m.gpsStatus) && found(i)
         ? "<div class=\"md-warn md-small\" title=\"DJI marks the GPS reading invalid: it was right on some of his photos and 24 km off on one\">GPS marked invalid by the drone - check the Parcel</div>" : "";
       var types = typesFor(i).map(function (t) { return "<option value=\"" + t.id + "\"" + (t.id === st.typeId ? " selected" : "") + ">" + esc(t.name) + "</option>"; }).join("");
-      var canOk = !!(st.manual || (segs && segs.some(function (s, k) { return st.ticks[k]; })) || (found(i) && !segs));
+      var canOk = !!(st.manual || (segs && segs.some(function (s, k) { return st.ticks[k]; })) || (found(i) && !segs) ||
+        (kind === "track" && st.link && linkedFrames(st)));
       var expires = new Date(i.expiresUtc);
       return "<article class=\"map-drop-card" + (picking === id ? " picking" : "") + "\" data-id=\"" + id + "\">" +
         "<div class=\"md-thumb-wrap\">" + thumb + view + "</div>" +
@@ -410,6 +449,53 @@
       render();
     });
     $strip.on("change", "[data-type]", function () { var st = state(cardId(this)); st.typeId = Number(this.value); st.typeTouched = true; });
+    // A .srt linked to its video on a Parcel: the ticked frames go on the video, the .srt to the video's Parcel.
+    function applyLink(i, st) {
+      var frames = linkedFrames(st);
+      if (!frames) { return Promise.resolve(false); }
+      st.busy = true;
+      return Nadlan.api.post("/api/map-drop/" + i.file.fileAttachmentId + "/apply", { videoFileId: st.link.fileAttachmentId, segments: frames }).then(function () {
+        items = items.filter(function (x) { return x !== i; });
+        delete ui[i.file.fileAttachmentId];
+        var shown = {};
+        [st.link.attachedToId].concat(frames.map(function (f) { return f.parcelId; })).forEach(function (p) {
+          if (!shown[p]) { shown[p] = true; options.onAssigned(p); }
+        });
+        return true;
+      }, function (err) { st.busy = false; throw err; });
+    }
+
+    // Link a .srt to one of its videos: a video in Map drop gets the frames on its own card; one on a Parcel shows them here.
+    $strip.on("click", "[data-link-video]", function () {
+      var i = item(cardId(this));
+      if (!i) { return; }
+      var st = state(i.file.fileAttachmentId);
+      var video = (st.videos || []).filter(function (v) { return v.fileAttachmentId === Number($(this).data("linkVideo")); }, this)[0];
+      if (!video) { return; }
+      st.busy = true;
+      render();
+      Nadlan.api.post("/api/map-drop/" + i.file.fileAttachmentId + "/link", { videoFileId: video.fileAttachmentId }).then(function (r) {
+        st.busy = false;
+        if (video.attachedToType !== "Parcel") {
+          options.setStatus(i.file.originalFileName + " linked to " + video.fileName + " - assign the video from its card.");
+          loadSoon();
+          return;
+        }
+        st.link = $.extend({}, video, { suggestions: r.suggestions || [] });
+        st.linkTicks = {};
+        st.link.suggestions.forEach(function (s, k) { st.linkTicks[k] = s.longLook; });
+        options.setStatus(i.file.originalFileName + " linked to " + video.fileName + ".");
+        render();
+      }, function (err) { st.busy = false; render(); options.setStatus(err.message, true); });
+    });
+    $strip.on("change", "[data-link-tick]", function () { state(cardId(this)).linkTicks[$(this).data("linkTick")] = this.checked; render(); });
+    $strip.on("click", "[data-link-play]", function (e) {
+      e.preventDefault();
+      var st = state(cardId(this));
+      var s = st.link && st.link.suggestions[Number($(this).data("linkPlay"))];
+      if (s) { Nadlan.mediaViewer.open("video", st.link.url, st.link.fileName, s.startMs, s.endMs); options.showParcel(s.parcelId); }
+    });
+
     $strip.on("change", "[data-tick]", function () { state(cardId(this)).ticks[$(this).data("tick")] = this.checked; render(); });
     $strip.on("change", "[data-choose]", function () { state(cardId(this)).chosen = Number($(this).data("choose")); });
     $strip.on("mouseenter click", ".md-chip", function () { options.showParcel(Number($(this).data("parcel"))); });
@@ -454,6 +540,8 @@
     }
 
     function assign(i) {
+      var lst = state(i.file.fileAttachmentId);
+      if (kindOfItem(i) === "track" && lst.link && !lst.manual) { return applyLink(i, lst); }
       var a = assignment(i);
       if (!a) { return Promise.resolve(false); }
       var st = state(i.file.fileAttachmentId);

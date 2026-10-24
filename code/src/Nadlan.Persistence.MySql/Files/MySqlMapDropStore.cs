@@ -227,6 +227,19 @@ public sealed class MySqlMapDropStore : IMapDropStore
         return rows.Where(r => wanted.Contains((r.FileName.ToLowerInvariant(), r.FileSize))).ToList();
     }
 
+    public async Task<IReadOnlyList<long>> FindVideoIdsByBaseNameAsync(string baseName, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        // Compared in C#: a LIKE on "DJI_0949" would treat "_" as a wildcard. Videos are few (hundreds).
+        var rows = await conn.QueryAsync<(long Id, string Name)>(new CommandDefinition("""
+            SELECT file_attachment_id, original_file_name FROM file_attachment
+            WHERE upload_status = 'Ready' AND mime_type LIKE 'video/%'
+            ORDER BY uploaded_utc DESC
+            """, cancellationToken: ct));
+        return rows.Where(r => string.Equals(Path.GetFileNameWithoutExtension(r.Name), baseName, StringComparison.OrdinalIgnoreCase))
+            .Select(r => r.Id).Take(20).ToList();
+    }
+
     public async Task<IReadOnlyList<long>> ListExpiredAsync(DateTime uploadedBeforeUtc, int limit, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);

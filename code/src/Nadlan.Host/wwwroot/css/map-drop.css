@@ -76,3 +76,6 @@ body.map-drop-picking .map { cursor: crosshair; }
 /* A file's coordinate when no Parcel was found there (click = marker on the map; + Parcel here = draw one) */
 .md-point { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; }
 .md-point .link { font-family: ui-monospace, Consolas, monospace; }
+
+/* A .srt card: the videos it may belong to, each with Link (map-drop.js trackStatus) */
+.md-link-video { margin-top: 3px; font-style: normal; }
