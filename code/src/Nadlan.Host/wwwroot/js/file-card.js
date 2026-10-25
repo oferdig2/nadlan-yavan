@@ -25,40 +25,108 @@
   // Media viewer above every dialog; closes on ×, Esc or a click outside the media.
   // startMs/endMs (optional, videos): a time frame on a Parcel (Map drop) - play starts there and pauses once at its end;
   // pressing play again goes on.
-  function openViewer(mediaKind, url, name, startMs, endMs) {
+  // set (optional): { items: [{ kind, url, name }], index } - several photos / videos (a presentation property, a Files
+  // list): "‹" / "›" and the arrow keys step through them without closing (remark 6). One file alone has no arrows.
+  function openViewer(mediaKind, url, name, startMs, endMs, set) {
     var esc = Nadlan.format.escapeHtml;
-    var frame = mediaKind === "video" && startMs >= 0 ? " · " + fmtTime(startMs) + (endMs > startMs ? "–" + fmtTime(endMs) : "") : "";
+    var items = set && set.items && set.items.length > 1 ? set.items : [{ kind: mediaKind, url: url, name: name }];
+    var index = items.length > 1 ? Math.max(0, Math.min(items.length - 1, set.index || 0)) : 0;
     var $viewer = $(
-      "<div class=\"media-viewer\" role=\"dialog\" aria-label=\"" + esc(name) + "\">" +
-        "<div class=\"media-viewer-bar\"><span>" + esc(name) + esc(frame) + "</span>" +
-          "<a class=\"media-viewer-open\" href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noopener\">Open in new tab</a>" +
+      "<div class=\"media-viewer\" role=\"dialog\">" +
+        "<div class=\"media-viewer-bar\"><span class=\"media-viewer-name\"></span>" +
+          (items.length > 1 ? "<span class=\"media-viewer-count\"></span>" : "") +
+          "<a class=\"media-viewer-open\" target=\"_blank\" rel=\"noopener\">Open in new tab</a>" +
           "<button type=\"button\" class=\"media-viewer-close\" title=\"Close (Esc)\">×</button></div>" +
-        (mediaKind === "video"
-          ? "<video class=\"media-viewer-media\" controls autoplay playsinline src=\"" + esc(url) + "\"></video>"
-          : "<img class=\"media-viewer-media\" src=\"" + esc(url) + "\" alt=\"" + esc(name) + "\">") +
+        "<div class=\"media-viewer-stage\"></div>" +
+        (items.length > 1
+          ? "<button type=\"button\" class=\"media-viewer-nav prev\" data-step=\"-1\" title=\"Previous (←)\" aria-label=\"Previous\">‹</button>" +
+            "<button type=\"button\" class=\"media-viewer-nav next\" data-step=\"1\" title=\"Next (→)\" aria-label=\"Next\">›</button>"
+          : "") +
       "</div>").appendTo(document.body);
+    var $stage = $viewer.find(".media-viewer-stage");
 
-    var video = $viewer.find("video")[0];
-    if (video && startMs > 0) {
-      video.addEventListener("loadedmetadata", function () { video.currentTime = startMs / 1000; }, { once: true });
+    function stopVideo() {
+      $stage.find("video").each(function () { this.pause(); this.removeAttribute("src"); this.load(); }); // stop downloading
     }
-    if (video && endMs > 0) {
-      var stopAt = endMs / 1000;
-      video.addEventListener("timeupdate", function onTime() {
-        if (video.currentTime >= stopAt) { video.pause(); video.removeEventListener("timeupdate", onTime); }
-      });
+
+    // A video whose picture the browser can't decode (e.g. H.265 / HEVC from many phones in a browser without it) plays
+    // its sound over a black picture: say so instead, with a download link (remark 7).
+    function cantPlay(it) {
+      stopVideo();
+      $stage.html("<div class=\"media-viewer-cant\">" +
+        "<p><strong>This video's picture format can't be played in this browser</strong> - probably H.265 (HEVC), which many " +
+        "phones record. Download it to watch, or open it in another browser.</p>" +
+        "<a class=\"btn btn-primary\" href=\"" + esc(it.url) + "\" download>Download the video</a></div>");
     }
+
+    function show(i) {
+      stopVideo();
+      index = i;
+      var it = items[i];
+      var frame = it.kind === "video" && i === (set ? set.index : 0) && startMs >= 0
+        ? " · " + fmtTime(startMs) + (endMs > startMs ? "–" + fmtTime(endMs) : "") : "";
+      $viewer.attr("aria-label", it.name || "");
+      $viewer.find(".media-viewer-name").text((it.name || "") + frame);
+      $viewer.find(".media-viewer-count").text((i + 1) + " / " + items.length);
+      $viewer.find(".media-viewer-open").attr("href", it.url);
+      $stage.html(it.kind === "video"
+        ? "<video class=\"media-viewer-media\" controls autoplay playsinline src=\"" + esc(it.url) + "\"></video>"
+        : "<img class=\"media-viewer-media\" src=\"" + esc(it.url) + "\" alt=\"" + esc(it.name || "") + "\">");
+      var video = $stage.find("video")[0];
+      if (!video) { return; }
+      video.addEventListener("loadedmetadata", function () {
+        if (!video.videoWidth) { cantPlay(it); return; } // sound only: the picture can't be decoded
+        if (frame && startMs > 0) { video.currentTime = startMs / 1000; }
+      }, { once: true });
+      video.addEventListener("error", function () { if (video.error && video.error.code !== 1) { cantPlay(it); } }, { once: true }); // 1 = aborted
+      if (frame && endMs > 0) {
+        var stopAt = endMs / 1000;
+        video.addEventListener("timeupdate", function onTime() {
+          if (video.currentTime >= stopAt) { video.pause(); video.removeEventListener("timeupdate", onTime); }
+        });
+      }
+    }
+
+    function step(by) { if (items.length > 1) { show((index + by + items.length) % items.length); } }
 
     function close() {
-      $viewer.find("video").each(function () { this.pause(); this.removeAttribute("src"); this.load(); }); // stop downloading
+      stopVideo();
       $viewer.remove();
       document.removeEventListener("keydown", onKey, true);
     }
 
-    $viewer.on("click", function (e) { if (e.target === this || $(e.target).is(".media-viewer-close")) { close(); } });
-    // Capture phase, so Esc closes the viewer and not the jQuery UI dialog underneath.
-    function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); close(); } }
+    $viewer.on("click", function (e) {
+      if ($(e.target).closest("[data-step]").length) { step(Number($(e.target).closest("[data-step]").data("step"))); return; }
+      if (e.target === this || e.target === $stage[0] || $(e.target).is(".media-viewer-close")) { close(); }
+    });
+    // Capture phase, so Esc closes the viewer and not the jQuery UI dialog underneath; arrows don't scroll the page.
+    function onKey(e) {
+      if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); close(); }
+      else if (items.length > 1 && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.stopPropagation(); e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1);
+      }
+    }
     document.addEventListener("keydown", onKey, true);
+    show(index);
+  }
+
+  // The set a view button belongs to: the buttons with the same data-view-group (a presentation property), or those in
+  // the nearest [data-view-set] container (a Files list, a card's thumbnails). A time-frame button stays on its own.
+  function viewSet(b) {
+    if (b.classList.contains("file-segment")) { return null; }
+    var group = b.getAttribute("data-view-group");
+    var container = group ? null : b.closest("[data-view-set]");
+    var buttons = group ? document.querySelectorAll("[data-view-group=\"" + group.replace(/"/g, "") + "\"]")
+      : container ? container.querySelectorAll("[data-view-file]:not(.file-segment)") : [];
+    var items = [], seen = {}, index = 0;
+    Array.prototype.forEach.call(buttons, function (x) {
+      var u = x.getAttribute("data-url");
+      if (!u || seen[u]) { return; }
+      seen[u] = true;
+      if (u === b.getAttribute("data-url")) { index = items.length; }
+      items.push({ kind: x.getAttribute("data-view-file"), url: u, name: x.getAttribute("data-name") });
+    });
+    return items.length > 1 ? { items: items, index: index } : null;
   }
 
   // One handler for every card (files dialog, map card strip, metadata editor). Capture phase on the document, so it runs
@@ -70,7 +138,8 @@
     e.preventDefault();
     e.stopPropagation();
     openViewer(b.getAttribute("data-view-file"), b.getAttribute("data-url"), b.getAttribute("data-name"),
-      b.hasAttribute("data-start") ? Number(b.getAttribute("data-start")) : undefined, b.hasAttribute("data-end") ? Number(b.getAttribute("data-end")) : undefined);
+      b.hasAttribute("data-start") ? Number(b.getAttribute("data-start")) : undefined, b.hasAttribute("data-end") ? Number(b.getAttribute("data-end")) : undefined,
+      viewSet(b));
   }, true);
 
   function thumbHtml(file) {

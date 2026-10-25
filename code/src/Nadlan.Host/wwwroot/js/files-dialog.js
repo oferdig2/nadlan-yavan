@@ -11,7 +11,7 @@
     Parcel: [
       { label: "Images", accept: "image/*", types: { image: "PHOTO", other: "PHOTO" } },
       { label: "Drone", accept: "image/*,video/*", types: { image: "DRONE_PHOTO", video: "DRONE_VIDEO", other: "DRONE_PHOTO" } },
-      { label: "TABO", types: { other: "TABO" } },
+      { label: "Title", types: { other: "TABO" } }, // remark 12: the box says "Title"; the document type stays TABO
       { label: "Legal documents", types: { other: "TITLE" } },
       { label: "Cadastral / plans", types: { other: "CADASTRAL_PLAN" } },
       { label: "Other", types: { other: "OTHER" } }
@@ -66,7 +66,7 @@
       }
 
       var $zones = $("<div class=\"zones\"></div>").appendTo($body);
-      var $gallery = $("<div class=\"gallery\"><div class=\"muted\">Loading…</div></div>").appendTo($body);
+      var $gallery = $("<div class=\"gallery\" data-view-set><div class=\"muted\">Loading…</div></div>").appendTo($body);
       var files = [];
 
       // Drop zones only where the user may add files, and only for document kinds they may see.

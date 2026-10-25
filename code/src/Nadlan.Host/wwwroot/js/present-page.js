@@ -107,9 +107,11 @@
   function thumbOf(m) { return m.thumbUrl || (m.kind === "image" ? m.url : null); }
 
   // One round button per photo/video, opening file-card.js's full-screen viewer.
-  function mediaButton(m, cls) {
+  // group: one per property, so the viewer's "‹" / "›" step through that property's photos and videos (remark 6).
+  function mediaButton(m, cls, group) {
     var thumb = thumbOf(m);
     return "<button type=\"button\" class=\"" + cls + "\" data-view-file=\"" + esc(m.kind) + "\" data-url=\"" + esc(m.url) + "\" data-name=\"" + esc(m.caption || "") + "\"" +
+      " data-view-group=\"" + esc(group) + "\"" +
       (thumb ? " style=\"background-image:url('" + esc(thumb).replace(/'/g, "%27") + "')\"" : "") + " title=\"" + (m.kind === "video" ? "Play" : "View") + "\">" +
       (m.kind === "video" ? "<span class=\"pres-play\">▶</span>" : "") + "</button>";
   }
@@ -124,11 +126,11 @@
     var media = it.media || [];
     return "<div class=\"pres-card-head\"><span class=\"pres-num\">" + (index + 1) + "</span><span class=\"muted\">" + (index + 1) + " of " + count + "</span>" +
         "<button type=\"button\" class=\"pres-close\" data-act=\"close-card\" title=\"Hide\">×</button></div>" +
-      (media.length ? mediaButton(media[0], "pres-hero") : "<div class=\"pres-hero pres-hero-empty\">No photos yet</div>") +
+      (media.length ? mediaButton(media[0], "pres-hero", "item-" + index) : "<div class=\"pres-hero pres-hero-empty\">No photos yet</div>") +
       "<h2>" + esc(heading(it)) + "</h2>" +
       "<span class=\"pres-status\" style=\"--c:" + (/^#[0-9a-fA-F]{6}$/.test(it.statusColor || "") ? it.statusColor : "#64748b") + "\">" + esc(it.statusName || "") + "</span>" +
       "<dl class=\"pres-facts\">" + facts.map(function (f) { return "<dt>" + f[0] + "</dt><dd>" + f[1] + "</dd>"; }).join("") + "</dl>" +
-      (media.length > 1 ? "<div class=\"pres-gallery\">" + media.slice(1).map(function (m) { return mediaButton(m, "pres-thumb"); }).join("") + "</div>" : "");
+      (media.length > 1 ? "<div class=\"pres-gallery\">" + media.slice(1).map(function (m) { return mediaButton(m, "pres-thumb", "item-" + index); }).join("") + "</div>" : "");
   }
 
   function stripHtml(items) {
