@@ -58,6 +58,9 @@ public sealed class S3PresignedUrlProvider : IFileUrlProvider
     public string GetUrl(string storageKey)
         => _storage.GetDownloadUrl(storageKey, TimeSpan.FromMinutes(_options.Delivery.UrlMinutes), CachingFileUrlProvider.ReuseFor(_options.Delivery.UrlMinutes));
 
+    public string GetDownloadUrl(string storageKey, string downloadName)
+        => _storage.GetAttachmentUrl(storageKey, downloadName, TimeSpan.FromMinutes(_options.Delivery.UrlMinutes));
+
     public string GetUrl(string storageKey, string downloadName)
         => _storage.GetDownloadUrl(storageKey, TimeSpan.FromMinutes(_options.Delivery.UrlMinutes), CachingFileUrlProvider.ReuseFor(_options.Delivery.UrlMinutes),
             downloadName);
@@ -93,12 +96,17 @@ public sealed class CloudFrontSignedUrlProvider : IFileUrlProvider, IDisposable
     /// customer pages must override it. The override is S3's response-content-disposition, passed through by the distribution
     /// (it is the one query string in its cache key) and covered by the signature like the rest of the URL.
     /// </summary>
-    public string GetUrl(string storageKey, string downloadName)
+    public string GetUrl(string storageKey, string downloadName) => Signed(storageKey, downloadName, "inline");
+
+    /// <summary>The same with "attachment": the browser saves the file (the viewer's "Download the video").</summary>
+    public string GetDownloadUrl(string storageKey, string downloadName) => Signed(storageKey, downloadName, "attachment");
+
+    private string Signed(string storageKey, string downloadName, string disposition)
     {
         var url = FileUrlProviderFactory.CloudFrontUrl(_options, storageKey);
         if (!string.IsNullOrEmpty(downloadName))
         {
-            url += "?response-content-disposition=" + Uri.EscapeDataString($"inline; filename=\"{downloadName.Replace("\"", "")}\"");
+            url += "?response-content-disposition=" + Uri.EscapeDataString($"{disposition}; filename=\"{downloadName.Replace("\"", "")}\"");
         }
 
         return _signer.Sign(url, DateTimeOffset.UtcNow.AddMinutes(_options.Delivery.UrlMinutes));

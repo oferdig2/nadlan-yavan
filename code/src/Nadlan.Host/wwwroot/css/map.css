@@ -146,11 +146,11 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 /* Folding legend (parcel-map-overlay.js, remark 2): the title is the toggle; folded = one small "Legend" button. */
 .map-legend .legend-toggle { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 0; cursor: pointer; font: inherit; color: inherit; text-align: left; }
 .map-legend .legend-toggle-label { display: none; font-weight: 600; }
-.map-legend .legend-chevron::after { content: "BE"; color: var(--muted); margin-left: auto; }
+.map-legend .legend-chevron::after { content: "\25BE"; color: var(--muted); margin-left: auto; }
 .map-legend.folded { padding: 3px 9px; width: fit-content; }
 .map-legend.folded .legend-body, .map-legend.folded .legend-title { display: none; }
 .map-legend.folded .legend-toggle-label { display: inline; }
-.map-legend.folded .legend-chevron::after { content: "B8"; }
+.map-legend.folded .legend-chevron::after { content: "\25B8"; }
 .map-legend .swatch { display: inline-block; width: 14px; height: 10px; margin-right: 6px; vertical-align: -1px; border: 2px solid; }
 .map-legend .legend-row { display: flex; align-items: center; gap: 6px; }
 .map-legend .legend-row .swatch { margin-right: 0; }

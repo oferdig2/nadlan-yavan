@@ -97,6 +97,40 @@ public class FileTests
     }
 
     [Fact]
+    public void CloudFront_download_url_says_attachment_inside_the_signature_and_is_cached_apart()
+    {
+        // "Download the video" (easy wins #7): the browser must save the file, also though the link is on another site.
+        using var rsa = RSA.Create(2048);
+        var options = new StorageOptions
+        {
+            RootFolder = "nadlan/prod",
+            Delivery = new()
+            {
+                Mode = DeliveryModes.CloudFrontSigned, CloudFrontDomain = "d1.cloudfront.net", CloudFrontOriginPath = "/nadlan/prod",
+                KeyPairId = "K2ABCDEF", PrivateKeyPem = rsa.ExportRSAPrivateKeyPem(), UrlMinutes = 60,
+            },
+        };
+        using var provider = new CloudFrontSignedUrlProvider(options);
+
+        var download = provider.GetDownloadUrl("parcel/555/a.mp4", "video.mp4");
+        var show = provider.GetUrl("parcel/555/a.mp4", "video.mp4");
+
+        string Disposition(string u) => Uri.UnescapeDataString(new Uri(u).Query.TrimStart('?').Split('&').First(x => x.StartsWith("response-content-disposition=")).Split('=', 2)[1]);
+        Assert.Equal("attachment; filename=\"video.mp4\"", Disposition(download));
+        Assert.Equal("inline; filename=\"video.mp4\"", Disposition(show));
+        var resource = download[..download.IndexOf("&Expires=", StringComparison.Ordinal)];
+        var query = new Uri(download).Query.TrimStart('?').Split('&').Select(x => x.Split('=', 2)).ToDictionary(x => x[0], x => x[1]);
+        var policy = "{\"Statement\":[{\"Resource\":\"" + resource + "\",\"Condition\":{\"DateLessThan\":{\"AWS:EpochTime\":" + query["Expires"] + "}}}]}";
+        var signature = Convert.FromBase64String(query["Signature"].Replace('-', '+').Replace('_', '=').Replace('~', '/'));
+        Assert.True(rsa.VerifyData(Encoding.UTF8.GetBytes(policy), signature, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1));
+
+        // The cache keeps the "show" and the "download" link of the same file apart.
+        var cached = new CachingFileUrlProvider(provider, 60);
+        Assert.Contains("attachment", Uri.UnescapeDataString(cached.GetDownloadUrl("parcel/555/a.mp4", "video.mp4")));
+        Assert.Contains("inline", Uri.UnescapeDataString(cached.GetUrl("parcel/555/a.mp4", "video.mp4")));
+    }
+
+    [Fact]
     public void CloudFront_signed_url_carries_the_customer_file_name_inside_the_signature()
     {
         using var rsa = RSA.Create(2048);

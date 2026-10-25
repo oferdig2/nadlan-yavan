@@ -16,6 +16,7 @@
   function viewButton(file, mediaKind) {
     var esc = Nadlan.format.escapeHtml;
     return "<button type=\"button\" class=\"file-view-btn\" data-view-file=\"" + esc(mediaKind) + "\" data-url=\"" + esc(file.url) +
+      (file.downloadUrl ? "\" data-download=\"" + esc(file.downloadUrl) : "") +
       "\" data-name=\"" + esc(file.caption || file.originalFileName) + "\" title=\"" + (mediaKind === "video" ? "Play" : "View") + "\">" +
       (mediaKind === "video" ? "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M9 7l9 5-9 5z\"/></svg>"
                              : "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 10V5h5M19 14v5h-5M14 5h5v5M10 19H5v-5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg>") +
@@ -25,11 +26,11 @@
   // Media viewer above every dialog; closes on ×, Esc or a click outside the media.
   // startMs/endMs (optional, videos): a time frame on a Parcel (Map drop) - play starts there and pauses once at its end;
   // pressing play again goes on.
-  // set (optional): { items: [{ kind, url, name }], index } - several photos / videos (a presentation property, a Files
+  // set (optional): { items: [{ kind, url, name, download }], index } - several photos / videos (a presentation property, a Files
   // list): "‹" / "›" and the arrow keys step through them without closing (remark 6). One file alone has no arrows.
   function openViewer(mediaKind, url, name, startMs, endMs, set) {
     var esc = Nadlan.format.escapeHtml;
-    var items = set && set.items && set.items.length > 1 ? set.items : [{ kind: mediaKind, url: url, name: name }];
+    var items = set && set.items && set.items.length ? set.items : [{ kind: mediaKind, url: url, name: name }];
     var index = items.length > 1 ? Math.max(0, Math.min(items.length - 1, set.index || 0)) : 0;
     var $viewer = $(
       "<div class=\"media-viewer\" role=\"dialog\">" +
@@ -56,7 +57,7 @@
       $stage.html("<div class=\"media-viewer-cant\">" +
         "<p><strong>This video's picture format can't be played in this browser</strong> - probably H.265 (HEVC), which many " +
         "phones record. Download it to watch, or open it in another browser.</p>" +
-        "<a class=\"btn btn-primary\" href=\"" + esc(it.url) + "\" download>Download the video</a></div>");
+        "<a class=\"btn btn-primary\" href=\"" + esc(it.download || it.url) + "\" download>Download the video</a></div>");
     }
 
     function show(i) {
@@ -112,8 +113,12 @@
 
   // The set a view button belongs to: the buttons with the same data-view-group (a presentation property), or those in
   // the nearest [data-view-set] container (a Files list, a card's thumbnails). A time-frame button stays on its own.
+  function viewItem(b) {
+    return { kind: b.getAttribute("data-view-file"), url: b.getAttribute("data-url"), name: b.getAttribute("data-name"), download: b.getAttribute("data-download") };
+  }
+
   function viewSet(b) {
-    if (b.classList.contains("file-segment")) { return null; }
+    if (b.classList.contains("file-segment")) { return { items: [viewItem(b)], index: 0 }; }
     var group = b.getAttribute("data-view-group");
     var container = group ? null : b.closest("[data-view-set]");
     var buttons = group ? document.querySelectorAll("[data-view-group=\"" + group.replace(/"/g, "") + "\"]")
@@ -124,7 +129,7 @@
       if (!u || seen[u]) { return; }
       seen[u] = true;
       if (u === b.getAttribute("data-url")) { index = items.length; }
-      items.push({ kind: x.getAttribute("data-view-file"), url: u, name: x.getAttribute("data-name") });
+      items.push(viewItem(x));
     });
     return items.length > 1 ? { items: items, index: index } : null;
   }
@@ -139,7 +144,7 @@
     e.stopPropagation();
     openViewer(b.getAttribute("data-view-file"), b.getAttribute("data-url"), b.getAttribute("data-name"),
       b.hasAttribute("data-start") ? Number(b.getAttribute("data-start")) : undefined, b.hasAttribute("data-end") ? Number(b.getAttribute("data-end")) : undefined,
-      viewSet(b));
+      viewSet(b) || { items: [viewItem(b)], index: 0 });
   }, true);
 
   function thumbHtml(file) {

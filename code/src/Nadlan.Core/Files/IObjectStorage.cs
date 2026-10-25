@@ -59,4 +59,12 @@ public interface IFileUrlProvider
     /// "photo.jpg", not "ID_scan_Papadopoulos.jpg"). Delivery modes that can't override it ignore the name.
     /// </summary>
     string GetUrl(string storageKey, string downloadName) => GetUrl(storageKey);
+
+    /// <summary>
+    /// A link that makes the browser save the file as <paramref name="downloadName"/> instead of showing it (the viewer's
+    /// "Download the video" when the browser can't play it). The link may point to another site (S3, CloudFront), where
+    /// an HTML download attribute is ignored - so the file's own response says "attachment". Delivery modes that can't
+    /// set it fall back to the normal link.
+    /// </summary>
+    string GetDownloadUrl(string storageKey, string downloadName) => GetUrl(storageKey, downloadName);
 }

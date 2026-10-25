@@ -219,6 +219,7 @@ public static class FileEndpoints
         sortOrder = f.SortOrder,
         uploadedUtc = f.UploadedUtc,
         url = urls.GetUrl(f.StorageKey), // direct, signed, expiring - for the viewer and downloads
+        downloadUrl = urls.GetDownloadUrl(f.StorageKey, f.OriginalFileName), // the same file, saved instead of shown
         thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null, // small preview for cards
     };
 }
