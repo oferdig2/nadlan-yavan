@@ -302,6 +302,7 @@ public static class PresentationEndpoints
                 kind = f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ? "video" : "image",
                 // Neutral names: the uploader's file name must not reach the customer through the download name.
                 url = urls.GetUrl(f.StorageKey, NeutralName(f)),
+                downloadUrl = urls.GetDownloadUrl(f.StorageKey, NeutralName(f)), // "Download the video" when it can't play here
                 thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey), "photo.jpg") : null,
                 caption = string.IsNullOrWhiteSpace(f.Caption) ? f.FileTypeName : f.Caption,
             })

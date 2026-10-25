@@ -24,7 +24,8 @@ public static class ContactTypes
 }
 
 /// <summary>What selectors and summaries show; never the full record.</summary>
-public sealed record ContactSummary(long ContactId, string DisplayName, string? Email, string? Phone, bool IsActive);
+/// <param name="Roles">The contact's role names, comma-separated (Admin > Contacts list); null = none.</param>
+public sealed record ContactSummary(long ContactId, string DisplayName, string? Email, string? Phone, bool IsActive, string? Roles = null);
 
 public interface IContactStore
 {

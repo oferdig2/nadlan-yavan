@@ -361,7 +361,7 @@
         ? "<img class=\"md-thumb\" src=\"" + esc(i.file.thumbUrl) + "\" alt=\"\">"
         : "<div class=\"md-thumb md-icon\">" + esc((i.file.originalFileName.split(".").pop() || "").slice(0, 4).toUpperCase()) + "</div>";
       var view = kind === "video" || kind === "image"
-        ? "<button type=\"button\" class=\"file-view-btn\" data-view-file=\"" + kind + "\" data-url=\"" + esc(i.file.url) + "\" data-name=\"" + esc(i.file.originalFileName) + "\" title=\"" + (kind === "video" ? "Play" : "View") + "\">" +
+        ? "<button type=\"button\" class=\"file-view-btn\" data-view-file=\"" + kind + "\" data-url=\"" + esc(i.file.url) + "\" data-download=\"" + esc(i.file.downloadUrl || "") + "\" data-name=\"" + esc(i.file.originalFileName) + "\" title=\"" + (kind === "video" ? "Play" : "View") + "\">" +
           (kind === "video" ? "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M9 7l9 5-9 5z\"/></svg>" : "&#x2922;") + "</button>"
         : "";
 

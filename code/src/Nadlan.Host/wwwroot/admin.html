@@ -18,13 +18,14 @@
     <span class="app-title">GreekPlot</span>
     <a class="btn" href="/">← Map</a>
     <nav class="view-switch admin-tabs" aria-label="Admin sections">
+      <!-- Two groups first (remark 10): users | contacts | the rest. class="tab-group-start" draws the divider before a group. -->
       <button type="button" data-tab="users" data-requires="MANAGE_USERS" hidden>Users</button>
-      <button type="button" data-tab="roles" data-requires="MANAGE_USERS" hidden>Roles</button>
-      <button type="button" data-tab="contacts" data-requires="MANAGE_CONTACTS VIEW_ALL_CONTACTS" hidden>Contacts</button>
-      <button type="button" data-tab="asset-statuses" data-requires="MANAGE_METADATA" hidden>Statuses</button>
+      <button type="button" data-tab="roles" data-requires="MANAGE_USERS" hidden>User roles</button>
+      <button type="button" class="tab-group-start" data-tab="contacts" data-requires="MANAGE_CONTACTS VIEW_ALL_CONTACTS" hidden>Contacts</button>
+      <button type="button" data-tab="contact-roles" data-requires="MANAGE_METADATA" hidden>Contact roles</button>
+      <button type="button" class="tab-group-start" data-tab="asset-statuses" data-requires="MANAGE_METADATA" hidden>Statuses</button>
       <button type="button" data-tab="property-types" data-requires="MANAGE_METADATA" hidden>Property types</button>
       <button type="button" data-tab="portfolio-types" data-requires="MANAGE_METADATA" hidden>Portfolio types</button>
-      <button type="button" data-tab="contact-roles" data-requires="MANAGE_METADATA" hidden>Contact roles</button>
       <button type="button" data-tab="file-types" data-requires="MANAGE_METADATA" hidden>File types</button>
       <button type="button" data-tab="geographic-areas" data-requires="MANAGE_METADATA" hidden>Areas</button>
       <button type="button" data-tab="costs" data-admin-only hidden>Costs</button>

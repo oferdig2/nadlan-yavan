@@ -30,6 +30,9 @@ public sealed class CachingFileUrlProvider : IFileUrlProvider
     public string GetUrl(string storageKey, string downloadName)
         => Cached(storageKey + "|" + downloadName, () => _inner.GetUrl(storageKey, downloadName)); // "|" never occurs in keys
 
+    public string GetDownloadUrl(string storageKey, string downloadName)
+        => Cached(storageKey + "|download|" + downloadName, () => _inner.GetDownloadUrl(storageKey, downloadName));
+
     private string Cached(string cacheKey, Func<string> sign)
     {
         var now = DateTime.UtcNow;

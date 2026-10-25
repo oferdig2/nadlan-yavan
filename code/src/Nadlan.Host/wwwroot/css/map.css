@@ -79,6 +79,9 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .assets-view .card-actions [data-action=edit-parcel] { display: none; } /* Parcels view only (map-entity-popup.js setView) */
 .card-icon { width: 26px; height: 26px; padding: 0 !important; border-radius: 50%; line-height: 1; font-size: 15px !important; color: var(--muted) !important; display: inline-flex; align-items: center; justify-content: center; }
 .card-icon:hover { background: var(--bg) !important; color: var(--text) !important; }
+/* Location icons (remark 14): copy the link / directions; the copy icon turns green for 2 s once copied. */
+.card-icon svg { width: 15px; height: 15px; }
+.card-icon[data-action=location].done { color: #16a34a !important; }
 /* Pinned: the pin sits upright in a tinted circle; unpinned it lies tilted and faded. */
 .card-icon[data-action=pin] { filter: grayscale(1); opacity: 0.6; transform: rotate(35deg); }
 .card-icon[data-action=pin][aria-pressed=true] { filter: none; opacity: 1; transform: none; background: color-mix(in srgb, var(--accent) 14%, transparent) !important; }
@@ -140,6 +143,14 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
   font-size: 12px;
   line-height: 1.7;
 }
+/* Folding legend (parcel-map-overlay.js, remark 2): the title is the toggle; folded = one small "Legend" button. */
+.map-legend .legend-toggle { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 0; cursor: pointer; font: inherit; color: inherit; text-align: left; }
+.map-legend .legend-toggle-label { display: none; font-weight: 600; }
+.map-legend .legend-chevron::after { content: "\25BE"; color: var(--muted); margin-left: auto; }
+.map-legend.folded { padding: 3px 9px; width: fit-content; }
+.map-legend.folded .legend-body, .map-legend.folded .legend-title { display: none; }
+.map-legend.folded .legend-toggle-label { display: inline; }
+.map-legend.folded .legend-chevron::after { content: "\25B8"; }
 .map-legend .swatch { display: inline-block; width: 14px; height: 10px; margin-right: 6px; vertical-align: -1px; border: 2px solid; }
 .map-legend .legend-row { display: flex; align-items: center; gap: 6px; }
 .map-legend .legend-row .swatch { margin-right: 0; }
@@ -217,3 +228,16 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .map-linkpin-clear { border: 0; background: none; color: #64748b; font-size: 18px; cursor: pointer; padding: 0 6px; }
 .map-linkpin-clear[hidden] { display: none; }
 .map-linkpin.busy .map-linkpin-toggle { animation: map-locate-pulse 1s ease-in-out infinite; }
+
+/* Assets view (remark 13): each Asset's own photos under its row, and the Assets section before the parcel's files. */
+.card-assets li { flex-wrap: wrap; }
+.card-asset-media { flex: 0 0 100%; padding-left: 22px; }
+.card-asset-media[hidden], .popup-layer:not(.assets-view) .card-asset-media { display: none; }
+.popup-layer.assets-view .map-card:not(.minimized) { display: flex; flex-direction: column; }
+.popup-layer.assets-view .map-card .card-section-assets { order: 1; }
+.popup-layer.assets-view .map-card .card-section-files { order: 2; }
+
+/* Distance tool (map-measure.js, remark 17): the ruler button (on = blue) and the length label beside the line. */
+.map-measure.on { color: #2563eb; box-shadow: 0 0 0 2px #2563eb, 0 1px 4px rgba(0, 0, 0, 0.3); }
+.map-measure-label { margin-top: -22px; padding: 2px 7px; border-radius: 6px; background: #111827; color: #facc15 !important;
+  font-size: 13px !important; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }

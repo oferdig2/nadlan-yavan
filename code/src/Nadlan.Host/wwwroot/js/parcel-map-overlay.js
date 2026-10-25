@@ -219,13 +219,31 @@
         "<input type=\"range\" min=\"0\" max=\"80\" step=\"5\" data-fill=\"" + kind.key + "\" title=\"Fill opacity\">" +
         "<span class=\"pct\" data-pct=\"" + kind.key + "\"></span></div>";
     }
-    legend.innerHTML = "<div class=\"legend-title\">OT / plot entry</div>" + KINDS.map(kindRow).join("") +
+    // Folds away to one small "Legend" button (remark 2): folded by default on phones and tablets, open on desktop; the
+    // user's choice is remembered in this browser.
+    legend.innerHTML = "<button type=\"button\" class=\"legend-toggle\" aria-expanded=\"true\" title=\"Show or hide the legend\">" +
+        "<span class=\"legend-title\">OT / plot entry</span><span class=\"legend-toggle-label\">Legend</span><span class=\"legend-chevron\" aria-hidden=\"true\"></span></button>" +
+      "<div class=\"legend-body\">" + KINDS.map(kindRow).join("") +
       "<div class=\"legend-sep\"></div>" +
       "<div class=\"legend-row\">" + check("withAssets", "Show Parcels with an Asset") +
         "<span class=\"swatch\" style=\"background:transparent;border:3px solid " + ASSET_OUTLINE.strokeColor + "\"></span><span>Has Asset(s)</span></div>" +
       "<div class=\"legend-row\">" + check("withoutAssets", "Show Parcels without an Asset") +
-        "<span class=\"swatch\" style=\"background:transparent\"></span><span>No Asset</span></div>";
+        "<span class=\"swatch\" style=\"background:transparent\"></span><span>No Asset</span></div></div>";
     map.controls[google.maps.ControlPosition.LEFT_BOTTOM].push(legend);
+    var LEGEND_KEY = "nadlan.legendFolded";
+    function setFolded(folded) {
+      legend.classList.toggle("folded", folded);
+      legend.querySelector(".legend-toggle").setAttribute("aria-expanded", String(!folded));
+    }
+    var stored = null;
+    try { stored = window.localStorage.getItem(LEGEND_KEY); } catch (e) { /* private mode: the default */ }
+    var smallScreen = (window.matchMedia && window.matchMedia("(hover: none)").matches) || window.innerWidth < 1000;
+    setFolded(stored === null ? smallScreen : stored === "1");
+    legend.querySelector(".legend-toggle").addEventListener("click", function () {
+      var folded = !legend.classList.contains("folded");
+      setFolded(folded);
+      try { window.localStorage.setItem(LEGEND_KEY, folded ? "1" : "0"); } catch (e) { /* per-browser convenience only */ }
+    });
     KINDS.forEach(function (kind) {
       var slider = legend.querySelector("[data-fill=" + kind.key + "]");
       slider.value = Math.round(opacity[kind.key] * 100);
