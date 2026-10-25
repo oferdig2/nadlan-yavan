@@ -50,6 +50,64 @@ public class KaekImporterTests
         Assert.Throws<FormatException>(() => KtimanetReply.Parse("GETPSTKG|1,2|2@[1,2,3,4]@@120981108035@1~2~3=~~~~1~2="));
     }
 
+    // Real reply in a Land Parcels area (Theologos; map on "Γεωτεμάχια Κτηματολογίου"): the site's own click on
+    // EGSA87 429653, 4280506 sent GETPST, not GETPSTKG (captured 2026-10-25).
+    private const string LandParcelsReply =
+        "GETPST|429653,4280506.132291931|2@[429634.038163209,4280472.55121188,429675.27416321,4280513.39401188]@@460990309007@" +
+        "429645.77421321~429654.19081321~429675.27416321~429665.389013209~429649.97796321~429634.038163209~429639.40296321~429645.77421321=~~~~" +
+        "4280513.39401188~4280508.99881188~4280499.80701188~4280472.55121188~4280476.25996188~4280478.45821188~4280494.43916188~4280513.39401188=";
+
+    [Fact]
+    public void Parses_a_land_parcels_reply_like_a_posting_one()
+    {
+        var shape = KtimanetReply.Parse(LandParcelsReply);
+
+        Assert.NotNull(shape);
+        Assert.Equal("460990309007", shape.Kaek);
+        Assert.True(shape.IsLandParcel);
+        var ring = Assert.Single(shape.Rings);
+        Assert.Equal(8, ring.Count);
+        Assert.Equal(ring[0], ring[^1]);
+        Assert.Equal(new EgsaPoint(429675.27416321, 4280499.80701188), ring[2]);
+        Assert.True(PolygonMath.Contains(Egsa87.ToWgs84(shape.Rings), Egsa87.ToWgs84(new EgsaPoint(429653, 4280506.13))));
+    }
+
+    [Fact]
+    public void Land_parcels_road_and_empty_replies_are_skipped_as_before()
+    {
+        // Theologos road (captured 2026-10-25, geometry shortened) and an empty GETPST reply.
+        var road = KtimanetReply.Parse("GETPST|429618.600,4280469.800|21@[428645.1,4279703.7,430268.8,4280478.5]@@46099ΕΚ00008@1~2~2~1=~~~~1~1~2~1=");
+
+        Assert.NotNull(road);
+        Assert.False(road.IsLandParcel);
+        Assert.Null(KtimanetReply.Parse("GETPST|444875.737,4262264.246|"));
+    }
+
+    [Theory]
+    [InlineData("Message=GETPST%7C429653%2C4280506.13%7C", true)]          // Land Parcels
+    [InlineData("Message=GETPSTKG%7C444875.66%2C4262264.39%7C", true)]     // Cadastral Survey Post
+    [InlineData("Message=GETPSTKGPRO%7C444875.66%2C4262264.39%7C", true)]  // Pre-Posting (let through before too)
+    [InlineData("Other=1&Message=GETPST%7C1%2C2%7C", true)]
+    [InlineData("Message=GetKAEKPublicINFO%7C460990309007", false)]
+    [InlineData("Message=LookForGPropID%7C460990525020", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void Map_clicks_are_recognised_in_every_kind_of_area(string? postData, bool isClick)
+    {
+        Assert.Equal(isClick, KtimanetClick.IsMapClick(postData));
+    }
+
+    [Theory]
+    [InlineData("GETPST", "GETPST")]
+    [InlineData("GETPSTKG", "GETPSTKG")]
+    [InlineData("GETPSTKGPRO", null)]
+    [InlineData("GETPST|1,2|", null)]
+    [InlineData(null, null)]
+    public void Only_known_click_requests_are_sent_for_the_sweep(string? fromPanel, string? sent)
+    {
+        Assert.Equal(sent, KtimanetClick.FromPanel(fromPanel));
+    }
+
     [Fact]
     public void Area_matches_the_ktimatologio_print()
     {

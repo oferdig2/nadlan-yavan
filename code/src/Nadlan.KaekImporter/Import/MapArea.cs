@@ -14,9 +14,11 @@ public sealed record MapExtent(double Left, double Right, double Top, double Bot
 public readonly record struct AreaPoint(EgsaPoint Position, double ClearanceMetres);
 
 /// <summary>
-/// One enclosed area between the yellow parcel lines: normally one parcel, road or the sea.
+/// One enclosed area between the parcel lines: normally one parcel, road or the sea.
 /// <see cref="Centre"/> is its point farthest from any line; <see cref="Samples"/> cover it every few metres.
 /// </summary>
 public sealed record MapArea(int SizePixels, AreaPoint Centre, IReadOnlyList<AreaPoint> Samples);
 
-public sealed record MapAreas(MapExtent Extent, double MetresPerPixel, IReadOnlyList<MapArea> Areas);
+/// <param name="ClickRequest">The map-click request that answers for the parcel lines read (see KtimanetClick).</param>
+/// <param name="LinePixels">How many pixels of the view are parcel lines (0: the layer is shown but draws nothing here).</param>
+public sealed record MapAreas(MapExtent Extent, double MetresPerPixel, IReadOnlyList<MapArea> Areas, string ClickRequest, int LinePixels);
