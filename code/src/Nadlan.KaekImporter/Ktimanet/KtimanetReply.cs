@@ -14,8 +14,35 @@ public sealed record KtimanetShape(string Kaek, IReadOnlyList<IReadOnlyList<Egsa
 }
 
 /// <summary>
-/// Parses the reply of <c>PostHandler</c> <c>Message=GETPSTKG|x,y|</c> (what the site sends on a map click):
+/// The request the site sends to <c>PostHandler</c> on a map click: <c>Message=&lt;request&gt;|x,y|</c>. Which request
+/// depends on the map's "Θέλω να δω..." (I want to see) choice, and each one only answers for its own set of parcels -
+/// asked with the other request, a point comes back empty (checked live 2026-10-25 in Theologos and Skroponeria).
+/// </summary>
+public static class KtimanetClick
+{
+    /// <summary>"Ανάρτηση Κτηματογράφησης" (Cadastral Survey Post): the parcels of an area still being surveyed (yellow lines).</summary>
+    public const string Posting = "GETPSTKG";
+
+    /// <summary>"Γεωτεμάχια Κτηματολογίου" (Land Parcels): the parcels where the cadastre is in operation (orange lines).</summary>
+    public const string Operating = "GETPST";
+
+    /// <summary>The request the panel says goes with the lines it read; only one of the known ones (else null).</summary>
+    public static string? FromPanel(string? request) => request is Posting or Operating ? request : null;
+
+    /// <summary>
+    /// Whether a <c>PostHandler</c> request body is a map click: <c>GETPST</c> (Land Parcels), <c>GETPSTKG</c> (Cadastral
+    /// Survey Post) or <c>GETPSTKGPRO</c> (Pre-Posting; was already let through before 2026-10-25). Their replies all
+    /// have the layout <see cref="KtimanetReply"/> reads.
+    /// </summary>
+    public static bool IsMapClick(string? postData) =>
+        postData is not null && postData.Split('&').Any(field => field.StartsWith("Message=GETPST", StringComparison.Ordinal));
+}
+
+/// <summary>
+/// Parses the reply of a map click (<c>PostHandler</c> <c>Message=GETPSTKG|x,y|</c>, or <c>GETPST</c> in Land Parcels
+/// areas - see <see cref="KtimanetClick"/>):
 /// <c>GETPSTKG|x,y|&lt;type&gt;@[minX,minY,maxX,maxY]@@&lt;KAEK&gt;@X..~X..=X..=~~~~Y..~Y..=Y..=</c>
+/// (the same after <c>GETPST|x,y|</c>).
 /// X values of every ring come first (rings end with '='), then "~~~~", then the Y values in the same layout.
 /// Nothing after the second '|' means there is no shape at that point (e.g. the sea).
 /// </summary>

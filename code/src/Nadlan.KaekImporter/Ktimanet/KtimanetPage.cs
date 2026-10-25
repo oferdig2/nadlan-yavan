@@ -10,9 +10,10 @@ public sealed class KtimanetPage
 {
     public const string MapUrl = "https://gis.ktimanet.gr/gis/map";
 
-    // Exactly what the site sends on a map click (same session, same anti-forgery token), just at our coordinates.
+    // Exactly what the site sends on a map click (same session, same anti-forgery token, same request for the parcel
+    // lines shown - see KtimanetClick), just at our coordinates.
     private const string QueryScript = """
-        async ([x, y]) => {
+        async ([x, y, request]) => {
           const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value;
           if (!token) throw new Error('The Ktimatologio page is not ready (no request token). Reload it.');
           const response = await fetch('/gis/map/PostHandler', {
@@ -22,7 +23,7 @@ public sealed class KtimanetPage
               'X-Requested-With': 'XMLHttpRequest',
               'RequestVerificationToken': token
             },
-            body: 'Message=' + encodeURIComponent('GETPSTKG|' + x.toFixed(3) + ',' + y.toFixed(3) + '|')
+            body: 'Message=' + encodeURIComponent(request + '|' + x.toFixed(3) + ',' + y.toFixed(3) + '|')
           });
           if (!response.ok) throw new Error('Ktimatologio replied HTTP ' + response.status);
           const text = await response.text();
@@ -67,9 +68,16 @@ public sealed class KtimanetPage
                 continue;
             }
 
+            if (KtimanetClick.FromPanel(dto.Query) is not string request)
+            {
+                Console.Error.WriteLine($"The panel named an unknown map-click request: {dto.Query}");
+                return (null, "The importer does not know how to ask about these parcel lines. Send the log file to support.");
+            }
+
             var e = dto.Extent!;
             return (new MapAreas(new MapExtent(e.Left, e.Right, e.Top, e.Bottom), dto.MetresPerPixel,
-                dto.Areas!.Select(a => new MapArea(a.Size, Point(a.Point), a.Samples.Select(Point).ToList())).ToList()), null);
+                dto.Areas!.Select(a => new MapArea(a.Size, Point(a.Point), a.Samples.Select(Point).ToList())).ToList(),
+                request, dto.LinePixels), null);
         }
 
         if (notReady is not null)
@@ -86,12 +94,15 @@ public sealed class KtimanetPage
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private sealed record AreasDto(string? Error, bool Retry, string? NotReady, ExtentDto? Extent, double MetresPerPixel, List<AreaDto>? Areas);
+    private sealed record AreasDto(string? Error, bool Retry, string? NotReady, ExtentDto? Extent, double MetresPerPixel,
+        string? Query, int LinePixels, List<AreaDto>? Areas);
     private sealed record ExtentDto(double Left, double Right, double Top, double Bottom);
     private sealed record AreaDto(int Size, double[] Point, List<double[]> Samples);
 
     /// <summary>The raw reply for one point, e.g. "GETPSTKG|x,y|2@[...]@@120981108035@...".</summary>
-    public Task<string> QueryAsync(EgsaPoint p) => _page.EvaluateAsync<string>(QueryScript, new[] { p.X, p.Y });
+    /// <param name="request">The map-click request for the parcel lines read (<see cref="MapAreas.ClickRequest"/>).</param>
+    public Task<string> QueryAsync(EgsaPoint p, string request) =>
+        _page.EvaluateAsync<string>(QueryScript, new object[] { p.X, p.Y, request });
 
     // Panel calls are best effort: the user may reload or close the tab, and that must not stop the import.
     public Task StatusAsync(string text) => Ui("t => window.NadlanPanel && NadlanPanel.status(t)", text);

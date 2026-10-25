@@ -228,7 +228,7 @@ public static class Program
 
             if (session is null || current is not null
                 || !response.Url.EndsWith("/gis/map/PostHandler", StringComparison.OrdinalIgnoreCase)
-                || response.Request.PostData?.Contains("GETPSTKG", StringComparison.Ordinal) != true)
+                || !KtimanetClick.IsMapClick(response.Request.PostData))
             {
                 return;
             }
@@ -253,7 +253,7 @@ public static class Program
         browser.Disconnected += (_, _) => closed.TrySetResult();
 
         await page.GotoAsync(KtimanetPage.MapUrl, new() { Timeout = 90_000 });
-        Console.WriteLine("Browser is open. Zoom in until the yellow parcel lines show, then click 'Acquire polygons'" +
+        Console.WriteLine("Browser is open. Zoom in until the parcel lines show, then click 'Acquire polygons'" +
                           " (or tick 'Import each parcel I click'). Close the browser to exit.");
         await closed.Task;
 

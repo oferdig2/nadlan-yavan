@@ -68,7 +68,7 @@
       "<label class=\"check\"><input type=\"checkbox\" id=\"nadlan-click\"> Import each parcel I click on the map</label>" +
       "<div class=\"actions\"><button type=\"button\" id=\"nadlan-start\">Acquire polygons</button>" +
       "<button type=\"button\" id=\"nadlan-stop\" disabled>Stop</button></div>" +
-      "<div class=\"status\" id=\"nadlan-status\">Zoom in until the yellow parcel lines show, then click Acquire polygons - or tick the box and click parcels yourself.</div>" +
+      "<div class=\"status\" id=\"nadlan-status\">Zoom in until the parcel lines show, then click Acquire polygons - or tick the box and click parcels yourself.</div>" +
       "<div class=\"counts\" id=\"nadlan-counts\"></div>" +
       "<div id=\"nadlan-log\"></div></div>";
     document.body.appendChild(panel);
@@ -236,16 +236,44 @@
       "<div>Areas: <b>" + (c.areasDone || 0) + "</b> / " + (c.areasTotal || 0) + "</div>";
   }
 
-  // The enclosed areas of the parcel-lines layer ("ΚΤΗΜΑΤΟΓΡΑΦΗΣΗ", yellow lines on a transparent image) in the
-  // current view. Each area is one parcel, road or the sea. For each: the point farthest from any line, and
-  // sample points every sampleStepMetres with their distance to the nearest line. Coordinates are EGSA87 metres.
-  // Returns { error } when the layer is not shown, or { retry: true } while its tiles are still loading or the map has
-  // no usable size or extent (mid-zoom, resizing, window minimised) - every number returned must be finite: the .NET side
-  // cannot take NaN or Infinity.
+  // The site draws the parcel lines as their own transparent tile layers, which depend on the map's "Θέλω να δω..."
+  // (I want to see) choice. Each kind of layer goes with the request the site itself sends on a map click with that
+  // choice (seen live 2026-10-25): a point asked with the other request comes back empty.
+  //  - "Ανάρτηση Κτηματογράφησης" (Cadastral Survey Post): layer "ANARTHSH ΚΤΗΜΑΤΟΓΡΑΦΗΣΗ", yellow lines; the click asks
+  //    GETPSTKG. "Προανάρτηση Κτηματογράφησης" (Pre-Posting): layer "ΠΡΟANARTHSH ΚΤΗΜΑΤΟΓΡΑΦΗΣΗΣ", yellow lines; the site's
+  //    click asks GETPSTKGPRO, the sweep has always asked GETPSTKG there (unchanged).
+  //  - "Γεωτεμάχια Κτηματολογίου" (Land Parcels, areas where the cadastre is in operation, e.g. Theologos): layers named
+  //    "ΛΕΙΤΟΥΡΓΟΥΝ" ("in operation"), orange lines (yellow + red pixels); the click asks GETPST.
+  var LINE_LAYERS = [
+    { name: /ΚΤΗΜΑΤΟΓΡΑΦ/i, query: "GETPSTKG" },
+    { name: /ΛΕΙΤΟΥΡΓΟΥΝ/i, query: "GETPST" }
+  ];
+
+  // The visible parcel-line layers (all those of the first kind shown) and the click request that goes with them.
+  function lineLayers() {
+    var all = (MyMap.ReturnLayers() || []).filter(function (l) { return l.visible; });
+    for (var k = 0; k < LINE_LAYERS.length; k++) {
+      var kind = LINE_LAYERS[k];
+      var found = all.filter(function (l) { return kind.name.test(l.LayerName); });
+      if (found.length) { return { layers: found, query: kind.query }; }
+    }
+    return null;
+  }
+
+  // The enclosed areas of the parcel-lines layers (lines on transparent images) in the current view. Each area is one
+  // parcel, road or the sea. For each: the point farthest from any line, and sample points every sampleStepMetres with
+  // their distance to the nearest line. Coordinates are EGSA87 metres. Also returns the click request that goes with
+  // these lines (query) and how many line pixels the view has (linePixels).
+  // Returns { error } when no parcel-lines layer is shown, or { retry: true } while its tiles are still loading or the
+  // map has no usable size or extent (mid-zoom, resizing, window minimised) - every number returned must be finite: the
+  // .NET side cannot take NaN or Infinity.
   function findAreas(sampleStepMetres) {
     var canvas = document.getElementById("KT.KTWebMap.0.ContainerDrawingCanvas");
-    var layer = (MyMap.ReturnLayers() || []).filter(function (l) { return l.visible && /ΚΤΗΜΑΤΟΓΡΑΦ/i.test(l.LayerName); })[0];
-    if (!canvas || !layer) { return { error: "The parcel lines layer is not shown on the map. Zoom in until the yellow lines appear." }; }
+    var shown = lineLayers();
+    if (!canvas || !shown) {
+      return { error: "The parcel lines are not shown on the map. In the map's \"Θέλω να δω...\" (I want to see) menu choose " +
+        "Γεωτεμάχια Κτηματολογίου (Land Parcels) or Ανάρτηση Κτηματογράφησης (Cadastral Survey Post), and zoom in until the lines appear." };
+    }
     var box = canvas.getBoundingClientRect();
     var W = Math.round(box.width), H = Math.round(box.height);
     var e = MyMap.MapExtents();
@@ -253,19 +281,20 @@
       return { retry: true, notReady: "map size " + W + " x " + H + " px, extent " + (e ? [e.left, e.right, e.top, e.bottom].join(", ") : "none") };
     }
     var tiles = [].slice.call(document.querySelectorAll("img")).filter(function (t) {
-      if (t.id.indexOf("KT.KTWebMap.0.") !== 0 || t.src.indexOf("Layer=" + layer.LayerSource) < 0 || !t.offsetParent) { return false; }
+      if (t.id.indexOf("KT.KTWebMap.0.") !== 0 || !t.offsetParent ||
+        !shown.layers.some(function (l) { return t.src.indexOf("Layer=" + l.LayerSource) >= 0; })) { return false; }
       var r = t.getBoundingClientRect();
       return r.right > box.left && r.left < box.right && r.bottom > box.top && r.top < box.bottom;
     });
-    if (!tiles.length) { return { error: "Zoom in until the yellow parcel lines show, then try again." }; }
+    if (!tiles.length) { return { error: "Zoom in until the parcel lines show, then try again." }; }
     if (tiles.some(function (t) { return !t.complete || !t.naturalWidth; })) { return { retry: true }; }
 
     var cv = document.createElement("canvas"); cv.width = W; cv.height = H;
     var g = cv.getContext("2d");
     tiles.forEach(function (t) { var r = t.getBoundingClientRect(); g.drawImage(t, r.left - box.left, r.top - box.top, r.width, r.height); });
     var px = g.getImageData(0, 0, W, H).data;
-    var N = W * H, line = new Uint8Array(N), i, x, y;
-    for (i = 0; i < N; i++) { line[i] = px[i * 4 + 3] > 40 ? 1 : 0; }
+    var N = W * H, line = new Uint8Array(N), linePixels = 0, i, x, y;
+    for (i = 0; i < N; i++) { line[i] = px[i * 4 + 3] > 40 ? 1 : 0; linePixels += line[i]; }
 
     // Distance to the nearest line or view edge (chamfer 3-4, so /3 = pixels).
     var dist = new Float32Array(N);
@@ -314,6 +343,8 @@
     return {
       extent: { left: e.left, right: e.right, top: e.top, bottom: e.bottom },
       metresPerPixel: mx,
+      query: shown.query,
+      linePixels: linePixels,
       // Specks between nearly touching lines are not areas.
       areas: areas.filter(function (a) { return a.size >= 20 && dist[a.best] >= 3; })
         .map(function (a) { return { size: a.size, point: point(a.best), samples: a.samples }; })

@@ -12,9 +12,10 @@ public sealed record ImportSettings(
     int? MaxParcels);
 
 /// <summary>
-/// One "Acquire polygons" run over the view the user chose. The enclosed areas between the yellow parcel lines are
-/// found in the browser; each is clicked once in its middle (see <see cref="AreaProbePlanner"/>), nearest the centre
-/// of the view first. Requests go at a human pace: a random pause after each new parcel, a shorter one otherwise.
+/// One "Acquire polygons" run over the view the user chose. The enclosed areas between the parcel lines (yellow, or
+/// orange in Land Parcels areas) are found in the browser; each is clicked once in its middle (see
+/// <see cref="AreaProbePlanner"/>) with the site's own click request for those lines, nearest the centre of the view
+/// first. Requests go at a human pace: a random pause after each new parcel, a shorter one otherwise.
 /// </summary>
 public sealed class ImportRun
 {
@@ -59,6 +60,13 @@ public sealed class ImportRun
 
         await _site.SetSweepAsync(view.Extent);
         await _site.LogAsync($"{areas.Count} areas between the parcel lines in this view.");
+        if (view.LinePixels == 0)
+        {
+            // E.g. "Cadastral Survey Post" chosen where the cadastre is in operation, or "Land Parcels" where it is not yet:
+            // the layer is there but empty, and the whole view is one area. Still asked once, as before - it may be one parcel.
+            await _site.LogAsync("No parcel lines are drawn in this view. If the map shows none here, switch its \"Θέλω να δω...\" " +
+                                 "menu between Γεωτεμάχια Κτηματολογίου (Land Parcels) and Ανάρτηση Κτηματογράφησης (Cadastral Survey Post).", "warn");
+        }
         try
         {
             if (_nadlan is not null)
@@ -93,7 +101,7 @@ public sealed class ImportRun
                     try
                     {
                         report.Requests++;
-                        reply = await _site.QueryAsync(point);
+                        reply = await _site.QueryAsync(point, view.ClickRequest);
                         siteErrors = 0;
                     }
                     catch (PlaywrightException ex) when (!ct.IsCancellationRequested)
