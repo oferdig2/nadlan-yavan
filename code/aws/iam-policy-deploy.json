@@ -1,0 +1,41 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StorageBucket",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::nadlan-freshcanvas", "arn:aws:s3:::nadlan-freshcanvas/*"]
+    },
+    {
+      "Sid": "CloudFrontForFiles",
+      "Effect": "Allow",
+      "Action": "cloudfront:*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadEc2",
+      "Effect": "Allow",
+      "Action": "ec2:Describe*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "SshRuleOfTheServer",
+      "Effect": "Allow",
+      "Action": ["ec2:ModifySecurityGroupRules", "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
+      "Resource": "arn:aws:ec2:eu-north-1:659544951755:security-group/sg-0ff4eaf0fe1014e72"
+    },
+    {
+      "Sid": "ReadIam",
+      "Effect": "Allow",
+      "Action": ["iam:Get*", "iam:List*", "iam:SimulatePrincipalPolicy", "sts:GetCallerIdentity"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ServerRoleFilePolicy",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePolicy",
+      "Resource": "arn:aws:iam::659544951755:role/nadlan-prod-role"
+    }
+  ]
+}

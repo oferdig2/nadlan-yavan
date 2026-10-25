@@ -39,9 +39,10 @@ public sealed class ImportSession
         _nadlan = nadlan;
         _geographicAreaId = geographicAreaId;
         _console = console;
+        Report = new ImportReport { Offline = nadlan is null };
     }
 
-    public ImportReport Report { get; } = new();
+    public ImportReport Report { get; }
 
     /// <summary>Parcels Nadlan already has; they count as handled without asking Nadlan again.</summary>
     public void MarkAlreadyInNadlan(string kaek)

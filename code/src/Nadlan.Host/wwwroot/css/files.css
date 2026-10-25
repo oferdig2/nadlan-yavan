@@ -70,4 +70,7 @@ video.media-viewer-media { width: min(100%, 1600px); }
 .media-viewer-nav.next { right: 10px; }
 .media-viewer-cant { max-width: 520px; padding: 22px 26px; border-radius: 10px; background: #0f172a; color: #e2e8f0; text-align: center; line-height: 1.5; }
 .media-viewer-cant p { margin: 0 0 14px; }
+/* A plain link, light enough to see on the dark box (the map and the presentation pages style buttons differently). */
+.media-viewer-cant .media-viewer-download { color: #93c5fd; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.media-viewer-cant .media-viewer-download:hover { color: #bfdbfe; }
 @media (max-width: 600px) { .media-viewer-nav { width: 38px; height: 52px; font-size: 30px; } }

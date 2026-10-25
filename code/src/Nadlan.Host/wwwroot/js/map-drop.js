@@ -29,7 +29,7 @@
 
     var $button = $(
       "<button type=\"button\" class=\"btn map-drop-button\" title=\"Drop drone and phone photos, videos and .srt tracks; then assign them to Parcels\">" +
-        "&#x1F4E5; Map drop <span class=\"map-drop-badge\" hidden></span></button>").insertBefore(".app-header [data-tool=portfolios]");
+        "&#x1F4E5; Map drop <span class=\"map-drop-badge\" hidden></span></button>").insertAfter(".app-header .quick-entry-setting");
     var $panel = $(
       "<section class=\"map-drop-panel\" hidden aria-label=\"Map drop\">" +
         "<header class=\"map-drop-head\">" +

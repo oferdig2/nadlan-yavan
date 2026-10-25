@@ -57,7 +57,7 @@
       $stage.html("<div class=\"media-viewer-cant\">" +
         "<p><strong>This video's picture format can't be played in this browser</strong> - probably H.265 (HEVC), which many " +
         "phones record. Download it to watch, or open it in another browser.</p>" +
-        "<a class=\"btn btn-primary\" href=\"" + esc(it.download || it.url) + "\" download>Download the video</a></div>");
+        "<a class=\"media-viewer-download\" href=\"" + esc(it.download || it.url) + "\" download>Download the video</a></div>");
     }
 
     function show(i) {

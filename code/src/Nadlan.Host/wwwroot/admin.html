@@ -28,6 +28,9 @@
       <button type="button" data-tab="portfolio-types" data-requires="MANAGE_METADATA" hidden>Portfolio types</button>
       <button type="button" data-tab="file-types" data-requires="MANAGE_METADATA" hidden>File types</button>
       <button type="button" data-tab="geographic-areas" data-requires="MANAGE_METADATA" hidden>Areas</button>
+    </nav>
+    <!-- On the right: Admin-only and server tabs. -->
+    <nav class="view-switch admin-tabs admin-tabs-right" aria-label="Costs and server">
       <button type="button" data-tab="costs" data-admin-only hidden>Costs</button>
       <!-- Server pages: only for the Admins in MachineAdminAccess (/api/auth/me machineAdmin). -->
       <button type="button" data-tab="server" data-machine-admin hidden>Server</button>

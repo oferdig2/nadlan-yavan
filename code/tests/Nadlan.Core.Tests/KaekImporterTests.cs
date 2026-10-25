@@ -13,6 +13,16 @@ public class KaekImporterTests
         "4262323.14661558~4262219.5004118~4262229.2990487~4262229.27999384~4262324.07001842~4262323.14661558=";
 
     [Fact]
+    public void An_offline_run_that_finds_nothing_says_not_saved()
+    {
+        var offline = new ImportReport { Offline = true, Requests = 3 };
+        Assert.Equal("0 parcels found - NOT saved (offline), 0 roads skipped (3 requests to the site).", offline.Summary);
+
+        var online = new ImportReport { Requests = 3 };
+        Assert.Equal("0 created, 0 already in GreekPlot, 0 rejected, 0 roads skipped (3 requests to the site).", online.Summary);
+    }
+
+    [Fact]
     public void Parses_a_parcel_reply_into_kaek_and_ring()
     {
         var shape = KtimanetReply.Parse(ParcelReply);

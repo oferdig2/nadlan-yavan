@@ -14,6 +14,8 @@ public sealed class ImportReport
     private readonly List<ReportRow> _rows = new();
     private readonly HashSet<string> _roads = new(StringComparer.Ordinal);
 
+    /// <summary>An offline run (no Nadlan server): the summary says "found - NOT saved", also when nothing was found.</summary>
+    public bool Offline { get; init; }
     public int Requests { get; set; }
     public int AreasDone { get; set; }
     public int AreasTotal { get; set; }
@@ -36,7 +38,7 @@ public sealed class ImportReport
         areasTotal = AreasTotal,
     };
 
-    public string Summary => Count(ParcelResult.NotSaved) > 0
+    public string Summary => Offline || Count(ParcelResult.NotSaved) > 0
         ? $"{Count(ParcelResult.NotSaved)} parcels found - NOT saved (offline), {Roads} roads skipped ({Requests} requests to the site)."
         : $"{Count(ParcelResult.Created)} created, {Count(ParcelResult.AlreadyInNadlan)} already in GreekPlot, " +
         $"{Count(ParcelResult.Rejected)} rejected, {Roads} roads skipped ({Requests} requests to the site).";
