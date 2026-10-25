@@ -58,7 +58,10 @@ public sealed class MySqlContactStore : IContactStore
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<ContactSummary>(new CommandDefinition($"""
             SELECT c.contact_id AS ContactId, c.display_name AS DisplayName, c.email AS Email,
-                   COALESCE(c.cell_phone, c.phone) AS Phone, c.is_active AS IsActive
+                   COALESCE(c.cell_phone, c.phone) AS Phone, c.is_active AS IsActive,
+                   (SELECT GROUP_CONCAT(cr.name ORDER BY cr.sort_order, cr.name SEPARATOR ', ')
+                    FROM contact_contact_role ccr JOIN contact_role cr ON cr.contact_role_id = ccr.contact_role_id
+                    WHERE ccr.contact_id = c.contact_id) AS Roles
             FROM contact c
             WHERE {string.Join(" AND ", where)}
             ORDER BY c.display_name

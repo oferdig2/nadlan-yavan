@@ -52,6 +52,8 @@
     Nadlan.session.applyRequires();
     $("[data-machine-admin]").prop("hidden", !Nadlan.session.user().machineAdmin);
     $("[data-admin-only]").prop("hidden", !Nadlan.session.user().isAdmin); // Costs: list prices + calculator, Admin role
+    // No divider before the first tab this user sees (a user without the user group starts with Contacts).
+    $("[data-tab]").filter(function () { return !this.hidden; }).first().removeClass("tab-group-start");
     var allowed = $("[data-tab]").filter(function () { return !this.hidden; }).map(function () { return $(this).data("tab"); }).get();
     if (!allowed.length) {
       $("#admin-panel").html("<div class=\"muted\">You have no administration rights. <a href=\"/\">Back to the map</a></div>");

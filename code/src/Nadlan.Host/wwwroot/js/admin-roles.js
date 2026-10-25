@@ -11,7 +11,7 @@
     var permissions = [];
     var selectedId = null;
     var $root = $(container).addClass("admin-roles").html(
-      "<div class=\"meta-toolbar\"><h3>Roles</h3>" +
+      "<div class=\"meta-toolbar\"><h3>User roles</h3>" +
         "<button type=\"button\" class=\"btn btn-primary\" data-act=\"new\">+ New role</button></div>" +
       "<div class=\"roles-layout\">" +
         "<ul class=\"roles-list\"></ul>" +

@@ -1,6 +1,9 @@
 /* Admin page */
 .admin-body { overflow: auto; }
 .admin-tabs { flex-wrap: wrap; }
+/* The tab groups (remark 10): Users, User roles | Contacts, Contact roles | the rest. */
+.admin-tabs .tab-group-start { margin-left: 14px; position: relative; }
+.admin-tabs .tab-group-start::before { content: ""; position: absolute; left: -8px; top: 18%; bottom: 18%; border-left: 2px solid var(--border); }
 /* The tabs wrap on narrow screens, so the header grows with them (the map page keeps its fixed height). */
 .admin-body .app-header { height: auto; min-height: var(--header-h); flex-wrap: wrap; padding-top: 6px; padding-bottom: 6px; }
 .admin-main { padding: 16px; max-width: 1100px; margin: 0 auto; }
