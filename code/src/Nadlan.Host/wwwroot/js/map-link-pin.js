@@ -113,12 +113,24 @@
    * leave a very thin Parcel; then 7 or 8).
    */
   function parcelLink(geometry) {
+    var pin = parcelPin(geometry);
+    return googleMapsLink(pin, pin.decimals);
+  }
+
+  // The pin both links use: inside the Parcel, and still inside after rounding to the decimals returned.
+  function parcelPin(geometry) {
     var p = pointInside(geometry);
     for (var d = 6; d <= 8; d++) {
       var lat = Number(p.lat.toFixed(d)), lng = Number(p.lng.toFixed(d));
-      if (Nadlan.myLocation.containsPoint(geometry, lat, lng)) { return googleMapsLink(p, d); }
+      if (Nadlan.myLocation.containsPoint(geometry, lat, lng)) { return { lat: p.lat, lng: p.lng, decimals: d }; }
     }
-    return googleMapsLink(p, 8);
+    return { lat: p.lat, lng: p.lng, decimals: 8 };
+  }
+
+  /** Google Maps directions from wherever the user is to the Parcel's pin (remark 14); on a phone, the Maps app. */
+  function directionsLink(geometry) {
+    var pin = parcelPin(geometry);
+    return "https://www.google.com/maps/dir/?api=1&destination=" + pin.lat.toFixed(pin.decimals) + "%2C" + pin.lng.toFixed(pin.decimals);
   }
 
   /** Puts the text on the clipboard (resolves false when the browser won't, e.g. not https). */
@@ -215,6 +227,6 @@
 
   Nadlan.mapLinkPin = {
     parseLocation: parseLocation, isShortLink: isShortLink, createMapLinkPinControl: createMapLinkPinControl,
-    pointInside: pointInside, googleMapsLink: googleMapsLink, parcelLink: parcelLink, copyText: copyText
+    pointInside: pointInside, googleMapsLink: googleMapsLink, parcelLink: parcelLink, directionsLink: directionsLink, copyText: copyText
   };
 })(window, jQuery);

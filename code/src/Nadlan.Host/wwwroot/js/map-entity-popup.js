@@ -46,6 +46,8 @@
             "<button type=\"button\" class=\"btn btn-small\" data-files=\"" + a.assetId + "\">Files</button>" +
             "<button type=\"button\" class=\"btn btn-small\" data-history=\"" + a.assetId + "\">History</button>" +
           "</span>" +
+          // The Asset's own photos and videos (remark 13), filled in by loadAssetMedia; a set of its own for the viewer.
+          "<div class=\"card-asset-media\" data-asset-media=\"" + a.assetId + "\" data-view-set hidden></div>" +
           "</li>";
       }).join("") + "</ul>";
     }
@@ -64,7 +66,11 @@
             "<span class=\"card-title\">Parcel</span>" +
             "<span class=\"card-actions\">" +
               "<button type=\"button\" data-action=\"edit-parcel\" hidden>Edit</button>" +
-              "<button type=\"button\" data-action=\"location\" title=\"Copy a Google Maps link with a pin in this parcel - to send to people without GreekPlot\">Location</button>" +
+              // Location (remark 14): copy the Google Maps link / open directions to the same pin.
+              "<button type=\"button\" class=\"card-icon\" data-action=\"location\" title=\"Copy a Google Maps link with a pin in this parcel - to send to people without GreekPlot\" aria-label=\"Copy the location link\">" +
+                "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M5 15V5a2 2 0 0 1 2-2h8\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg></button>" +
+              "<button type=\"button\" class=\"card-icon\" data-action=\"directions\" title=\"Directions in Google Maps from where you are to this parcel (opens a new tab - the Maps app on a phone)\" aria-label=\"Directions to this parcel\">" +
+                "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 2 21 12 12 22 3 12z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"/><path d=\"M9 14v-3h5M12 8l3 3-3 3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button>" +
               "<button type=\"button\" data-action=\"history\">History</button>" +
               "<button type=\"button\" data-action=\"expand\">Expand</button>" +
               "<button type=\"button\" class=\"card-icon\" data-action=\"pin\" aria-pressed=\"false\" title=\"Pin: keep this card while you click other parcels\">📌</button>" +
@@ -80,10 +86,10 @@
           "<div class=\"card-section card-owners\" hidden><div class=\"card-section-head\"><span>Legal owners</span>" +
             "<button type=\"button\" class=\"btn btn-small\" data-action=\"add-owner\" hidden>+ Add</button></div>" +
             "<div class=\"card-owners-slot\"></div></div>" +
-          "<div class=\"card-section\"><div class=\"card-section-head\"><span>Parcel files</span>" +
+          "<div class=\"card-section card-section-files\"><div class=\"card-section-head\"><span>Parcel files</span>" +
             "<button type=\"button\" class=\"btn btn-small\" data-action=\"parcel-files\">Files</button></div>" +
-            "<div class=\"card-thumbs\"></div></div>" +
-          "<div class=\"card-section\"><div class=\"card-section-head\"><span>Assets</span>" +
+            "<div class=\"card-thumbs\" data-view-set></div></div>" +
+          "<div class=\"card-section card-section-assets\"><div class=\"card-section-head\"><span>Assets</span>" +
             "<button type=\"button\" class=\"btn btn-small btn-primary\" data-action=\"create-asset\" hidden>+ Create asset</button></div>" +
             "<div class=\"card-assets-slot muted\">Loading…</div></div>" +
         "</section>");
@@ -108,12 +114,25 @@
 
         Nadlan.api.get("/api/parcels/" + state.parcelId + "/assets").then(function (assets) {
           $card.find(".card-assets-slot").removeClass("muted").html(assetsHtml(assets));
+          loadAssetMedia(assets);
         }, function (err) { $card.find(".card-assets-slot").html("<span class=\"error\">" + f.escapeHtml(err.message) + "</span>"); });
 
         loadThumbs();
       }
 
       // Media first (Appendix 1 §5.1): up to 6 image/video thumbnails of the Parcel's own files.
+      // Under each Asset's row: up to 6 of its photos / videos (only those the user may see - the files API filters).
+      function loadAssetMedia(assets) {
+        if (!(Nadlan.clientConfig || {}).storageConfigured) { return; }
+        assets.forEach(function (a) {
+          Nadlan.api.get("/api/files", { attachedToType: "Asset", attachedToId: a.assetId }).then(function (files) {
+            var media = files.filter(function (x) { var k = Nadlan.fileKind(x); return k === "image" || k === "video"; }).slice(0, 6);
+            $card.find("[data-asset-media=" + a.assetId + "]").prop("hidden", !media.length)
+              .html(media.length ? "<div class=\"thumb-strip\">" + media.map(Nadlan.renderFileCard).join("") + "</div>" : "");
+          }, function () { /* the row stays without photos */ });
+        });
+      }
+
       function loadThumbs() {
         var $thumbs = $card.find(".card-thumbs");
         if (!(Nadlan.clientConfig || {}).storageConfigured) { $thumbs.html("<span class=\"muted\">Storage not configured</span>"); return; }
@@ -201,22 +220,42 @@
         Nadlan.historyDialog.open({ entityType: "Asset", entityId: assetId, title: "Asset #" + assetId + " - history" });
       });
       // A Google Maps link with a pin inside the Parcel, on the clipboard (no GreekPlot account needed to open it).
+      function parcelGeometry() {
+        var geometry = state.details && state.details.geometry;
+        return geometry ? Promise.resolve(geometry) : Nadlan.api.get("/api/parcels/" + state.parcelId).then(function (d) { return d.geometry; });
+      }
       $card.on("click", "[data-action=location]", function () {
         var $button = $(this);
-        var geometry = state.details && state.details.geometry;
-        var got = geometry ? Promise.resolve(geometry) : Nadlan.api.get("/api/parcels/" + state.parcelId).then(function (d) { return d.geometry; });
-        got.then(function (g) {
+        parcelGeometry().then(function (g) {
           var link = Nadlan.mapLinkPin.parcelLink(g);
           return Nadlan.mapLinkPin.copyText(link).then(function (copied) {
             if (!copied) { window.prompt("Copy this Google Maps link:", link); return; }
-            $button.text("Copied ✓").attr("data-link", link);
-            setTimeout(function () { $button.text("Location"); }, 2000);
+            $button.addClass("done").attr({ "data-link": link, title: "Copied ✓" });
+            setTimeout(function () { $button.removeClass("done").attr("title", "Copy a Google Maps link with a pin in this parcel - to send to people without GreekPlot"); }, 2000);
           });
         }).catch(function (err) { Nadlan.dialog.showError("Could not make the link", err); });
+      });
+      // Directions: the tab opens during the click (a later one would be blocked as a pop-up); it gets its address once
+      // the parcel's shape is known - at once when the card already has it.
+      $card.on("click", "[data-action=directions]", function () {
+        var geometry = state.details && state.details.geometry;
+        if (geometry) {
+          window.open(Nadlan.mapLinkPin.directionsLink(geometry), "_blank", "noopener");
+          return;
+        }
+        var tab = window.open("about:blank", "_blank");
+        parcelGeometry().then(function (g) {
+          if (tab) { tab.opener = null; tab.location.href = Nadlan.mapLinkPin.directionsLink(g); }
+        }).catch(function (err) { if (tab) { tab.close(); } Nadlan.dialog.showError("Could not make the link", err); });
       });
       $card.on("click", "[data-action=history]", function () {
         Nadlan.historyDialog.open({ entityType: "Parcel", entityId: state.parcelId,
           title: "Parcel " + (state.parcel.registryId || "#" + state.parcelId) + " - history" });
+      });
+      // A click on an Asset's photo (not its ▶ / ⤢, which open the viewer) opens that Asset's files.
+      $card.on("click", ".card-asset-media .file-card", function () {
+        var assetId = Number($(this).closest("[data-asset-media]").data("assetMedia"));
+        options.onOpenFiles("Asset", assetId, "Asset #" + assetId + " - files", state.parcelId);
       });
       $card.on("click", "[data-files]", function () {
         var assetId = Number($(this).data("files"));

@@ -120,6 +120,12 @@
       }
     });
 
+    // Distance tool (remark 17): while measuring, map clicks add points instead of opening Parcel cards.
+    Nadlan.mapMeasure.createMeasureControl(map, {
+      setStatus: setStatus,
+      onActiveChange: function (active) { setDrawing(active); }
+    });
+
     // Quick OT/plot entry (Parcels view, Parcel editors): a click opens the small OT/plot form instead of the card.
     var $quick = $("[data-role=quick-entry]");
     var $digits = $("[data-role=ot-digits]").val(Nadlan.parcelQuickEntry.getDigits() || "");
