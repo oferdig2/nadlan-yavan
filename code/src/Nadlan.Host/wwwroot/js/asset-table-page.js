@@ -10,6 +10,7 @@
 
   var NO_CONTACT = "Your user has no contact - ask an admin to link one.";
   var CURRENCY_SIGNS = { "€": "EUR", "$": "USD", "£": "GBP" };
+  var CURRENCIES = ["EUR", "USD", "GBP"]; // as AssetService.Currencies (the server checks again)
 
   var ref = null;           // /api/reference
   var meta = {};            // canCreate, noContact, editParcels
@@ -365,7 +366,9 @@
       var p = m && !(m[1] && m[3]) ? Nadlan.format.parseNumber(m[2]) : NaN;
       if (p === null || isNaN(p)) { return { error: "Not a price: " + text }; }
       var sign = m[1] || m[3] || null;
-      return { value: String(p), currency: sign ? CURRENCY_SIGNS[sign] || sign.toUpperCase() : null };
+      var currency = sign ? CURRENCY_SIGNS[sign] || sign.toUpperCase() : null;
+      if (currency && CURRENCIES.indexOf(currency) < 0) { return { error: "Currency must be " + CURRENCIES.join(", ") + ": " + text }; }
+      return { value: String(p), currency: currency };
     }
 
     return { value: t === "" ? null : t };

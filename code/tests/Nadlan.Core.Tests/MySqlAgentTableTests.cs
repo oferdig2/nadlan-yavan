@@ -352,6 +352,13 @@ public class MySqlAgentTableTests : IClassFixture<ScratchMySql>
         var row = (await new MySqlAssetTableStore(_db).GetAsync(agent.Scope, w.OwnInA))!;
         Assert.Equal((withdrawn, 250000m, "USD", 95.5m, "sea view"), (row.AssetStatusId, row.AskPrice!.Value, row.CurrencyCode, row.HouseSqm!.Value, row.Remarks));
 
+        // Only real currencies (review 2026-10-26: "95000 xyz" was saved as XYZ). The price stays as it was.
+        Assert.Equal("ASSET_CURRENCY_INVALID", (await Assert.ThrowsAsync<DomainValidationException>(() =>
+            service.SetFieldAsync(agent, w.OwnInA, AssetTableFields.Price, "95000", "XYZ"))).Code);
+        Assert.Equal((250000m, "USD"), ((await new MySqlAssetTableStore(_db).GetAsync(agent.Scope, w.OwnInA))!.AskPrice!.Value,
+            (await new MySqlAssetTableStore(_db).GetAsync(agent.Scope, w.OwnInA))!.CurrencyCode));
+        await service.SetFieldAsync(agent, w.OwnInA, AssetTableFields.Price, "260000", "GBP");
+
         // Granted for viewing only: no cell can be saved; hidden ones don't exist.
         await Assert.ThrowsAsync<ForbiddenException>(() => service.SetFieldAsync(agent, w.GrantedInA, AssetTableFields.Remarks, "x", null));
         await Assert.ThrowsAsync<EntityNotFoundException>(() => service.SetFieldAsync(agent, w.Agent2InA, AssetTableFields.Remarks, "x", null));
