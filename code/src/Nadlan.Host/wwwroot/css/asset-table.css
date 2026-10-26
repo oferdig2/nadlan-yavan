@@ -1,0 +1,108 @@
+/* The Asset table (assets.html): a dense, keyboard-first data-entry grid filling the page under the header. */
+
+.asset-table-body { display: flex; flex-direction: column; height: 100%; }
+.asset-table-body .app-header { flex: none; }
+
+/* Pages: Map | Table, as the map's view switch (links instead of buttons). */
+.page-switch a {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text);
+  text-decoration: none;
+}
+.page-switch a.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.table-status { margin-left: auto; font-size: 13px; color: var(--muted); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-status.error { color: var(--error); }
+.header-admin:not([hidden]) { margin-left: 0; }
+
+/* Room for a later side panel (a small map): the table is the flexible part of this row. */
+.asset-table-layout { flex: 1; min-height: 0; display: flex; }
+.asset-table-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 10px 16px 6px; gap: 8px; }
+.table-empty { padding: 24px; color: var(--muted); }
+
+.table-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.table-toolbar h1 { font-size: 17px; margin: 0 8px 0 0; }
+.table-toolbar .input { width: auto; }
+.table-toolbar .table-search { width: 240px; }
+.table-toolbar [data-act=add] { margin-left: auto; }
+.table-count { font-size: 13px; }
+
+.asset-grid-wrap { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+
+.asset-grid { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
+.asset-grid th, .asset-grid td { border-bottom: 1px solid var(--border); padding: 0; text-align: left; white-space: nowrap; }
+.asset-grid th {
+  position: sticky; top: 0; z-index: 2;
+  background: #f1f5f9; color: var(--muted); font-weight: 600; font-size: 12px;
+  padding: 6px 8px;
+}
+.asset-grid th[aria-sort] { padding: 0; }
+.sort-btn { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 6px 8px; cursor: pointer; }
+.sort-btn:hover, .sort-btn:focus-visible { color: var(--accent); }
+.sort-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sort-mark { font-size: 10px; }
+
+.asset-grid td { position: relative; height: 30px; vertical-align: middle; }
+.asset-grid td .cell-value { display: block; padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; }
+.asset-grid tbody tr:hover td { background: #f8fafc; }
+.asset-grid td:focus { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 1; }
+.asset-grid td.editable { cursor: cell; }
+.asset-grid td.editable:hover .cell-value { box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+.asset-grid td.locked .cell-value::after { content: " \1F512"; font-size: 10px; opacity: .45; }
+.asset-grid td.empty-row { padding: 16px 8px; white-space: normal; }
+
+/* Sticky KAEK column: on a narrow screen the other columns scroll under it. */
+.asset-grid .col-kaek { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+.asset-grid th.col-kaek { z-index: 3; background: #f1f5f9; }
+.asset-grid .col-kaek .kaek { font-variant-numeric: tabular-nums; }
+.asset-grid .col-num, .asset-grid .col-money { text-align: right; }
+.asset-grid .col-num .cell-value, .asset-grid .col-money .cell-value { font-variant-numeric: tabular-nums; }
+.asset-grid .col-num { width: 64px; }
+.asset-grid .col-money { width: 110px; }
+.asset-grid .col-status { width: 120px; }
+.asset-grid .col-remarks { min-width: 180px; max-width: 320px; }
+.asset-grid .col-files { width: 64px; }
+.asset-grid .col-files .cell-value { padding: 2px 8px; }
+
+/* Save states, on the cell itself. */
+.asset-grid td.is-saving .cell-value { color: var(--muted); font-style: italic; }
+.asset-grid td.is-saving::after {
+  content: ""; position: absolute; right: 3px; top: 50%; width: 8px; height: 8px; margin-top: -4px;
+  border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: cell-spin .7s linear infinite;
+}
+.asset-grid td.is-saved { background: #dcfce7 !important; transition: background .6s; }
+.asset-grid td.is-saved::after { content: "\2713"; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); color: #15803d; font-size: 11px; }
+.asset-grid td.is-error { box-shadow: inset 0 0 0 2px var(--error); background: #fef2f2; }
+.asset-grid td.is-error::after { content: "!"; position: absolute; right: 5px; top: 50%; transform: translateY(-50%); color: var(--error); font-weight: 700; }
+@keyframes cell-spin { to { transform: rotate(360deg); } }
+
+/* The editor sits on the cell; a textarea (remarks) grows downwards over the next rows. */
+.asset-grid td.editing { z-index: 4; }
+.asset-grid .cell-editor {
+  position: absolute; left: 0; top: 0; width: 100%; min-width: 100%; height: 100%;
+  margin: 0; padding: 3px 7px; border: 2px solid var(--accent); border-radius: 0;
+  font: inherit; background: var(--surface); color: var(--text); outline: none;
+}
+.asset-grid .col-num .cell-editor, .asset-grid .col-money .cell-editor { text-align: right; }
+.asset-grid .col-money .cell-editor { min-width: 170px; left: auto; right: 0; text-align: left; }
+.asset-grid textarea.cell-editor { height: auto; min-height: 84px; min-width: 280px; resize: vertical; box-shadow: 0 6px 18px rgba(15, 23, 42, .18); }
+
+.table-help { font-size: 12px; }
+
+/* "+ Add an Asset" */
+.add-asset .add-or { text-align: center; margin: -2px 0; }
+.add-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.add-table th, .add-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+.add-table th { color: var(--muted); font-weight: 600; }
+
+@media (max-width: 900px) {
+  .asset-table-main { padding: 8px 8px 4px; }
+  .table-toolbar .table-search { flex: 1 1 160px; width: auto; }
+  .table-toolbar h1 { display: none; }
+  .table-help { display: none; }
+  .table-status { max-width: 30%; }
+}

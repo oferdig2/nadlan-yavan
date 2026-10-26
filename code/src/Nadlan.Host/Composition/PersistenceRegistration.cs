@@ -30,6 +30,7 @@ public static class PersistenceRegistration
         services.AddSingleton<IGeographicAreaStore, MySqlGeographicAreaStore>();
         services.AddSingleton<ICountryStore, MySqlCountryStore>();
         services.AddSingleton<IAssetStore, MySqlAssetStore>();
+        services.AddSingleton<IAssetTableStore, MySqlAssetTableStore>();
         services.AddSingleton<IContactStore, MySqlContactStore>();
         services.AddSingleton<IPortfolioStore, MySqlPortfolioStore>();
         services.AddSingleton<IReferenceDataStore, MySqlReferenceDataStore>();
@@ -56,6 +57,7 @@ public static class PersistenceRegistration
     {
         services.AddSingleton<ParcelService>();
         services.AddSingleton<AssetService>();
+        services.AddSingleton<AssetTableService>();
         services.AddSingleton<ContactService>();
         services.AddSingleton<PortfolioService>();
         services.AddSingleton<LegalOwnerService>();

@@ -1,10 +1,13 @@
 using Nadlan.Core.Activity;
+using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Text;
 using Nadlan.Core.Validation;
 
 namespace Nadlan.Core.Security;
 
-public sealed record UserInput(string? Email, string? DisplayName, long? ContactId, int SecurityRoleId, bool IsActive, bool MustChangePassword);
+/// <param name="AreaIds">The user's geographic areas (used without ALL_AREAS); null = leave them as they are.</param>
+public sealed record UserInput(string? Email, string? DisplayName, long? ContactId, int SecurityRoleId, bool IsActive, bool MustChangePassword,
+    IReadOnlyList<int>? AreaIds = null);
 
 /// <summary>
 /// User administration (Appendix 1 §9.3): create/edit/delete users, revoke login (deactivate), passwords and links,
@@ -22,11 +25,13 @@ public sealed class UserAdminService
     private readonly ISignInMethods? _signIn;
     private readonly AccessPolicy? _policy;
     private readonly bool _allowUserManagers;
+    private readonly IGeographicAreaStore? _areas;
 
     public UserAdminService(IUserStore users, IRoleStore roles, IResourceAccessStore grants, AuthService auth,
         IActivityLog? activity = null, TimeProvider? clock = null, IApiTokenStore? apiTokens = null, ISignInMethods? signIn = null,
-        AccessPolicy? policy = null, bool allowUserManagers = false)
+        AccessPolicy? policy = null, bool allowUserManagers = false, IGeographicAreaStore? areas = null)
     {
+        _areas = areas;
         _users = users;
         _roles = roles;
         _grants = grants;
@@ -93,11 +98,11 @@ public sealed class UserAdminService
             throw new ForbiddenException("USERS_ABOVE_YOU", $"{target.Email} has rights you don't have ({role.Name}). Only an Admin can change that account.");
         }
 
-        // A linked Contact makes that Contact's Assets the user's own (edit, prices, files): signing in as them - with a
-        // password the manager set, or a token - would give the manager all of it, whatever the role says.
+        // A linked Contact is the Managing Contact of the Assets the user creates (it gives no access since 2026-10-25, but
+        // signing in as them would act in that Contact's name): Admin only, as before.
         if (target.ContactId is not null)
         {
-            throw new ForbiddenException("USERS_ABOVE_YOU", $"{target.Email} is linked to a Contact (and so owns its Assets). Only an Admin can change that account.");
+            throw new ForbiddenException("USERS_ABOVE_YOU", $"{target.Email} is linked to a Contact. Only an Admin can change that account.");
         }
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -134,12 +139,12 @@ public sealed class UserAdminService
         }
     }
 
-    // The Contact link decides whose "own" Assets a user gets: only an Admin sets or changes it.
+    // The Contact link names the Managing Contact of the Assets the user creates: only an Admin sets or changes it.
     private static void RequireMayLinkContact(UserAccess admin, long? contactId, long? existing)
     {
         if (!admin.IsAdmin && contactId != existing)
         {
-            throw new ForbiddenException("USERS_CONTACT_ADMIN_ONLY", "Only an Admin can link a user to a Contact: it makes that Contact's Assets theirs.");
+            throw new ForbiddenException("USERS_CONTACT_ADMIN_ONLY", "Only an Admin can link a user to a Contact: their new Assets are managed in that Contact's name.");
         }
     }
 
@@ -221,6 +226,72 @@ public sealed class UserAdminService
         }
     }
 
+    // ---- Areas per user (owner, 2026-10-25) ---------------------------------------------------------------------
+
+    /// <summary>The role gives every geographic area (ALL_AREAS; the Admin role has everything).</summary>
+    public static bool RoleHasAllAreas(SecurityRole role)
+        => role.IsSystem || role.Code == SecurityRoles.Admin || role.PermissionCodes.Contains(Permissions.AllAreas, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What the user really sees: null = every area (the role), else exactly these areas.</summary>
+    private static IReadOnlyList<int>? EffectiveAreas(SecurityRole role, IReadOnlyList<int> areaIds)
+        => RoleHasAllAreas(role) ? null : areaIds.Distinct().Order().ToList();
+
+    private static bool SameAreas(IReadOnlyList<int>? a, IReadOnlyList<int>? b)
+        => a is null ? b is null : b is not null && a.Distinct().Order().SequenceEqual(b.Distinct().Order());
+
+    /// <summary>
+    /// The area rules, enforced here (the dialog only mirrors them): no one changes their own areas - not even an Admin -
+    /// and no one gives areas they don't have themselves (an editor with ALL_AREAS may give any). Changing a role to one
+    /// without ALL_AREAS counts as giving the user's areas. Returns the list to store, or null when it stays as it is.
+    /// </summary>
+    private async Task<IReadOnlyList<int>?> AreasToSaveAsync(UserAccess admin, AppUser? existing, SecurityRole role, IReadOnlyList<int>? requested,
+        CancellationToken ct)
+    {
+        var stored = existing?.AreaIds ?? Array.Empty<int>();
+        var wanted = (requested ?? stored).Distinct().Order().ToList();
+        var existingRole = existing is null ? null : await _roles.GetRoleAsync(existing.SecurityRoleId, ct);
+        var before = existingRole is null ? Array.Empty<int>() : EffectiveAreas(existingRole, stored);
+        var after = EffectiveAreas(role, wanted);
+        var listChanged = !SameAreas(stored, wanted);
+        if (!listChanged && SameAreas(before, after))
+        {
+            return null;
+        }
+
+        if (existing is not null && existing.UserId == admin.UserId)
+        {
+            throw new ForbiddenException("USER_AREAS_SELF", "You can't change your own areas (or take a role that changes them). Ask another Admin.");
+        }
+
+        if (_areas is not null && wanted.Count > 0)
+        {
+            var known = (await _areas.ListAsync(ct)).Select(a => a.GeographicAreaId).ToHashSet();
+            var unknown = wanted.Where(id => !known.Contains(id)).ToList();
+            if (unknown.Count > 0)
+            {
+                throw new DomainValidationException("USER_AREA_INVALID", $"Unknown geographic area #{string.Join(", #", unknown)}.");
+            }
+        }
+
+        if (!admin.AllAreas)
+        {
+            if (after is null && before is not null)
+            {
+                throw new ForbiddenException("USER_AREAS_NOT_YOURS", "You can't give access to all regions: you don't have it yourself.");
+            }
+
+            // What the user gets that they didn't have: every one of their areas when the role stops giving all of them.
+            var given = after is null ? Array.Empty<int>() : before is null ? after : after.Except(before).ToList();
+            var notMine = given.Where(id => !admin.AreaIds.Contains(id)).ToList();
+            if (notMine.Count > 0)
+            {
+                throw new ForbiddenException("USER_AREAS_NOT_YOURS", $"You can only give areas you have yourself (not #{string.Join(", #", notMine)}).");
+            }
+        }
+
+        return listChanged ? wanted : null;
+    }
+
     /// <summary>A server admin's email (<see cref="MachineAdmins"/>) on a new or renamed account is for server admins only.</summary>
     private static void RequireMayUseEmail(UserAccess admin, string email)
     {
@@ -253,6 +324,7 @@ public sealed class UserAdminService
         RequireMayAssign(admin, role);
         RequireMayLinkContact(admin, input.ContactId, existing: null);
         RequireMayUseEmail(admin, email);
+        var areas = await AreasToSaveAsync(admin, existing: null, role, input.AreaIds, ct);
         if (await _users.GetByEmailAsync(email, ct) is not null)
         {
             throw new DomainValidationException("USER_EMAIL_EXISTS", $"A user with {email} already exists.");
@@ -284,8 +356,13 @@ public sealed class UserAdminService
             throw new DomainValidationException("USER_CONTACT_LINKED", "That Contact is already linked to another user.");
         }
 
+        if (areas is { Count: > 0 })
+        {
+            await _users.SetAreasAsync(id, areas, ct);
+        }
+
         await AuditAsync(id, ActivityActions.UserCreated, $"User {email} created as {role.Name}{(hash is null ? "" : " with a password")}.",
-            new { role = role.Code, input.ContactId }, ct);
+            new { role = role.Code, input.ContactId, areaIds = areas }, ct);
         return await GetUserAsync(id, ct);
     }
 
@@ -318,6 +395,8 @@ public sealed class UserAdminService
             throw new DomainValidationException("USER_LAST_ADMIN", LastAdminMessage);
         }
 
+        var areas = await AreasToSaveAsync(admin, existing, role, input.AreaIds, ct);
+
         var updated = existing with
         {
             Email = email,
@@ -342,11 +421,17 @@ public sealed class UserAdminService
             throw new DomainValidationException("USER_CONTACT_LINKED", "That Contact is already linked to another user.");
         }
 
+        if (areas is not null)
+        {
+            await _users.SetAreasAsync(userId, areas, ct);
+        }
+
         var changes = new List<string>();
         if (existing.Email != email) { changes.Add($"email {existing.Email} → {email}"); }
         if (existing.SecurityRoleId != role.SecurityRoleId) { changes.Add($"role {existing.RoleName} → {role.Name}"); }
         if (existing.IsActive != input.IsActive) { changes.Add(input.IsActive ? "login re-enabled" : "login revoked (deactivated)"); }
         if (existing.ContactId != input.ContactId) { changes.Add("linked Contact changed"); }
+        if (areas is not null) { changes.Add(areas.Count == 0 ? "areas removed" : $"areas set to #{string.Join(", #", areas)}"); }
         if (existing.DisplayName != name) { changes.Add("name changed"); }
         if (existing.MustChangePassword != updated.MustChangePassword) { changes.Add(updated.MustChangePassword ? "must change password" : "no forced password change"); }
         if (changes.Count > 0)

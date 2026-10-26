@@ -39,7 +39,7 @@ public sealed class MySqlAssetStore : IAssetStore
         await using var conn = await _db.OpenAsync(ct);
         var asset = await conn.QuerySingleOrDefaultAsync<Asset>(new CommandDefinition("""
             SELECT asset_id, managing_contact_id, property_type_id, asset_status_id, ask_price, currency_code,
-                   house_sqm, special_conditions, remarks, is_exclusive, created_utc, updated_utc
+                   house_sqm, special_conditions, remarks, is_exclusive, created_by_user_id, created_utc, updated_utc
             FROM asset WHERE asset_id = @assetId
             """, new { assetId }, cancellationToken: ct));
         if (asset is null)

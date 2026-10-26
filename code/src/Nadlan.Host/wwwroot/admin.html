@@ -16,7 +16,8 @@
 <body class="admin-body">
   <header class="app-header">
     <span class="app-title">GreekPlot</span>
-    <a class="btn" href="/">← Map</a>
+    <a class="btn" href="/" data-requires="USE_MAP" hidden>← Map</a>
+    <a class="btn" href="/assets.html" data-requires="USE_ASSET_TABLE" hidden>Table</a>
     <nav class="view-switch admin-tabs" aria-label="Admin sections">
       <!-- Two groups first (remark 10): users | contacts | the rest. class="tab-group-start" draws the divider before a group. -->
       <button type="button" data-tab="users" data-requires="MANAGE_USERS" hidden>Users</button>

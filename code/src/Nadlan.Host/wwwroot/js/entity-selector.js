@@ -41,6 +41,16 @@
           }));
         }, function () { respond([]); });
       },
+      // The list belongs inside the input's dialog (its .ui-front), looked up when a search starts: forms are built
+      // before they go into a dialog, so at creation there is none and the list landed on <body>. There a click in the
+      // box made jQuery UI raise the dialog above the open list, hiding it (review 2026-10-26).
+      search: function () {
+        var $front = $input.closest(".ui-front");
+        var target = $front.length ? $front : $(document.body);
+        if ($input.autocomplete("widget").parent()[0] !== target[0]) {
+          $input.autocomplete("option", "appendTo", target);
+        }
+      },
       select: function (event, ui) {
         options.onSelect(ui.item.item);
         if (options.clearOnSelect) {

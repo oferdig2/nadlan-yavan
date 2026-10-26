@@ -11,6 +11,9 @@ public sealed class AssetService
 {
     public const string DefaultCurrency = "EUR";
 
+    /// <summary>The currencies a price may be in (review 2026-10-26: any 3 letters were taken, "95000 xyz" showed as XYZ).</summary>
+    public static readonly IReadOnlyList<string> Currencies = new[] { "EUR", "USD", "GBP" };
+
     private readonly IAssetStore _assets;
     private readonly IParcelStore _parcels;
     private readonly IContactStore _contacts;
@@ -131,9 +134,10 @@ public sealed class AssetService
         }
 
         var currency = a.AskPrice is null ? null : (string.IsNullOrWhiteSpace(a.CurrencyCode) ? DefaultCurrency : a.CurrencyCode.Trim().ToUpperInvariant());
-        if (currency is { Length: not 3 })
+        // An Asset that already has another currency keeps it (as inactive statuses): only a new choice is checked.
+        if (currency is not null && !Currencies.Contains(currency) && currency != existing?.CurrencyCode)
         {
-            throw new DomainValidationException("ASSET_CURRENCY_INVALID", "Currency must be a 3-letter code such as EUR.");
+            throw new DomainValidationException("ASSET_CURRENCY_INVALID", $"Currency must be {string.Join(", ", Currencies)}.");
         }
 
         return a with

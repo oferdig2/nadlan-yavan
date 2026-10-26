@@ -146,21 +146,7 @@ public static class PresentationEndpoints
                     }
                 }
 
-                items.Add(new
-                {
-                    assetId = g.Key,
-                    propertyType = first.PropertyTypeName,
-                    area = first.GeographicArea,
-                    kaek = g.Where(a => !a.RegistryIdIsProvisional).Select(a => a.RegistryId).FirstOrDefault(),
-                    statusName = first.StatusName,
-                    statusColor = first.StatusColor,
-                    askPrice = first.PriceVisible ? first.AskPrice : null,
-                    currencyCode = first.PriceVisible ? first.CurrencyCode : null,
-                    houseSqm = asset?.HouseSqm,
-                    plotSqm,
-                    polygons = g.Select(a => GeoJson.Polygon(a.Geometry)),
-                    media = await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct),
-                });
+                items.Add(Item(g.ToList(), asset, plotSqm, await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct)));
             }
 
             // No Portfolio name or notes: they are internal ("Deal with X"). The title is the presenter's, from a sealed
@@ -168,6 +154,30 @@ public static class PresentationEndpoints
             var title = items.Count > 0 ? OpenTitle(protection, t, portfolioId, portfolioId is null ? order : null) : null;
             return Results.Ok(new { title, items, total = all.Count, truncated = all.Count > groups.Count });
         });
+    }
+
+    /// <summary>
+    /// One stop of the presentation: the Asset (one row per Parcel) as a buyer may read it. Never people - no Managing
+    /// Contact, creator, uploader or any user / contact name, phone or email (owner, 2026-10-25; tested).
+    /// </summary>
+    internal static object Item(IReadOnlyList<AssetMapItem> rows, Asset? asset, decimal? plotSqm, List<object> media)
+    {
+        var first = rows[0];
+        return new
+        {
+            assetId = first.AssetId,
+            propertyType = first.PropertyTypeName,
+            area = first.GeographicArea,
+            kaek = rows.Where(a => !a.RegistryIdIsProvisional).Select(a => a.RegistryId).FirstOrDefault(),
+            statusName = first.StatusName,
+            statusColor = first.StatusColor,
+            askPrice = first.PriceVisible ? first.AskPrice : null,
+            currencyCode = first.PriceVisible ? first.CurrencyCode : null,
+            houseSqm = asset?.HouseSqm,
+            plotSqm,
+            polygons = rows.Select(a => GeoJson.Polygon(a.Geometry)),
+            media,
+        };
     }
 
     // Besides the 120 visible characters, a ceiling on what they are made of: one "character" can be a family emoji or a
@@ -294,6 +304,11 @@ public static class PresentationEndpoints
             all.AddRange(await files.ListReadyAsync(FileTargetTypes.Parcel, parcelId, ct));
         }
 
+        return Media(me, urls, all);
+    }
+
+    internal static List<object> Media(UserAccess me, IFileUrlProvider urls, IEnumerable<FileListItem> all)
+    {
         return all.Where(f => string.Equals(f.Category, CustomerCategory, StringComparison.OrdinalIgnoreCase) && me.CanSeeFileCategory(f.Category)
                               && CustomerMediaTypes.Contains(f.MimeType.Split(';')[0].Trim()))
             .Take(MaxMediaPerAsset)

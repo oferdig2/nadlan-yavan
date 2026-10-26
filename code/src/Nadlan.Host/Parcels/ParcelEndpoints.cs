@@ -83,13 +83,14 @@ public static class ParcelEndpoints
         group.MapGet("/", async ([AsParameters] ParcelQueryParams q, bool? allowSurface, UserAccess me, IParcelStore parcels,
             IGeographicAreaStore areas, ParcelCoverageService coverage, IOptions<NadlanOptions> options, CancellationToken ct) =>
         {
+            AccessPolicy.RequireMap(me);
             var query = ToQuery(q, me) with { Limit = int.MaxValue };
 
             var kindCounts = await parcels.CountByKindAsync(query, ct); // legend: each colour's count, even while unticked
             var count = CountOf(query, kindCounts);
             if (count > options.Value.Maps.MaxParcelPolygons)
             {
-                var surface = allowSurface == true && me.Scope.AllParcels;
+                var surface = allowSurface == true && me.Scope.EveryParcel; // the surface shows every Parcel: not for an area-limited user
                 return Results.Ok(new { tooMany = true, surface, count, kindCounts, coverageVersion = surface ? coverage.Current?.Version : null, items = Array.Empty<object>() });
             }
 
@@ -110,6 +111,7 @@ public static class ParcelEndpoints
         // (the 📍 beside an area name in the side panel). Only Parcels the caller may see count; a stray one far away is ignored.
         group.MapGet("/extent", async (int? areaId, UserAccess me, IParcelStore parcels, IGeographicAreaStore areas, IOptions<NadlanOptions> options, CancellationToken ct) =>
         {
+            AccessPolicy.RequireMap(me);
             if (areaId is { } id)
             {
                 var area = (await areas.ListAsync(ct)).FirstOrDefault(a => a.GeographicAreaId == id);
@@ -143,6 +145,7 @@ public static class ParcelEndpoints
         // Zoomed out, the map shows the coverage surface instead of polygons; the list then shows only this count.
         group.MapGet("/count", async ([AsParameters] ParcelQueryParams q, UserAccess me, IParcelStore parcels, ParcelCoverageService coverage, CancellationToken ct) =>
         {
+            AccessPolicy.RequireMap(me);
             var query = ToQuery(q, me);
             var kindCounts = await parcels.CountByKindAsync(query, ct);
             return Results.Ok(new
@@ -154,10 +157,11 @@ public static class ParcelEndpoints
         });
 
         // All Parcels united into one surface (per kind), for zoomed-out views. It shows where every Parcel lies,
-        // so only for users who may see all Parcels; the others see few and get their polygons at any zoom.
+        // so only for users who may see all Parcels in every area; the others see few and get their polygons at any zoom.
         group.MapGet("/coverage", (string? level, UserAccess me, ParcelCoverageService coverage) =>
         {
-            if (!me.Scope.AllParcels)
+            AccessPolicy.RequireMap(me);
+            if (!me.Scope.EveryParcel)
             {
                 return Results.Json(new { error = "COVERAGE_FORBIDDEN", message = "The overview needs permission to see all Parcels." },
                     statusCode: StatusCodes.Status403Forbidden);
@@ -258,6 +262,8 @@ public static class ParcelEndpoints
                     "Choose the geographic area for new parcels in the importer panel (update the importer from Admin > Downloads if it offers \"(none)\").");
             }
 
+            AccessPolicy.RequireArea(me, dto.GeographicAreaId); // an area-limited user (or their importer) saves only in their areas
+
             var result = await service.CreateAsync(new CreateParcelRequest
             {
                 RegistryId = dto.RegistryId,
@@ -286,6 +292,7 @@ public static class ParcelEndpoints
             ParcelCoverageService coverage, IEditVersionStore versions, CancellationToken ct) =>
         {
             await policy.RequireParcelEditAsync(me, parcelId, ct);
+            AccessPolicy.RequireArea(me, dto.GeographicAreaId); // can't move a Parcel out of the user's areas
             await using var edit = await versions.BeginEditAsync(EditTargets.Parcel, parcelId, dto.Version, ct);
             coverage.MarkDirty();
             return await ToResultAsync(await service.UpdateAsync(new UpdateParcelRequest
@@ -392,10 +399,10 @@ public static class ParcelEndpoints
         var hidden = 0;
         foreach (var o in result.Overlaps)
         {
-            if (me.Scope.AllParcels || (await policy.ParcelAsync(me, o.ParcelId, ct)).CanView) { overlaps.Add(o); } else { hidden++; }
+            if (me.Scope.EveryParcel || (await policy.ParcelAsync(me, o.ParcelId, ct)).CanView) { overlaps.Add(o); } else { hidden++; }
         }
 
-        var existingId = result.ExistingParcelId is long id && (me.Scope.AllParcels || (await policy.ParcelAsync(me, id, ct)).CanView) ? id : (long?)null;
+        var existingId = result.ExistingParcelId is long id && (me.Scope.EveryParcel || (await policy.ParcelAsync(me, id, ct)).CanView) ? id : (long?)null;
         var note = hidden > 0 ? $" ({hidden} of them you can't see)" : "";
         return result.Outcome switch
         {

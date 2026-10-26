@@ -116,7 +116,7 @@ public static class PortfolioEndpoints
     /// </summary>
     private static async Task RequireVisibleAssetsAsync(UserAccess me, AccessPolicy policy, long[]? assetIds, CancellationToken ct)
     {
-        if (assetIds is null || me.Scope.AllAssets)
+        if (assetIds is null || me.Scope.EveryAsset)
         {
             return;
         }
