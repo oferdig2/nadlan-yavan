@@ -27,14 +27,46 @@ public sealed class MySqlUserStore : IUserStore
     public async Task<AppUser?> GetAsync(long userId, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<AppUser>(new CommandDefinition($"{Select} WHERE u.user_id = @userId", new { userId }, cancellationToken: ct));
+        var user = await conn.QuerySingleOrDefaultAsync<AppUser>(new CommandDefinition($"{Select} WHERE u.user_id = @userId", new { userId }, cancellationToken: ct));
+        return user is null ? null : (await WithAreasAsync(conn, new[] { user }, ct))[0];
+    }
+
+    /// <summary>The geographic areas set on each user (app_user_area, migration 018).</summary>
+    private static async Task<List<AppUser>> WithAreasAsync(MySqlConnection conn, IReadOnlyCollection<AppUser> users, CancellationToken ct)
+    {
+        if (users.Count == 0)
+        {
+            return new List<AppUser>();
+        }
+
+        var ids = users.Select(u => u.UserId).ToList();
+        var rows = await conn.QueryAsync<(long UserId, int AreaId)>(new CommandDefinition(
+            "SELECT user_id, geographic_area_id FROM app_user_area WHERE user_id IN @ids ORDER BY user_id, geographic_area_id",
+            new { ids }, cancellationToken: ct));
+        var byUser = rows.GroupBy(r => r.UserId).ToDictionary(g => g.Key, g => (IReadOnlyList<int>)g.Select(r => r.AreaId).ToList());
+        return users.Select(u => u with { AreaIds = byUser.GetValueOrDefault(u.UserId) ?? Array.Empty<int>() }).ToList();
+    }
+
+    public async Task SetAreasAsync(long userId, IReadOnlyList<int> areaIds, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM app_user_area WHERE user_id = @userId", new { userId }, tx, cancellationToken: ct));
+        foreach (var areaId in areaIds.Distinct())
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO app_user_area (user_id, geographic_area_id) VALUES (@userId, @areaId)", new { userId, areaId }, tx, cancellationToken: ct));
+        }
+
+        await tx.CommitAsync(ct);
     }
 
     public async Task<AppUser?> GetByEmailAsync(string email, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<AppUser>(new CommandDefinition($"{Select} WHERE u.email = @email",
+        var user = await conn.QuerySingleOrDefaultAsync<AppUser>(new CommandDefinition($"{Select} WHERE u.email = @email",
             new { email = email.Trim().ToLowerInvariant() }, cancellationToken: ct));
+        return user is null ? null : (await WithAreasAsync(conn, new[] { user }, ct))[0];
     }
 
     public async Task<IReadOnlyList<AppUser>> SearchAsync(string? text, bool includeInactive, int limit, CancellationToken ct = default)
@@ -48,7 +80,7 @@ public sealed class MySqlUserStore : IUserStore
             ORDER BY u.display_name, u.email
             LIMIT @limit
             """, new { t, includeInactive, limit }, cancellationToken: ct));
-        return rows.ToList();
+        return await WithAreasAsync(conn, rows.ToList(), ct);
     }
 
     public async Task<long> InsertAsync(AppUser user, long? createdByUserId, CancellationToken ct = default)

@@ -13,7 +13,7 @@ namespace Nadlan.Host.Admin;
 public static class UserAdminEndpoints
 {
     public sealed record UserDto(string? Email, string? DisplayName, long? ContactId, int SecurityRoleId, bool? IsActive,
-        bool? MustChangePassword, string? Password);
+        bool? MustChangePassword, string? Password, int[]? AreaIds = null);
 
     public sealed record SetPasswordDto(string? Password, bool? MustChangePassword);
 
@@ -155,7 +155,7 @@ public static class UserAdminEndpoints
     }
 
     private static UserInput ToInput(UserDto dto)
-        => new(dto.Email, dto.DisplayName, dto.ContactId, dto.SecurityRoleId, dto.IsActive ?? true, dto.MustChangePassword ?? true);
+        => new(dto.Email, dto.DisplayName, dto.ContactId, dto.SecurityRoleId, dto.IsActive ?? true, dto.MustChangePassword ?? true, dto.AreaIds);
 
     // Never the password hash.
     private static object ToDto(AppUser u) => new
@@ -168,6 +168,7 @@ public static class UserAdminEndpoints
         u.SecurityRoleId,
         u.RoleCode,
         u.RoleName,
+        u.AreaIds, // only count when the role lacks ALL_AREAS
         u.HasPassword,
         u.MustChangePassword,
         u.IsActive,

@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Nadlan.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Nadlan.Core\Nadlan.Core.csproj" />
     <ProjectReference Include="..\Nadlan.Persistence.MySql\Nadlan.Persistence.MySql.csproj" />
     <ProjectReference Include="..\Nadlan.Config.MySql\Nadlan.Config.MySql.csproj" />

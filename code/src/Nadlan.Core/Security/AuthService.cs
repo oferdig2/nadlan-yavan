@@ -177,6 +177,7 @@ public sealed class AuthService
         Email = user.Email,
         DisplayName = user.DisplayName,
         ContactId = user.ContactId,
+        AreaIds = user.AreaIds,
         RoleCode = user.RoleCode,
         RoleName = user.RoleName,
         Permissions = permissions,

@@ -52,6 +52,7 @@ app.MapClientConfigEndpoints();
 app.MapReferenceEndpoints();
 app.MapParcelEndpoints();
 app.MapAssetEndpoints();
+app.MapAssetTableEndpoints();
 app.MapContactEndpoints();
 app.MapPortfolioEndpoints();
 app.MapFileEndpoints();

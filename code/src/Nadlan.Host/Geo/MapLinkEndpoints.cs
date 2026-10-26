@@ -30,7 +30,10 @@ public static partial class MapLinkEndpoints
     {
         // Signed-in users only (the fallback policy); the answer is just the address the link leads to.
         app.MapGet("/api/maps/resolve-link", async (string? url, UserAccess me, CancellationToken ct) =>
-            Results.Ok(new { url = await ResolveAsync(url, ct) }));
+        {
+            AccessPolicy.RequireMap(me);
+            return Results.Ok(new { url = await ResolveAsync(url, ct) });
+        });
     }
 
     /// <summary>The address a Google Maps share link leads to (itself when it already is a full Maps address).</summary>

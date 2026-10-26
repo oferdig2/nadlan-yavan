@@ -15,8 +15,8 @@
         "<button type=\"button\" class=\"btn btn-primary\" data-act=\"new\">+ New user</button>" +
       "</div>" +
       "<table class=\"meta-table\"><thead><tr>" +
-        "<th>Name</th><th>Email</th><th>Role</th><th>Contact</th><th>Sign-in</th><th>Status</th><th>Last sign-in</th><th></th>" +
-      "</tr></thead><tbody><tr><td colspan=\"8\" class=\"muted\">Loading…</td></tr></tbody></table>" +
+        "<th>Name</th><th>Email</th><th>Role</th><th>Areas</th><th>Contact</th><th>Sign-in</th><th>Status</th><th>Last sign-in</th><th></th>" +
+      "</tr></thead><tbody><tr><td colspan=\"9\" class=\"muted\">Loading…</td></tr></tbody></table>" +
       "<div class=\"muted meta-note\">Google sign-in works for any active user whose email is their Google account; " +
         "a password is optional. No one can sign up - add people here.</div>");
 
@@ -35,6 +35,15 @@
     }
 
     var googleEnabled = false;
+
+    // Areas column: "All" when the role has ALL_AREAS (Admin: everything), else the user's areas.
+    var allAreaRoles = {};
+    var areaNames = {};
+    function areasCell(u) {
+      if (allAreaRoles[u.securityRoleId]) { return "All"; }
+      var names = (u.areaIds || []).map(function (id) { return areaNames[id] || "#" + id; });
+      return names.length ? esc(names.join(", ")) : "<span class=\"warn\" title=\"This user sees no parcels\">None</span>";
+    }
     function signIn(u) {
       var ways = (googleEnabled ? ["Google"] : []).concat(u.hasPassword ? ["password"] : []);
       return ways.length ? esc(ways.join(" · ")) : "<span class=\"error\">none yet</span>";
@@ -51,6 +60,7 @@
         $root.find("tbody").html(users.map(function (u) {
           return "<tr class=\"" + (u.isActive ? "" : "inactive") + "\">" +
             "<td>" + esc(u.displayName) + "</td><td>" + esc(u.email) + "</td><td>" + esc(u.roleName) + "</td>" +
+            "<td>" + areasCell(u) + "</td>" +
             "<td>" + (u.contactName ? esc(u.contactName) : "<span class=\"muted\">—</span>") + "</td>" +
             "<td>" + signIn(u) + "</td>" +
             "<td>" + status(u) + "</td>" +
@@ -60,10 +70,10 @@
               "<button type=\"button\" class=\"btn btn-small\" data-access=\"" + u.userId + "\">Access</button>" +
               "<button type=\"button\" class=\"btn btn-small\" data-history=\"" + u.userId + "\" data-name=\"" + esc(u.email) + "\">History</button>" +
             "</td></tr>";
-        }).join("") || "<tr><td colspan=\"8\" class=\"muted\">No users match.</td></tr>");
+        }).join("") || "<tr><td colspan=\"9\" class=\"muted\">No users match.</td></tr>");
       }, function (err) {
         if (mine !== seq) { return; }
-        $root.find("tbody").html("<tr><td colspan=\"8\" class=\"error\">" + esc(err.message) + "</td></tr>");
+        $root.find("tbody").html("<tr><td colspan=\"9\" class=\"error\">" + esc(err.message) + "</td></tr>");
       });
     }
 
@@ -85,7 +95,17 @@
       Nadlan.historyDialog.open({ entityType: "User", entityId: Number($(this).data("history")), title: $(this).attr("data-name") + " - history" });
     });
 
-    Nadlan.api.get("/api/auth/options").then(function (o) { googleEnabled = o.googleEnabled; }, function () { /* keep false */ }).then(load);
+    Promise.all([
+      Nadlan.api.get("/api/auth/options").then(function (o) { googleEnabled = o.googleEnabled; }, function () { /* keep false */ }),
+      Nadlan.api.get("/api/admin/roles").then(function (roles) {
+        roles.forEach(function (r) {
+          allAreaRoles[r.securityRoleId] = r.isSystem || r.code === "ADMIN" || (r.permissionCodes || []).indexOf("ALL_AREAS") >= 0;
+        });
+      }, function () { /* the column then lists areas */ }),
+      Nadlan.api.get("/api/reference").then(function (ref) {
+        (ref.geographicAreas || []).forEach(function (a) { areaNames[a.id] = a.name; });
+      }, function () { /* ids instead of names */ })
+    ]).then(load);
   }
 
   Nadlan.initializeAdminUsers = initializeAdminUsers;

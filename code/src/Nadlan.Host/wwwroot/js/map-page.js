@@ -606,8 +606,21 @@
     if (!Nadlan.session.canAny(["VIEW_ALL_PARCELS", "EDIT_ALL_PARCELS"])) { setMode("assets"); }
   }
 
-  Promise.all([Nadlan.api.get("/api/config/client"), Nadlan.reference.load(), Nadlan.session.ready,
-    Nadlan.api.get("/api/parcels/extent").catch(function () { return null; })]) // no extent: the default view
+  // Without USE_MAP the map is not for this user (an Agent works in the Asset table): nothing of the map loads.
+  Nadlan.session.ready.then(function () {
+    if (!Nadlan.session.can("USE_MAP")) {
+      if (Nadlan.session.can("USE_ASSET_TABLE")) {
+        window.location.replace("/assets.html");
+      } else {
+        setStatus("Your role doesn't include the map. Ask an admin.", true);
+      }
+
+      return new Promise(function () { /* stays here */ });
+    }
+
+    return Promise.all([Nadlan.api.get("/api/config/client"), Nadlan.reference.load(), Nadlan.session.ready,
+      Nadlan.api.get("/api/parcels/extent").catch(function () { return null; })]); // no extent: the default view
+  })
     .then(function (loaded) {
       return loadGoogleMaps(loaded[0].googleMapsApiKey).then(function () { start(loaded[0], loaded[1], loaded[3]); });
     })

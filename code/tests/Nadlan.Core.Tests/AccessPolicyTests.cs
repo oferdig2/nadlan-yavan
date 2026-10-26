@@ -8,30 +8,31 @@ namespace Nadlan.Core.Tests;
 /// <summary>Permission rules from spec §8-10 and Appendix 1 §2, §10-11, checked against the scenarios.</summary>
 public class AccessPolicyTests
 {
-    private const long AgentAContact = 100;
-    private const long AgentBContact = 200;
+    internal const long AgentAContact = 100;
+    internal const long AgentBContact = 200;
 
     private static UserAccess Admin() => new() { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Admin" };
 
-    private static UserAccess Agent(long contactId) => new()
+    internal static UserAccess Agent(long contactId) => new()
     {
         UserId = contactId, ContactId = contactId, RoleCode = "AGENT",
-        Permissions = new HashSet<string> { Permissions.ViewAllParcels, Permissions.CreateAsset, Permissions.ViewOwnAsset, Permissions.EditOwnAsset,
+        // Every role of 2026-10-24 got ALL_AREAS in migration 018: these users behave as before it.
+        Permissions = new HashSet<string> { Permissions.AllAreas, Permissions.ViewAllParcels, Permissions.CreateAsset, Permissions.ViewOwnAsset, Permissions.EditOwnAsset,
             Permissions.UploadOwnAssetFile, Permissions.ViewMarketingFiles },
     };
 
     private static UserAccess Attorney() => new()
     {
         UserId = 7, RoleCode = "ATTORNEY",
-        Permissions = new HashSet<string> { Permissions.ViewLegalFiles, Permissions.ViewLegalOwners, Permissions.UploadAssignedAssetFile },
+        Permissions = new HashSet<string> { Permissions.AllAreas, Permissions.ViewLegalFiles, Permissions.ViewLegalOwners, Permissions.UploadAssignedAssetFile },
     };
 
-    // Scenario 3: one Parcel, Asset A (Agent A, 120K) and Asset B (Agent B, 135K).
-    private static (AccessPolicy Policy, FakeAccess Access) Scenario()
+    // Scenario 3: one Parcel, Asset A (created by Agent A, 120K) and Asset B (Agent B, 135K). An Agent's user id is their contact id here.
+    internal static (AccessPolicy Policy, FakeAccess Access) Scenario()
     {
         var assets = new FakeAssets();
-        assets.Rows[1] = new Asset { AssetId = 1, ManagingContactId = AgentAContact, AskPrice = 120_000, CurrencyCode = "EUR" };
-        assets.Rows[2] = new Asset { AssetId = 2, ManagingContactId = AgentBContact, AskPrice = 135_000, CurrencyCode = "EUR" };
+        assets.Rows[1] = new Asset { AssetId = 1, ManagingContactId = AgentAContact, CreatedByUserId = AgentAContact, AskPrice = 120_000, CurrencyCode = "EUR" };
+        assets.Rows[2] = new Asset { AssetId = 2, ManagingContactId = AgentBContact, CreatedByUserId = AgentBContact, AskPrice = 135_000, CurrencyCode = "EUR" };
         var access = new FakeAccess(assets);
         return (new AccessPolicy(access, assets), access);
     }
@@ -92,7 +93,7 @@ public class AccessPolicyTests
     public async Task Customer_with_a_portfolio_grant_sees_the_portfolio_and_its_assets()
     {
         var (policy, access) = Scenario();
-        var buyer = new UserAccess { UserId = 9, RoleCode = "BUYER", Permissions = new HashSet<string> { Permissions.ViewPrice } };
+        var buyer = new UserAccess { UserId = 9, RoleCode = "BUYER", Permissions = new HashSet<string> { Permissions.AllAreas, Permissions.ViewPrice } };
         access.Grant(buyer.UserId, ResourceTypes.Portfolio, 50, Permissions.ViewPortfolio);
         access.PortfolioAssets[50] = new long[] { 2 };
 
@@ -110,7 +111,7 @@ public class AccessPolicyTests
         var viewer = new UserAccess
         {
             UserId = 5, RoleCode = "GLOBAL_VIEWER",
-            Permissions = new HashSet<string> { Permissions.ViewAllAssets, Permissions.ViewAllParcels, Permissions.ViewPrice, Permissions.ViewAllPortfolios },
+            Permissions = new HashSet<string> { Permissions.AllAreas, Permissions.ViewAllAssets, Permissions.ViewAllParcels, Permissions.ViewPrice, Permissions.ViewAllPortfolios },
         };
 
         var rights = await policy.RequireAssetViewAsync(viewer, 1);
@@ -134,11 +135,15 @@ public class AccessPolicyTests
     {
         var scope = Agent(AgentAContact).Scope;
 
-        Assert.Equal(AgentAContact, scope.OwnContactId);
+        Assert.Equal(AgentAContact, scope.OwnUserId); // own = created by this user
         Assert.False(scope.AllAssets);
         Assert.True(scope.AllParcels);
         Assert.False(scope.AllPrices);
-        Assert.Null(Attorney().Scope.OwnContactId); // no own-Asset permission: a Contact alone gives nothing
+        Assert.Null(Attorney().Scope.OwnUserId); // no own-Asset permission: nothing is "own"
+        Assert.Null(scope.AreaIds); // ALL_AREAS: no area limit
+        var limited = Agent(AgentAContact) with { Permissions = Agent(AgentAContact).Permissions.Where(p => p != Permissions.AllAreas).ToHashSet(), AreaIds = new[] { 7 } };
+        Assert.Equal(new[] { 7 }, limited.Scope.AreaIds);
+        Assert.False(limited.Scope.EveryParcel); // VIEW_ALL_PARCELS, but only in area 7
     }
 
     // ---- admin guards -------------------------------------------------------------------------------------------
@@ -253,7 +258,7 @@ public class AccessPolicyTests
         var service = new UserAdminService(users, new FakeRoles(), new FakeGrants(), auth, signIn: new SignIn(googleOn));
         var me = new UserAccess { UserId = 1, RoleCode = SecurityRoles.Admin, DisplayName = "Ofer" };
 
-        var demoteSelf = () => service.UpdateAsync(me, 1, new UserInput("first.admin@example.gr", null, null, 3, true, false));
+        var demoteSelf = () => service.UpdateAsync(me, 1, new UserInput("first.admin@example.gr", null, null, 4, true, false)); // Sales: all regions, so no own-area change
         var dropOwnPassword = () => service.RemovePasswordAsync(me, 1);
         if (googleOn)
         {
@@ -375,13 +380,22 @@ public class AccessPolicyTests
 
     // ---- fakes --------------------------------------------------------------------------------------------------
 
-    private sealed class FakeAccess : IAccessStore
+    internal sealed class FakeAccess : IAccessStore
     {
         private readonly FakeAssets _assets;
         private readonly List<(long User, string Type, long Id, string Code)> _grants = new();
         public Dictionary<long, long[]> PortfolioAssets { get; } = new();
 
+        /// <summary>Geographic area of each Asset's Parcel and of each Parcel (missing = no area).</summary>
+        public Dictionary<long, int?> AssetAreas { get; } = new();
+        public Dictionary<long, int?> ParcelAreas { get; } = new();
+
+        private static bool Inside(AccessScope s, Dictionary<long, int?> areas, long id)
+            => s.AreaIds is null || (areas.GetValueOrDefault(id) is int area && s.AreaIds.Contains(area));
+
         public FakeAccess(FakeAssets assets) => _assets = assets;
+
+        public FakeAssets Assets => _assets;
 
         public void Grant(long user, string type, long id, string code) => _grants.Add((user, type, id, code));
 
@@ -391,11 +405,12 @@ public class AccessPolicyTests
             var a = _assets.Rows[assetId];
             var viaPortfolio = PortfolioAssets.Any(p => p.Value.Contains(assetId)
                 && (s.AllPortfolios || _grants.Any(g => g.User == s.UserId && g.Type == "Portfolio" && g.Id == p.Key)));
-            return Task.FromResult(s.AllAssets || a.ManagingContactId == s.OwnContactId
-                || _grants.Any(g => g.User == s.UserId && g.Type == "Asset" && g.Id == assetId) || viaPortfolio);
+            return Task.FromResult(Inside(s, AssetAreas, assetId) && (s.AllAssets || (s.OwnUserId is not null && a.CreatedByUserId == s.OwnUserId)
+                || _grants.Any(g => g.User == s.UserId && g.Type == "Asset" && g.Id == assetId) || viaPortfolio));
         }
 
-        public Task<bool> IsParcelVisibleAsync(AccessScope s, long parcelId, CancellationToken ct = default) => Task.FromResult(s.AllParcels);
+        public Task<bool> IsParcelVisibleAsync(AccessScope s, long parcelId, CancellationToken ct = default)
+            => Task.FromResult(Inside(s, ParcelAreas, parcelId) && s.AllParcels);
         public Task<bool> IsPortfolioVisibleAsync(AccessScope s, long portfolioId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<bool> IsContactVisibleAsync(AccessScope s, long contactId, CancellationToken ct = default) => throw new NotSupportedException();
 
@@ -407,7 +422,7 @@ public class AccessPolicyTests
                 && PortfolioAssets.TryGetValue(g.Id, out var ids) && ids.Contains(assetId)).Select(g => g.Code).ToHashSet());
     }
 
-    private sealed class FakeAssets : IAssetStore
+    internal sealed class FakeAssets : IAssetStore
     {
         public Dictionary<long, Asset> Rows { get; } = new();
         public Task<Asset?> GetAsync(long assetId, CancellationToken ct = default) => Task.FromResult(Rows.GetValueOrDefault(assetId));

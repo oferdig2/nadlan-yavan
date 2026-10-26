@@ -20,8 +20,9 @@ public sealed record ObjectRights(bool CanView, bool CanEdit)
 }
 
 /// <summary>
-/// Permission evaluation (spec §8, Appendix 1 §10-11): role capability + ownership (Managing Contact = user's Contact)
-/// + explicit grants (+ Portfolio grants reach the Portfolio's Assets). Admin passes everything.
+/// Permission evaluation (spec §8, Appendix 1 §10-11): role capability + ownership (the user created the Asset)
+/// + explicit grants (+ Portfolio grants reach the Portfolio's Assets), all inside the user's areas (no ALL_AREAS).
+/// Admin passes everything.
 ///
 /// An object the user may not see is reported as "not found", never "forbidden", so a competing Agent's Asset
 /// can't be discovered by probing ids (Scenario 17). Forbidden (403) is only for objects the user can see.
@@ -37,6 +38,39 @@ public sealed class AccessPolicy
         _assets = assets;
     }
 
+    // ---- Pages --------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The map's own APIs (the parcel and Asset layers, the overview surface, counts, extent, map links) need USE_MAP.
+    /// What the Asset table also uses (search behind "+", cards, files, Asset reads and saves) stays open.
+    /// </summary>
+    public static void RequireMap(UserAccess u)
+    {
+        if (!u.Has(Permissions.UseMap))
+        {
+            throw new ForbiddenException("MAP_FORBIDDEN", "Your role doesn't include the map. Use the Asset table.");
+        }
+    }
+
+    public static void RequireAssetTable(UserAccess u)
+    {
+        if (!u.Has(Permissions.UseAssetTable))
+        {
+            throw new ForbiddenException("ASSET_TABLE_FORBIDDEN", "Your role doesn't include the Asset table.");
+        }
+    }
+
+    /// <summary>A Parcel may be saved in this geographic area: one of the user's areas (an area-limited importer can't save elsewhere).</summary>
+    public static void RequireArea(UserAccess u, int? geographicAreaId)
+    {
+        if (!u.InAreas(geographicAreaId))
+        {
+            throw new ForbiddenException("PARCEL_AREA_NOT_YOURS", geographicAreaId is null
+                ? "Choose one of your geographic areas for the Parcel."
+                : "That geographic area is not one of yours.");
+        }
+    }
+
     // ---- Assets -------------------------------------------------------------------------------------------------
 
     public static bool CanCreateAsset(UserAccess u) => u.Has(Permissions.EditAllAssets) || (u.Has(Permissions.CreateAsset) && u.ContactId is not null);
@@ -49,14 +83,17 @@ public sealed class AccessPolicy
             return AssetRights.None;
         }
 
-        var isOwner = u.ContactId is long c && asset.ManagingContactId == c;
+        // Own = created by the user, for every role. The Managing Contact gives no access (owner, 2026-10-25).
+        var isOwner = asset.CreatedByUserId == u.UserId;
         if (u.IsAdmin)
         {
             return new AssetRights(true, true, true, true, isOwner, true);
         }
 
+        // An area-limited user: the SQL rule decides (an Asset outside their areas doesn't exist, even their own).
         var scope = u.Scope;
-        var visible = scope.AllAssets || (isOwner && scope.OwnContactId is not null) || await _access.IsAssetVisibleAsync(scope, assetId, ct);
+        var visible = (scope.AreaIds is null && (scope.AllAssets || (isOwner && scope.OwnUserId is not null)))
+                      || await _access.IsAssetVisibleAsync(scope, assetId, ct);
         if (!visible)
         {
             return AssetRights.None;
@@ -94,13 +131,13 @@ public sealed class AccessPolicy
         }
 
         var scope = u.Scope;
-        if (scope.AllParcels && u.Has(Permissions.EditAllParcels))
+        if (scope.EveryParcel && u.Has(Permissions.EditAllParcels))
         {
             // Sees and edits every Parcel: a grant can't add anything, so no query (a row save checks up to 50 at once).
             return new ParcelRights(true, true, true, CanCreateAsset(u));
         }
 
-        if (!scope.AllParcels && !await _access.IsParcelVisibleAsync(scope, parcelId, ct))
+        if (!scope.EveryParcel && !await _access.IsParcelVisibleAsync(scope, parcelId, ct))
         {
             return ParcelRights.None;
         }

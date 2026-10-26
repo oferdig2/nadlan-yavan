@@ -15,10 +15,11 @@
 <body>
   <header class="app-header">
     <span class="app-title">GreekPlot</span>
-    <nav class="view-switch" aria-label="Map view">
+    <nav class="view-switch" aria-label="Map view" data-requires="USE_MAP">
       <button type="button" class="active" data-view="parcels">Parcels</button>
       <button type="button" data-view="assets">Assets</button>
     </nav>
+    <a class="btn" href="/assets.html" data-requires="USE_ASSET_TABLE" title="The Asset table: enter and edit Assets in a table" hidden>Table</a>
     <button type="button" class="btn" data-tool="portfolios">Portfolios</button>
     <button type="button" class="btn" data-tool="new-parcel" data-requires="EDIT_ALL_PARCELS" hidden>+ New parcel</button>
     <span class="quick-entry-setting" data-requires="EDIT_ALL_PARCELS" hidden>

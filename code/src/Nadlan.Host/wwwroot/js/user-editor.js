@@ -19,16 +19,64 @@
     }).join("");
   }
 
+  /** The role gives every geographic area (ALL_AREAS; the Admin role has everything). */
+  function roleHasAllAreas(role) {
+    return !!role && (role.isSystem || role.code === "ADMIN" || (role.permissionCodes || []).indexOf("ALL_AREAS") >= 0);
+  }
+
+  // Areas per user (owner, 2026-10-25). The server enforces the rules; this only mirrors them: your own areas are
+  // read-only, and you can tick only areas you have yourself (all of them with ALL_AREAS).
+  function areasField(areas, user) {
+    var me = Nadlan.session.user() || {};
+    var self = !!user && user.userId === me.userId;
+    var mine = me.allAreas ? null : (me.areaIds || []);
+    var chosen = user ? user.areaIds || [] : [];
+    var $box = $(
+      "<fieldset class=\"geometry-box areas-box\"><legend>Areas</legend>" +
+        "<div class=\"muted areas-all\" hidden>All regions (from the role)</div>" +
+        "<div class=\"areas-list\" role=\"group\" aria-label=\"Geographic areas\">" +
+          (areas.length ? areas.map(function (a) {
+            var yours = mine === null || mine.indexOf(a.id) >= 0;
+            return "<label class=\"check\"" + (yours ? "" : " title=\"Not one of your areas\"") + "><input type=\"checkbox\" value=\"" + a.id + "\"" +
+              (chosen.indexOf(a.id) >= 0 ? " checked" : "") + (yours ? "" : " data-not-mine") + "> " + esc(a.name) +
+              (a.isActive ? "" : " <span class=\"muted\">(inactive)</span>") + "</label>";
+          }).join("") : "<span class=\"muted\">No geographic areas yet (Admin &gt; Areas).</span>") +
+        "</div>" +
+        "<div class=\"warn areas-none\" hidden>No areas - this user will see no parcels.</div>" +
+        (self ? "<div class=\"muted\">You can't change your own areas.</div>" : "") +
+      "</fieldset>");
+
+    function refresh(role) {
+      var all = roleHasAllAreas(role);
+      $box.find(".areas-all").prop("hidden", !all);
+      $box.find(".areas-list").toggleClass("is-disabled", all);
+      $box.find("input").each(function () {
+        $(this).prop("disabled", all || self || this.hasAttribute("data-not-mine"));
+      });
+      $box.find(".areas-none").prop("hidden", all || $box.find("input:checked").length > 0);
+    }
+
+    $box.on("change", "input", function () { $box.find(".areas-none").prop("hidden", $box.find("input:checked").length > 0); });
+    return {
+      $el: $box,
+      refresh: refresh,
+      // null = leave as they are (your own user)
+      value: function () { return self ? null : $box.find("input:checked").map(function () { return Number(this.value); }).get(); }
+    };
+  }
+
   /** @param {number|null} userId  null = new user */
   function open(userId) {
     return Promise.all([
       Nadlan.api.get("/api/admin/roles"),
       userId ? Nadlan.api.get("/api/admin/users/" + userId) : Promise.resolve(null),
-      Nadlan.api.get("/api/auth/options")
+      Nadlan.api.get("/api/auth/options"),
+      Nadlan.api.get("/api/reference")
     ]).then(function (loaded) {
       var roles = loaded[0];
       var user = loaded[1];
       var options = loaded[2];
+      var areas = loaded[3].geographicAreas || [];
       var isNew = !user;
       var defaultRole = roles.filter(function (r) { return r.code === "VIEWER"; })[0] || roles[0];
       var changed = false;
@@ -38,6 +86,7 @@
           "<label>Email (also their Google account)<input class=\"input\" name=\"email\" type=\"email\" value=\"" + esc(user ? user.email : "") + "\" required></label>" +
           "<label>Name<input class=\"input\" name=\"displayName\" value=\"" + esc(user ? user.displayName : "") + "\" placeholder=\"From the email if empty\"></label>" +
           "<label>Role<select class=\"input\" name=\"securityRoleId\" data-type=\"id\">" + roleOptions(roles, user ? user.securityRoleId : defaultRole.securityRoleId) + "</select></label>" +
+          "<div class=\"areas-slot\"></div>" +
           "<div class=\"contact-slot\"></div>" +
           "<label class=\"check\"><input type=\"checkbox\" name=\"isActive\"" + (!user || user.isActive ? " checked" : "") + "> Can sign in (unticked = login revoked)</label>" +
           (isNew
@@ -70,10 +119,20 @@
           "<div class=\"auth-ok done-note\"></div>" +
         "</form>");
 
-      // Business identity: Assets whose Managing Contact is this Contact are the user's "own" Assets (spec §8.2).
+      var areasBox = areasField(areas, user);
+      $form.find(".areas-slot").replaceWith(areasBox.$el);
+      function selectedRole() {
+        var id = Number($form.find("[name=securityRoleId]").val());
+        return roles.filter(function (r) { return r.securityRoleId === id; })[0];
+      }
+      areasBox.refresh(selectedRole());
+      $form.on("change", "[name=securityRoleId]", function () { areasBox.refresh(selectedRole()); });
+
+      // Business identity: the Managing Contact of the Assets this user creates. It gives no access - "own" Assets are
+      // the ones the user created (owner, 2026-10-25).
       var contact = user && user.contactId ? { contactId: user.contactId, displayName: user.contactName } : null;
       var relation = Nadlan.initializeEntityRelationEditor($form.find(".contact-slot"), {
-        label: "Linked contact (own Assets = Assets this Contact manages)",
+        label: "Linked contact (Managing Contact of the Assets they create)",
         emptyText: "No contact - internal user",
         source: Nadlan.entitySources.contact,
         value: contact,
@@ -105,7 +164,8 @@
           var body = {
             email: data.email, displayName: data.displayName, contactId: linked ? linked.contactId : null,
             securityRoleId: data.securityRoleId || 0, isActive: data.isActive,
-            mustChangePassword: data.mustChangePassword === true, password: isNew ? data.password : null
+            mustChangePassword: data.mustChangePassword === true, password: isNew ? data.password : null,
+            areaIds: areasBox.value()
           };
           d.busy(true);
           var call = isNew ? Nadlan.api.post("/api/admin/users", body) : Nadlan.api.put("/api/admin/users/" + user.userId, body);

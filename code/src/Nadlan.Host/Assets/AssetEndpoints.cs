@@ -42,8 +42,10 @@ public static class AssetEndpoints
     {
         var group = app.MapGroup("/api/assets");
 
+        // The Assets layer of the map (the Asset table has its own list: /api/asset-table).
         group.MapGet("/", async ([AsParameters] AssetQueryParams q, UserAccess me, IAssetStore assets, CancellationToken ct) =>
         {
+            AccessPolicy.RequireMap(me);
             var found = await assets.QueryAsync(new AssetQuery
             {
                 Area = GeoJson.Bounds(q.West, q.South, q.East, q.North),

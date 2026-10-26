@@ -297,6 +297,12 @@ public class AuthTests
 
         public Task<int> CountActiveAdminsAsync(long? exceptUserId, bool withPasswordOnly, CancellationToken ct = default)
             => Task.FromResult(_rows.Values.Count(u => u.IsActive && u.RoleCode == SecurityRoles.Admin && u.UserId != exceptUserId && (!withPasswordOnly || u.PasswordHash is not null)));
+
+        public Task SetAreasAsync(long userId, IReadOnlyList<int> areaIds, CancellationToken ct = default)
+        {
+            _rows[userId] = _rows[userId] with { AreaIds = areaIds.ToList() };
+            return Task.CompletedTask;
+        }
     }
 
     internal sealed class FakeRoles : IRoleStore
@@ -306,6 +312,7 @@ public class AuthTests
             new(1, "ADMIN", "Admin", null, true, true, 10, Array.Empty<string>(), 0),
             new(2, "VIEWER", "Viewer", null, false, true, 20, new[] { "VIEW_GENERAL_FILES" }, 0),
             new(3, "AGENT", "Agent", null, false, true, 30, new[] { "VIEW_OWN_ASSET", "EDIT_OWN_ASSET" }, 0),
+            new(4, "SALES", "Sales", null, false, true, 40, new[] { "VIEW_GENERAL_FILES", "ALL_AREAS" }, 0),
         };
 
         public static readonly PermissionInfo[] Catalog =

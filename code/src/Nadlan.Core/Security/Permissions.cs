@@ -3,6 +3,13 @@ namespace Nadlan.Core.Security;
 /// <summary>Permission codes (table permission, migration 007). Role = given to a security role; Grant = on one object.</summary>
 public static class Permissions
 {
+    // Pages and regions (migration 018)
+    public const string UseMap = "USE_MAP";
+    public const string UseAssetTable = "USE_ASSET_TABLE";
+
+    /// <summary>Every geographic area. Without it the user sees only the areas set on their user (app_user_area).</summary>
+    public const string AllAreas = "ALL_AREAS";
+
     // Parcels
     public const string ViewAllParcels = "VIEW_ALL_PARCELS";
     public const string EditAllParcels = "EDIT_ALL_PARCELS";

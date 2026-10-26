@@ -23,6 +23,9 @@ public sealed record AppUser
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
 
+    /// <summary>The geographic areas set on the user (app_user_area). Only count when the role lacks ALL_AREAS.</summary>
+    public IReadOnlyList<int> AreaIds { get; init; } = Array.Empty<int>();
+
     public bool HasPassword => !string.IsNullOrEmpty(PasswordHash);
 }
 
@@ -59,6 +62,9 @@ public interface IUserStore
     Task RecordLoginAsync(long userId, string method, CancellationToken ct = default);
 
     Task UnlockAsync(long userId, CancellationToken ct = default);
+
+    /// <summary>Replaces the user's geographic areas (app_user_area). The caller checks who may give which.</summary>
+    Task SetAreasAsync(long userId, IReadOnlyList<int> areaIds, CancellationToken ct = default);
     /// <summary>False if the user didn't exist, or no other Admin per <paramref name="keepAdmin"/> would remain.</summary>
     Task<bool> DeleteAsync(long userId, LastAdminCheck keepAdmin, CancellationToken ct = default);
 

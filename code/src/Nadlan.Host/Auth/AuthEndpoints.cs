@@ -96,6 +96,8 @@ public static class AuthEndpoints
             me.HasPassword,
             loginMethod = http.User.LoginMethod(),
             canCreateAsset = AccessPolicy.CanCreateAsset(me),
+            allAreas = me.AllAreas,
+            areaIds = me.AllAreas ? null : me.AreaIds, // the only geographic areas this user sees
             machineAdmin = Nadlan.Host.Machine.MachineAdminAccess.IsMachineAdmin(me), // admin.html: Server, Web files, Settings tabs
         }));
 
