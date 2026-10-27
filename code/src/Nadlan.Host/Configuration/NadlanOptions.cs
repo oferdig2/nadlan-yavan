@@ -12,6 +12,31 @@ public sealed class NadlanOptions
 
     public AuthOptions Auth { get; set; } = new();
 
+    public PlacesOptions Places { get; set; } = new();
+
+    /// <summary>Public places - beaches - and the distance to the sea (owner, 2026-10-27).</summary>
+    public sealed class PlacesOptions
+    {
+        /// <summary>
+        /// Managing Contact (id) of a beach whose creator has no linked Contact (owner: Alon Schwarz's). Empty = the user picks
+        /// one. Text, so it can stay empty in the settings form; anything but a positive number counts as empty.
+        /// </summary>
+        public string PublicContactId { get; set; } = "";
+
+        /// <summary>Distances to the sea up to this are shown; longer ones are not interesting.</summary>
+        public double SeaDistanceMaxKm { get; set; } = 5;
+
+        /// <summary>Beaches further than this don't count. Kept distances go up to it, so the display limit can rise to it without recalculating.</summary>
+        public double SeaSearchKm { get; set; } = 10;
+
+        public Nadlan.Core.Places.PlacesSettings ToSettings() => new()
+        {
+            PublicContactId = long.TryParse(PublicContactId?.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0 ? id : null,
+            SearchMetres = (int)Math.Round(SeaSearchKm * 1000),
+            ShownMetres = (int)Math.Round(Math.Min(SeaDistanceMaxKm, SeaSearchKm) * 1000),
+        };
+    }
+
     /// <summary>Sign-in. Everything here lives in app_config (ms:host) like the rest; secrets are set with config.ps1.</summary>
     public sealed class AuthOptions
     {

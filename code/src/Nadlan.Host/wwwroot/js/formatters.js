@@ -58,6 +58,13 @@
       return value === null || value === undefined || value === "" ? "—" : escapeHtml(value);
     },
 
+    // Distance to the sea (the server sends it only when short enough to show): "≈ 350 m" in 50 m steps, from 1 km "≈ 3.2 km".
+    seaDistance: function (metres) {
+      if (metres === null || metres === undefined) { return ""; }
+      var m = Math.round(metres / 50) * 50;
+      return "≈ " + (m < 1000 ? Math.max(m, 50) + " m" : (Math.round(metres / 100) / 10).toFixed(1) + " km") + " to the sea";
+    },
+
     // KAEK with an explicit marker when the system invented it.
     registryId: function (registryId, isProvisional) {
       var html = "<span class=\"kaek\">" + escapeHtml(registryId || "—") + "</span>";

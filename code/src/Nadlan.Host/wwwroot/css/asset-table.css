@@ -66,6 +66,7 @@
 .asset-grid .col-status { width: 120px; }
 .asset-grid .col-remarks { min-width: 180px; max-width: 320px; }
 .asset-grid .col-files { width: 64px; }
+.asset-grid .col-sea { width: 80px; color: var(--muted); }
 .asset-grid .col-files .cell-value { padding: 2px 8px; }
 
 /* Save states, on the cell itself. */

@@ -35,13 +35,16 @@
         return "<li data-index=\"" + index + "\"><div class=\"row-main\"><span class=\"kind-dot kind-" + f.escapeHtml(s.kind || "todo") +
           (s.hasAssets ? " has-assets" : "") + "\" title=\"" + (s.hasAssets ? "Has Asset(s)" : "No Asset") + "\"></span>" +
           f.registryId(s.registryId, s.registryIdIsProvisional) + "</div>" +
-          "<div class=\"row-sub muted\">" + f.text(s.geographicArea) + " · OT " + f.text(s.ot) + " / Plot " + f.text(s.plot) + "</div></li>";
+          "<div class=\"row-sub muted\">" + f.text(s.geographicArea) + " · OT " + f.text(s.ot) + " / Plot " + f.text(s.plot) +
+          (s.seaMetres !== null && s.seaMetres !== undefined ? " · " + f.escapeHtml(f.seaDistance(s.seaMetres)) : "") + "</div></li>";
       }
       return "<li data-index=\"" + index + "\">" +
-        "<input type=\"checkbox\" data-asset-id=\"" + s.assetId + "\"" + (options.selection.has(s.assetId) ? " checked" : "") + ">" +
+        // A beach can't go into a Portfolio or a presentation: nothing to select.
+        (s.isBeach ? "<span class=\"row-no-select\"></span>" : "<input type=\"checkbox\" data-asset-id=\"" + s.assetId + "\"" + (options.selection.has(s.assetId) ? " checked" : "") + ">") +
         "<div class=\"row-body\"><div class=\"row-main\">" + f.assetPrice(s) + " " + f.statusBadge(s.statusName, s.statusColor) + "</div>" +
         "<div class=\"row-sub\">" + f.text(s.managingContactName) + "</div>" +
-        "<div class=\"row-sub muted\">" + f.registryId(s.registryId, s.registryIdIsProvisional) + (s.geographicArea ? " · " + f.escapeHtml(s.geographicArea) : "") + "</div></div></li>";
+        "<div class=\"row-sub muted\">" + f.registryId(s.registryId, s.registryIdIsProvisional) + (s.geographicArea ? " · " + f.escapeHtml(s.geographicArea) : "") +
+          (s.seaMetres !== null && s.seaMetres !== undefined ? " · " + f.escapeHtml(f.seaDistance(s.seaMetres)) : "") + "</div></div></li>";
     }
 
     function renderSelection() {

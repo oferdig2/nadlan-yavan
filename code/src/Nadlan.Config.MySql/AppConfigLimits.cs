@@ -22,6 +22,8 @@ public static class AppConfigLimits
         ["Nadlan:Auth:ResetLinkHours"] = (1, 168),
         ["Nadlan:Auth:InviteLinkHours"] = (1, 720),
         ["Nadlan:Auth:Email:SmtpPort"] = (1, 65535),
+        ["Nadlan:Places:SeaDistanceMaxKm"] = (0.1, 50),
+        ["Nadlan:Places:SeaSearchKm"] = (0.5, 50),
         ["Nadlan:Storage:PartSizeMb"] = (5, 512),          // S3: parts of at least 5 MB
         ["Nadlan:Storage:MaxFileSizeGb"] = (1, 1000),
         ["Nadlan:Storage:UploadUrlMinutes"] = (1, 1440),
@@ -33,6 +35,8 @@ public static class AppConfigLimits
     {
         "Nadlan:Maps:DefaultCenterLat",
         "Nadlan:Maps:DefaultCenterLon",
+        "Nadlan:Places:SeaDistanceMaxKm",
+        "Nadlan:Places:SeaSearchKm",
     };
 
     /// <summary>On/off settings: true or false only.</summary>

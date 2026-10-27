@@ -121,6 +121,7 @@
       ["Asking", price(it)],
       ["Plot", sqm(it.plotSqm)],
       ["House", sqm(it.houseSqm)],
+      ["Sea", it.seaMetres === null || it.seaMetres === undefined ? null : esc(Nadlan.format.seaDistance(it.seaMetres))],
       ["KAEK", it.kaek ? esc(it.kaek) : null]
     ].filter(function (f) { return f[1]; });
     var media = it.media || [];

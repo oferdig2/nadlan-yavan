@@ -4,6 +4,7 @@ using Nadlan.Core.Contacts;
 using Nadlan.Core.Files;
 using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Parcels;
+using Nadlan.Core.Places;
 using Nadlan.Core.Portfolios;
 using Nadlan.Core.Reference;
 using Nadlan.Core.Security;
@@ -14,6 +15,7 @@ using Nadlan.Persistence.MySql.Contacts;
 using Nadlan.Persistence.MySql.Files;
 using Nadlan.Persistence.MySql.GeographicAreas;
 using Nadlan.Persistence.MySql.Parcels;
+using Nadlan.Persistence.MySql.Places;
 using Nadlan.Persistence.MySql.Portfolios;
 using Nadlan.Persistence.MySql.Reference;
 using Nadlan.Persistence.MySql.Security;
@@ -36,6 +38,7 @@ public static class PersistenceRegistration
         services.AddSingleton<IReferenceDataStore, MySqlReferenceDataStore>();
         services.AddSingleton<IFileAttachmentStore, MySqlFileAttachmentStore>();
         services.AddSingleton<IMapDropStore, MySqlMapDropStore>();
+        services.AddSingleton<ISeaDistanceStore, MySqlSeaDistanceStore>();
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
         services.AddSingleton<MySqlActivityLog>();
         services.AddSingleton<IActivityLog>(sp => new Nadlan.Host.Activity.BestEffortActivityLog(
@@ -58,6 +61,9 @@ public static class PersistenceRegistration
         services.AddSingleton<ParcelService>();
         services.AddSingleton<AssetService>();
         services.AddSingleton<AssetTableService>();
+        // Read once at startup, like every setting (Admin > Settings: "restart to apply").
+        services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Nadlan.Host.Configuration.NadlanOptions>>().Value.Places.ToSettings());
+        services.AddSingleton<SeaDistanceService>();
         services.AddSingleton<ContactService>();
         services.AddSingleton<PortfolioService>();
         services.AddSingleton<LegalOwnerService>();

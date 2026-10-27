@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Files;
 using Nadlan.Core.Parcels;
+using Nadlan.Core.Places;
 using Nadlan.Core.Portfolios;
 using Nadlan.Core.Security;
 
@@ -100,7 +101,7 @@ public static class PresentationEndpoints
         // ?portfolioId=12  or  ?assetIds=5&assetIds=9 (in that order); t = the sealed title from the link
         app.MapGet("/api/presentation", async (long? portfolioId, long[]? assetIds, string? t, UserAccess me, AccessPolicy policy,
             IPortfolioStore portfolios, IAssetStore assets, IParcelStore parcels, IFileAttachmentStore files, IFileUrlProvider urls,
-            IDataProtectionProvider protection, CancellationToken ct) =>
+            IDataProtectionProvider protection, SeaDistanceService sea, CancellationToken ct) =>
         {
             List<long> order;
             AssetQuery query;
@@ -113,7 +114,8 @@ public static class PresentationEndpoints
                 }
 
                 order = (await portfolios.ListAssetIdsAsync(pid, ct)).ToList();
-                query = new AssetQuery { PortfolioIds = new[] { pid }, Limit = MaxRows, Scope = me.Scope };
+                // Never a beach in front of a customer, even one that sits in the Portfolio (owner, 2026-10-27).
+                query = new AssetQuery { PortfolioIds = new[] { pid }, Limit = MaxRows, Scope = me.Scope, ExcludeBeaches = true };
             }
             else
             {
@@ -123,7 +125,7 @@ public static class PresentationEndpoints
                     throw new DomainValidationException("PRESENTATION_EMPTY", $"Give a portfolioId, or 1 to {MaxAssets} assetIds.");
                 }
 
-                query = new AssetQuery { AssetIds = order, Limit = MaxRows, Scope = me.Scope };
+                query = new AssetQuery { AssetIds = order, Limit = MaxRows, Scope = me.Scope, ExcludeBeaches = true };
             }
 
             // One row per Asset and Parcel: an Asset on two Parcels is one stop with both polygons.
@@ -131,6 +133,9 @@ public static class PresentationEndpoints
             var all = (await assets.QueryAsync(query, ct)).GroupBy(a => a.AssetId)
                 .OrderBy(g => rank.GetValueOrDefault(g.Key, int.MaxValue)).ThenBy(g => g.Key).ToList();
             var groups = all.Take(MaxAssets).ToList();
+
+            // Distance to the sea (owner: "yes !!!" in the presentation): calculated here when not cached - at most 100 Assets.
+            var seaByParcel = await sea.ForParcelsAsync(groups.SelectMany(g => g.Select(a => a.ParcelId)).Distinct().ToList(), ct);
 
             var items = new List<object>();
             foreach (var g in groups)
@@ -146,7 +151,8 @@ public static class PresentationEndpoints
                     }
                 }
 
-                items.Add(Item(g.ToList(), asset, plotSqm, await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct)));
+                var seaMetres = sea.Settings.Shown(g.Select(a => seaByParcel.GetValueOrDefault(a.ParcelId)).Where(m => m is not null).Min());
+                items.Add(Item(g.ToList(), asset, plotSqm, await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct), seaMetres));
             }
 
             // No Portfolio name or notes: they are internal ("Deal with X"). The title is the presenter's, from a sealed
@@ -160,7 +166,7 @@ public static class PresentationEndpoints
     /// One stop of the presentation: the Asset (one row per Parcel) as a buyer may read it. Never people - no Managing
     /// Contact, creator, uploader or any user / contact name, phone or email (owner, 2026-10-25; tested).
     /// </summary>
-    internal static object Item(IReadOnlyList<AssetMapItem> rows, Asset? asset, decimal? plotSqm, List<object> media)
+    internal static object Item(IReadOnlyList<AssetMapItem> rows, Asset? asset, decimal? plotSqm, List<object> media, int? seaMetres = null)
     {
         var first = rows[0];
         return new
@@ -175,6 +181,7 @@ public static class PresentationEndpoints
             currencyCode = first.PriceVisible ? first.CurrencyCode : null,
             houseSqm = asset?.HouseSqm,
             plotSqm,
+            seaMetres, // distance to the sea, only when under the display limit
             polygons = rows.Select(a => GeoJson.Polygon(a.Geometry)),
             media,
         };

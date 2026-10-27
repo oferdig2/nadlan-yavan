@@ -1,6 +1,7 @@
 using Dapper;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Security;
+using Nadlan.Persistence.MySql.Places;
 using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Persistence.MySql.Assets;
@@ -8,16 +9,18 @@ namespace Nadlan.Persistence.MySql.Assets;
 /// <summary>The Asset table's rows: visibility, price and edit hints from <see cref="AccessSql"/>, as on the map.</summary>
 public sealed class MySqlAssetTableStore : IAssetTableStore
 {
-    // {0} = visible, {1} = price visible, {2} = can edit. One row per Asset, on its first Parcel (Phase 1: the only one).
+    // {0} = visible, {1} = price visible, {2} = can edit, {3} = the fresh sea-distance join (never calculated here).
+    // One row per Asset, on its first Parcel (Phase 1: the only one).
     private const string SelectFormat = """
         SELECT a.asset_id, p.parcel_id, p.registry_id, p.registry_id_is_provisional, p.geographic_area_id,
                ga.name AS geographic_area, p.ot, p.ot_ext, p.plot_number, p.plot_ext,
                a.asset_status_id, a.property_type_id, a.ask_price, a.currency_code, a.house_sqm, a.remarks,
-               a.created_utc, a.updated_utc, ({1}) AS price_visible, ({2}) AS can_edit
+               a.created_utc, a.updated_utc, sd.distance_m AS sea_metres, ({1}) AS price_visible, ({2}) AS can_edit
         FROM asset a
         JOIN parcel p ON p.parcel_id = (SELECT fap.parcel_id FROM asset_parcel fap WHERE fap.asset_id = a.asset_id
                                         ORDER BY fap.sort_order, fap.parcel_id LIMIT 1)
         LEFT JOIN geographic_area ga ON ga.geographic_area_id = p.geographic_area_id
+        {3}
         WHERE {0}
         """;
 
@@ -49,7 +52,7 @@ public sealed class MySqlAssetTableStore : IAssetTableStore
     }
 
     private static string Select(AccessScope scope, DynamicParameters args)
-        => string.Format(SelectFormat, AccessSql.AssetVisible("a", scope, args), AccessSql.PriceVisible("a", scope, args), AccessSql.CanEditAsset("a", scope, args));
+        => string.Format(SelectFormat, AccessSql.AssetVisible("a", scope, args), AccessSql.PriceVisible("a", scope, args), AccessSql.CanEditAsset("a", scope, args), SeaDistanceSql.FreshJoin("p"));
 
     private static AssetTableRow Utc(AssetTableRow r) => r with
     {

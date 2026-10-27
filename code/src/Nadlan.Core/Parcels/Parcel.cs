@@ -56,8 +56,14 @@ public sealed record Parcel
     /// </summary>
     public bool HasAssets { get; init; }
 
+    /// <summary>The Parcel carries a beach Asset (property type BEACH): a public place, not a plot.</summary>
+    public bool IsBeach { get; init; }
+
+    /// <summary>Distance to the sea in metres from a fresh cache row; only set by the list query (never calculated there).</summary>
+    public int? SeaMetres { get; init; }
+
     /// <summary>Whether its OT / plot number is entered - its colour on the map (<see cref="ParcelKinds"/>).</summary>
-    public string Kind => ParcelKinds.Of(OT, OTExt, PlotNumber, PlotExt);
+    public string Kind => IsBeach ? ParcelKinds.Done : ParcelKinds.Of(OT, OTExt, PlotNumber, PlotExt);
 }
 
 /// <summary>

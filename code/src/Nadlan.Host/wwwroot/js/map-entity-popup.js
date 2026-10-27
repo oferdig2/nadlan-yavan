@@ -38,7 +38,8 @@
       if (!assets.length) { return "<div class=\"muted card-row\">No assets on this parcel yet.</div>"; }
       return "<ul class=\"card-assets\">" + assets.map(function (a) {
         return "<li title=\"Asset #" + a.assetId + "\">" +
-          "<label class=\"check\"><input type=\"checkbox\" data-select=\"" + a.assetId + "\"" + (options.selection.has(a.assetId) ? " checked" : "") + "></label>" +
+          // A beach can't go into a Portfolio or a presentation: nothing to select.
+          (a.isBeach ? "<span class=\"check\"></span>" : "<label class=\"check\"><input type=\"checkbox\" data-select=\"" + a.assetId + "\"" + (options.selection.has(a.assetId) ? " checked" : "") + "></label>") +
           "<div class=\"row-body\"><div>" + f.assetPrice(a) + " " + f.statusBadge(a.statusName, a.statusColor) + "</div>" +
           "<div class=\"muted\">" + f.text(a.managingContactName) + (a.propertyType ? " · " + f.escapeHtml(a.propertyType) : "") + "</div></div>" +
           "<span class=\"row-actions\">" +
@@ -82,6 +83,7 @@
           "<div class=\"card-chip\" title=\"Drag to move\"><span class=\"card-chip-kaek kaek\"></span>" +
             "<button type=\"button\" class=\"card-icon\" data-action=\"maximize\" title=\"Maximize\">⤢</button></div>" +
           "<div class=\"card-body\">" + parcelHtml(initial) + "</div>" +
+          "<div class=\"card-sea\" hidden></div>" +
           "<div class=\"card-details\" hidden></div>" +
           "<div class=\"card-section card-owners\" hidden><div class=\"card-section-head\"><span>Legal owners</span>" +
             "<button type=\"button\" class=\"btn btn-small\" data-action=\"add-owner\" hidden>+ Add</button></div>" +
@@ -118,6 +120,11 @@
         }, function (err) { $card.find(".card-assets-slot").html("<span class=\"error\">" + f.escapeHtml(err.message) + "</span>"); });
 
         loadThumbs();
+
+        // Distance to the sea, after the card has opened (calculated once, then cached on the server). Shown only when short.
+        Nadlan.api.get("/api/parcels/" + state.parcelId + "/sea-distance").then(function (r) {
+          $card.find(".card-sea").html(r.metres === null ? "" : row("Sea", f.escapeHtml(f.seaDistance(r.metres)))).prop("hidden", r.metres === null);
+        }, function () { $card.find(".card-sea").prop("hidden", true); });
       }
 
       // Media first (Appendix 1 §5.1): up to 6 image/video thumbnails of the Parcel's own files.

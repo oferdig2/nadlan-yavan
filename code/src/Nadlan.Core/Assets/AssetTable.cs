@@ -32,6 +32,9 @@ public sealed record AssetTableRow
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }
 
+    /// <summary>Distance to the sea in metres, from a fresh cache row only (the table never calculates it).</summary>
+    public int? SeaMetres { get; init; }
+
     /// <summary>False when the caller may not see this Asset's price (the API then leaves it out).</summary>
     public bool PriceVisible { get; init; }
 
@@ -133,6 +136,7 @@ public sealed class AssetTableService
         var rights = await _policy.RequireAssetEditAsync(me, assetId, ct);
         await using var edit = await _versions.BeginEditAsync(EditTargets.Asset, assetId, null, ct);
         var asset = await _assets.GetAsync(assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId);
+        var typeBefore = asset.PropertyTypeId;
         var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         asset = field switch
         {
@@ -144,6 +148,9 @@ public sealed class AssetTableService
             AssetTableFields.Price => WithPrice(asset, ParseDecimal(text, "Price"), currency),
             _ => throw new DomainValidationException("ASSET_TABLE_FIELD_INVALID", $"Unknown column '{field}'."),
         };
+        // Beach or not: Admin / Data person only, and a new beach is "Not for sale" (the user may change it afterwards).
+        asset = await Places.Beaches.CheckTypeChangeAsync(asset, typeBefore, me, _reference, ct);
+
         await _service.UpdateAsync(asset, ct);
     }
 

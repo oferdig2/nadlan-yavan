@@ -5,6 +5,7 @@ using Nadlan.Core.Assets;
 using Nadlan.Core.Geo;
 using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Parcels;
+using Nadlan.Core.Places;
 using Nadlan.Core.Security;
 using Nadlan.Core.Validation;
 using Nadlan.Host.Assets;
@@ -81,7 +82,7 @@ public static class ParcelEndpoints
         // otherwise (a filter, or a user who sees only some Parcels) it asks to narrow the search. One request can so never
         // pull and draw an unbounded number of polygons.
         group.MapGet("/", async ([AsParameters] ParcelQueryParams q, bool? allowSurface, UserAccess me, IParcelStore parcels,
-            IGeographicAreaStore areas, ParcelCoverageService coverage, IOptions<NadlanOptions> options, CancellationToken ct) =>
+            IGeographicAreaStore areas, ParcelCoverageService coverage, IOptions<NadlanOptions> options, PlacesSettings places, CancellationToken ct) =>
         {
             AccessPolicy.RequireMap(me);
             var query = ToQuery(q, me) with { Limit = int.MaxValue };
@@ -101,7 +102,7 @@ public static class ParcelEndpoints
                 tooMany = false,
                 count = found.Count,
                 kindCounts,
-                items = found.Select(p => new { summary = Summary(p, areaNames), geometry = GeoJson.Polygon(p.Geometry) }),
+                items = found.Select(p => new { summary = Summary(p, areaNames, places), geometry = GeoJson.Polygon(p.Geometry) }),
             });
         });
 
@@ -243,7 +244,7 @@ public static class ParcelEndpoints
         group.MapGet("/{parcelId:long}/assets", async (long parcelId, UserAccess me, AccessPolicy policy, IAssetStore assets, CancellationToken ct) =>
         {
             await policy.RequireParcelViewAsync(me, parcelId, ct);
-            return Results.Ok((await assets.ListByParcelAsync(parcelId, me.Scope, ct)).Select(AssetEndpoints.Summary));
+            return Results.Ok((await assets.ListByParcelAsync(parcelId, me.Scope, ct)).Select(a => AssetEndpoints.Summary(a)));
         });
 
         group.MapPost("/", async (CreateParcelDto dto, UserAccess me, AccessPolicy policy, ParcelService service, ParcelCoverageService coverage,
@@ -426,7 +427,7 @@ public static class ParcelEndpoints
         };
     }
 
-    internal static object Summary(Parcel p, IReadOnlyDictionary<int, string> areaNames) => new
+    internal static object Summary(Parcel p, IReadOnlyDictionary<int, string> areaNames, PlacesSettings? places = null) => new
     {
         parcelId = p.ParcelId,
         registryId = p.RegistryId,
@@ -439,6 +440,8 @@ public static class ParcelEndpoints
         officialAreaSqm = p.OfficialAreaSqm,
         divisionStatus = p.DivisionStatus, // regular | divided | united
         relatedNumbers = p.RelatedNumbers, // divided / united: the other OT / plot numbers, free text
+        isBeach = p.IsBeach,
+        seaMetres = places?.Shown(p.SeaMetres), // the list query only: cached, under the display limit
     };
 
     private static async Task<Dictionary<int, string>> AreaNamesAsync(IGeographicAreaStore areas, CancellationToken ct)

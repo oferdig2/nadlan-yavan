@@ -49,6 +49,9 @@ public sealed record AssetQuery
     /// <summary>Only these Assets (e.g. a presentation link); empty = no id filter.</summary>
     public IReadOnlyList<long> AssetIds { get; init; } = Array.Empty<long>();
 
+    /// <summary>Leave out beaches (the presentation: a beach is never shown to a customer as a property).</summary>
+    public bool ExcludeBeaches { get; init; }
+
     public int Limit { get; init; } = 2000;
 
     /// <summary>What the caller may see. Required: the store refuses to run a query without it.</summary>
@@ -72,6 +75,12 @@ public sealed record AssetMapItem
     public string StatusName { get; init; } = "";
     public string StatusColor { get; init; } = "";
     public string? PropertyTypeName { get; init; }
+
+    /// <summary>A beach (property type BEACH): a public place, shown in its own colour, never in a Portfolio or presentation.</summary>
+    public bool IsBeach { get; init; }
+
+    /// <summary>This Parcel's distance to the sea in metres, from a fresh cache row only (lists never calculate it).</summary>
+    public int? SeaMetres { get; init; }
 
     /// <summary>False when the caller may not see this Asset's price (the API then leaves it out).</summary>
     public bool PriceVisible { get; init; } = true;

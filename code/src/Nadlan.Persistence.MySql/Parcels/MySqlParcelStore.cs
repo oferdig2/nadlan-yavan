@@ -7,6 +7,7 @@ using Nadlan.Core.Parcels;
 using Nadlan.Core.Validation;
 using Nadlan.Persistence.MySql.Activity;
 using Nadlan.Persistence.MySql.Editing;
+using Nadlan.Persistence.MySql.Places;
 using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Persistence.MySql.Parcels;
@@ -20,12 +21,13 @@ public sealed class MySqlParcelStore : IParcelStore
     private const string AnchorLon = "ST_Longitude(ST_PointN(ST_ExteriorRing(p.geometry), 1))";
     private const string AnchorLat = "ST_Latitude(ST_PointN(ST_ExteriorRing(p.geometry), 1))";
 
-    private const string SelectColumns = """
+    private static readonly string SelectColumns = $"""
         SELECT p.parcel_id, p.country_id, p.registry_id, p.registry_id_is_provisional, p.geographic_area_id,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt, p.official_area_sqm, p.ot, p.ot_ext,
                p.plot_number, p.plot_ext, p.ot_plot_by_user_id, p.ot_plot_updated_utc, ou.display_name AS ot_plot_by_name,
                p.division_status, p.related_numbers,
-               p.inclination, p.build_factor, p.notes, p.created_by_user_id, p.created_utc, p.updated_utc
+               p.inclination, p.build_factor, p.notes, p.created_by_user_id, p.created_utc, p.updated_utc,
+               {SeaDistanceSql.IsBeachParcel("p")} AS is_beach
         FROM parcel p
         LEFT JOIN app_user ou ON ou.user_id = p.ot_plot_by_user_id
         """;
@@ -98,10 +100,12 @@ public sealed class MySqlParcelStore : IParcelStore
             cancellationToken: ct));
     }
 
-    // ParcelKinds in SQL: same rule as ParcelKinds.Of (OT and plot entered, one of them, neither - by search key, migration 012).
-    private const string KindSql = """
+    // ParcelKinds in SQL: same rule as Parcel.Kind (OT and plot entered, one of them, neither - by search key, migration 012).
+    // A beach Parcel counts as done: it has no OT / plot to enter (owner, 2026-10-27).
+    private static readonly string KindSql = $"""
+        CASE WHEN {SeaDistanceSql.IsBeachParcel("p")} THEN 'done' ELSE
         CASE (p.ot_key IS NOT NULL) + (p.plot_key IS NOT NULL)
-            WHEN 2 THEN 'done' WHEN 1 THEN 'partial' ELSE 'todo' END
+            WHEN 2 THEN 'done' WHEN 1 THEN 'partial' ELSE 'todo' END END
         """;
 
     /// <summary>The Parcel carries an Asset the caller may see (competing Assets they can't see don't count).</summary>
@@ -112,7 +116,9 @@ public sealed class MySqlParcelStore : IParcelStore
     {
         var (where, args) = Filter(query);
         args.Add("limit", query.Limit);
-        var columns = SelectColumns.Replace("FROM parcel p", $", {HasVisibleAssetSql(query, args)} AS has_assets\n        FROM parcel p");
+        // The distance to the sea only from a fresh cache row (lists never calculate it).
+        var columns = SelectColumns.Replace("FROM parcel p", $", {HasVisibleAssetSql(query, args)} AS has_assets, sd.distance_m AS sea_metres\n        FROM parcel p")
+            .Replace("LEFT JOIN app_user ou", SeaDistanceSql.FreshJoin("p") + "\n        LEFT JOIN app_user ou");
         var sql = $"{columns} WHERE {where} ORDER BY p.parcel_id LIMIT @limit";
 
         await using var conn = await _db.OpenAsync(ct);
@@ -181,6 +187,11 @@ public sealed class MySqlParcelStore : IParcelStore
         if (query.HasAssets is bool hasAssets)
         {
             where.Add((hasAssets ? "" : "NOT ") + HasVisibleAssetSql(query, args));
+        }
+
+        if (query.ExcludeBeaches)
+        {
+            where.Add("NOT " + SeaDistanceSql.IsBeachParcel("p"));
         }
 
         if (query.Provisional is bool provisional)
@@ -507,6 +518,8 @@ public sealed class MySqlParcelStore : IParcelStore
         public DateTime CreatedUtc { get; init; }
         public DateTime UpdatedUtc { get; init; }
         public bool HasAssets { get; init; }
+        public bool IsBeach { get; init; }
+        public int? SeaMetres { get; init; }
 
         public Parcel ToParcel() => new()
         {
@@ -533,6 +546,8 @@ public sealed class MySqlParcelStore : IParcelStore
             CreatedUtc = DateTime.SpecifyKind(CreatedUtc, DateTimeKind.Utc),
             UpdatedUtc = DateTime.SpecifyKind(UpdatedUtc, DateTimeKind.Utc),
             HasAssets = HasAssets,
+            IsBeach = IsBeach,
+            SeaMetres = SeaMetres,
         };
     }
 }

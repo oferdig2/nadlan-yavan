@@ -63,6 +63,9 @@ public sealed record ParcelQuery
     /// <summary>True = only provisional (TMP-) KAEKs, false = only real ones; null = both.</summary>
     public bool? Provisional { get; init; }
 
+    /// <summary>Leave out beach Parcels (the Asset table's "+", Map drop suggestions): they are public places, not plots.</summary>
+    public bool ExcludeBeaches { get; init; }
+
     public int Limit { get; init; } = 2000;
 
     /// <summary>What the caller may see. Required: the store refuses to run a query without it.</summary>

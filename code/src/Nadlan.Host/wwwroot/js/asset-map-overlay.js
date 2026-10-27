@@ -7,6 +7,10 @@
   var MIXED_COLOR = "#7c3aed";
   var TIP_MAX_ASSETS = 4; // more on one Parcel: "+N more" (the card lists them all)
 
+  // Beaches in their own colour (a sea blue that no status uses), whatever their status (owner, 2026-10-27).
+  var BEACH_COLOR = "#0ea5e9";
+  function colorOf(a) { return a.isBeach ? BEACH_COLOR : a.statusColor; }
+
   // Hover card of a Parcel in the Assets view (same look as the Parcels view's): the asking price first, then status,
   // type and manager of each Asset on it, and the Parcel's KAEK and area. Follows the mouse; hidden on press (map drag).
   function createTooltip() {
@@ -29,6 +33,7 @@
 
     function safeColor(c) { return /^#[0-9a-fA-F]{6}$/.test(c || "") ? c : "#64748b"; }
 
+
     function assetHtml(a) {
       var facts = [];
       if (a.propertyType) { facts.push(f.escapeHtml(a.propertyType)); }
@@ -37,7 +42,7 @@
         "<div class=\"tip-price\">" + (a.priceHidden ? "<span class=\"tip-missing\">Price hidden</span>"
           : a.askPrice === null || a.askPrice === undefined ? "<span class=\"tip-missing\">No price yet</span>"
           : "<b>" + f.assetPrice(a) + "</b>") + "</div>" +
-        "<div class=\"tip-facts\"><span class=\"tip-dot\" style=\"background:" + safeColor(a.statusColor) + "\"></span>" +
+        "<div class=\"tip-facts\"><span class=\"tip-dot\" style=\"background:" + safeColor(colorOf(a)) + "\"></span>" +
           f.text(a.statusName) + (facts.length ? " · " + facts.join(" · ") : "") + "</div>" +
         "</div>";
     }
@@ -135,7 +140,7 @@
           type: "FeatureCollection",
           features: order.map(function (parcelId) {
             var entry = byParcel[parcelId];
-            var colors = entry.group.assets.map(function (a) { return a.statusColor; });
+            var colors = entry.group.assets.map(colorOf);
             var same = colors.every(function (c) { return c === colors[0]; });
             return {
               type: "Feature", id: parcelId, geometry: entry.geometry,
