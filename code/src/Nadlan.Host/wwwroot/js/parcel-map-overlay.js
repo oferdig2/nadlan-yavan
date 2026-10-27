@@ -238,7 +238,10 @@
     var stored = null;
     try { stored = window.localStorage.getItem(LEGEND_KEY); } catch (e) { /* private mode: the default */ }
     var smallScreen = (window.matchMedia && window.matchMedia("(hover: none)").matches) || window.innerWidth < 1000;
-    setFolded(stored === null ? smallScreen : stored === "1");
+    // A phone always starts folded (customer, 2026-10-27): opened once, the legend used to stay open on every visit and
+    // cover half the map. Larger screens keep the remembered choice.
+    var phone = window.matchMedia ? window.matchMedia("(max-width: 600px)").matches : window.innerWidth <= 600;
+    setFolded(phone || (stored === null ? smallScreen : stored === "1"));
     legend.querySelector(".legend-toggle").addEventListener("click", function () {
       var folded = !legend.classList.contains("folded");
       setFolded(folded);
