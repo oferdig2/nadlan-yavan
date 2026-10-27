@@ -5,7 +5,10 @@
       "Sid": "StorageBucket",
       "Effect": "Allow",
       "Action": "s3:*",
-      "Resource": ["arn:aws:s3:::nadlan-freshcanvas", "arn:aws:s3:::nadlan-freshcanvas/*"]
+      "Resource": [
+        "arn:aws:s3:::nadlan-freshcanvas",
+        "arn:aws:s3:::nadlan-freshcanvas/*"
+      ]
     },
     {
       "Sid": "CloudFrontForFiles",
@@ -22,13 +25,25 @@
     {
       "Sid": "SshRuleOfTheServer",
       "Effect": "Allow",
-      "Action": ["ec2:ModifySecurityGroupRules", "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
-      "Resource": "arn:aws:ec2:eu-north-1:659544951755:security-group/sg-0ff4eaf0fe1014e72"
+      "Action": [
+        "ec2:ModifySecurityGroupRules",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupIngress"
+      ],
+      "Resource": [
+        "arn:aws:ec2:eu-north-1:659544951755:security-group/sg-0ff4eaf0fe1014e72",
+        "arn:aws:ec2:eu-north-1:659544951755:security-group-rule/sgr-0b83016e9b02cce3b"
+      ]
     },
     {
       "Sid": "ReadIam",
       "Effect": "Allow",
-      "Action": ["iam:Get*", "iam:List*", "iam:SimulatePrincipalPolicy", "sts:GetCallerIdentity"],
+      "Action": [
+        "iam:Get*",
+        "iam:List*",
+        "iam:SimulatePrincipalPolicy",
+        "sts:GetCallerIdentity"
+      ],
       "Resource": "*"
     },
     {
