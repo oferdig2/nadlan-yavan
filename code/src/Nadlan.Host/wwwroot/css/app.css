@@ -73,3 +73,14 @@ html, body {
 /* Map page header: Admin on the right with the user menu right after it (without Admin, the menu keeps the right side). */
 .header-admin { margin-left: auto; }
 .header-admin:not([hidden]) ~ .user-menu { margin-left: 0; }
+
+/* Phones (customer, 2026-10-27): the header's buttons scroll sideways inside it (swipe) instead of making the whole page
+   wider than the screen. The user menu's list is fixed to the screen, so the scrolling header doesn't cut it off.
+   Admin pages wrap their header instead (admin.css). */
+@media (max-width: 600px) {
+  body:not(.admin-body) .app-header { gap: 8px; padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  body:not(.admin-body) .app-header::-webkit-scrollbar { display: none; }
+  body:not(.admin-body) .app-header > * { flex-shrink: 0; }
+  body:not(.admin-body) .app-header .map-status, body:not(.admin-body) .app-header .table-status { max-width: 60vw; }
+  body:not(.admin-body) .user-menu ul { position: fixed; top: calc(var(--header-h) + 4px); right: 8px; }
+}

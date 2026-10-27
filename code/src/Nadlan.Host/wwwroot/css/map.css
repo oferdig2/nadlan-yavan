@@ -115,8 +115,17 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 
 @media (max-width: 600px) {
   .layout { flex-direction: column; }
-  .sidebar { width: auto; max-height: 40%; border-right: none; border-bottom: 1px solid var(--border); }
   .popup-layer { width: auto; left: 12px; top: auto; max-height: 50%; }
+
+  /* Phones (customer, 2026-10-27): the whole panel scrolls as one - filters, then results. The filters' own small box
+     (55% of a 40% panel, ~180 px) hid OT, Plot and Apply below its edge. Apply stays pinned at the panel's bottom while
+     the filters are on screen. */
+  .sidebar { width: auto; max-height: 45%; overflow-y: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  #filters { max-height: none; overflow: visible; }
+  #results { flex: none; min-height: auto; }
+  #results .results-list { flex: none; overflow: visible; }
+  #filters form > .btn-row:not(.rect-row) { position: sticky; bottom: 0; z-index: 2; margin: 0 -12px; padding: 6px 12px; background: var(--surface);
+    border-top: 1px solid var(--border); }
 }
 
 /* History dialog */

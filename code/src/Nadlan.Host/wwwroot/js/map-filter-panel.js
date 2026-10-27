@@ -47,16 +47,17 @@
           "<button type=\"button\" class=\"btn\" data-role=\"draw-rect\">▭ Draw rectangle</button>" +
           "<button type=\"button\" class=\"btn\" data-role=\"clear-rect\" hidden>Clear rectangle</button>" +
         "</div>" +
-        "<label>KAEK<input class=\"input\" data-filter=\"registryId\" placeholder=\"contains…\"></label>" +
+        // enterkeyhint: a phone keyboard shows a Search key that runs the search (customer, 2026-10-27: "no Enter key").
+        "<label>KAEK<input class=\"input\" data-filter=\"registryId\" placeholder=\"contains…\" enterkeyhint=\"search\"></label>" +
         "<div class=\"form-row\">" +
-          "<label>OT<input class=\"input\" data-filter=\"ot\" placeholder=\"e.g. 47\" title=\"Exact OT (block) number, with or without its letter\"></label>" +
-          "<label>Plot<input class=\"input\" data-filter=\"plot\" placeholder=\"e.g. 22\" title=\"Exact plot number, with or without its letter\"></label>" +
+          "<label>OT<input class=\"input\" data-filter=\"ot\" placeholder=\"e.g. 47\" enterkeyhint=\"search\" title=\"Exact OT (block) number, with or without its letter\"></label>" +
+          "<label>Plot<input class=\"input\" data-filter=\"plot\" placeholder=\"e.g. 22\" enterkeyhint=\"search\" title=\"Exact plot number, with or without its letter\"></label>" +
         "</div>" +
         "<div class=\"field\"><span class=\"field-label\">Geographic area</span>" + areaSelect(Nadlan.reference.active(ref.geographicAreas)) + "</div>" +
         "<div data-assets-only>" +
           "<div class=\"form-row\">" +
-            "<label>Price from<input class=\"input\" data-filter=\"priceMin\" inputmode=\"decimal\"></label>" +
-            "<label>to<input class=\"input\" data-filter=\"priceMax\" inputmode=\"decimal\"></label>" +
+            "<label>Price from<input class=\"input\" data-filter=\"priceMin\" inputmode=\"decimal\" enterkeyhint=\"search\"></label>" +
+            "<label>to<input class=\"input\" data-filter=\"priceMax\" inputmode=\"decimal\" enterkeyhint=\"search\"></label>" +
           "</div>" +
           "<label>Managing contacts<div data-role=\"contacts\"></div></label>" +
           "<label>Portfolios<div data-role=\"portfolios\"></div></label>" +
@@ -105,7 +106,25 @@
     var $scope = $root.find("[data-role=scope]");
     var $error = $root.find(".form-error");
 
-    $root.find("form").on("submit", function (e) { e.preventDefault(); options.onApply(); });
+    $root.find("form").on("submit", function (e) {
+      e.preventDefault();
+      options.onApply();
+      // On a phone: close the keyboard and show the results, which sit below the filters in the same scrolling panel.
+      if (window.matchMedia && window.matchMedia("(max-width: 600px)").matches) {
+        if (document.activeElement && document.activeElement.blur) { document.activeElement.blur(); }
+        // Once the new results are in (the search is asynchronous): before, there is nothing below to scroll to.
+        var results = document.getElementById("results");
+        if (results && window.MutationObserver) {
+          var seen = new MutationObserver(function () {
+            seen.disconnect();
+            clearTimeout(giveUp);
+            setTimeout(function () { results.scrollIntoView({ block: "start", behavior: "smooth" }); }, 0);
+          });
+          var giveUp = setTimeout(function () { seen.disconnect(); }, 10000);
+          seen.observe(results, { childList: true, subtree: true, characterData: true });
+        }
+      }
+    });
     $scope.on("change", function () { options.onScopeChange($scope.val()); });
     $root.on("click", "[data-role=draw-rect]", function () { options.onDrawRectangle(); });
     $root.on("click", "[data-area-go]", function (e) { e.preventDefault(); options.onShowArea(Number($(this).data("areaGo"))); });

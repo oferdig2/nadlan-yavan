@@ -422,10 +422,11 @@
     var $form = $(
       "<form class=\"form add-asset\">" +
         "<div class=\"muted\">Find the parcel in your areas by its KAEK, or by OT and plot.</div>" +
-        "<label>KAEK<input class=\"input\" name=\"kaek\" autocomplete=\"off\" placeholder=\"At least 3 characters\"></label>" +
+        "<label>KAEK<input class=\"input\" name=\"kaek\" autocomplete=\"off\" placeholder=\"At least 3 characters\" enterkeyhint=\"search\"></label>" +
         "<div class=\"add-or muted\">or</div>" +
-        "<div class=\"form-row\"><label>OT<input class=\"input\" name=\"ot\" autocomplete=\"off\" inputmode=\"numeric\"></label>" +
-        "<label>Plot<input class=\"input\" name=\"plot\" autocomplete=\"off\" inputmode=\"numeric\"></label></div>" +
+        // No numeric keypad: OT and plot may have a letter (47A). The phone keyboard's Search key runs the search.
+        "<div class=\"form-row\"><label>OT<input class=\"input\" name=\"ot\" autocomplete=\"off\" enterkeyhint=\"search\"></label>" +
+        "<label>Plot<input class=\"input\" name=\"plot\" autocomplete=\"off\" enterkeyhint=\"search\"></label></div>" +
         "<div class=\"add-results\" aria-live=\"polite\"></div>" +
       "</form>");
     var d = Nadlan.dialog.open({
