@@ -12,7 +12,8 @@
     return "<form class=\"form\">" +
       "<div class=\"form-static\"><span class=\"card-label\">Parcel</span> " +
         Nadlan.format.registryId(parcel.registryId, parcel.registryIdIsProvisional) +
-        (parcel.geographicArea ? " <span class=\"muted\">· " + esc(parcel.geographicArea) + "</span>" : "") + "</div>" +
+        (parcel.geographicArea ? " <span class=\"muted\">· " + esc(parcel.geographicArea) + "</span>" : "") +
+        " <span class=\"muted sea-line\" hidden></span></div>" +
       "<div class=\"relation-slot\"></div>" +
       "<div class=\"form-row\">" +
         "<label>Status<select class=\"input\" name=\"assetStatusId\" data-type=\"id\">" +
@@ -84,6 +85,29 @@
           onClose: function () { if (!done) { resolve(null); } }
         });
         $form.on("submit", function (e) { e.preventDefault(); save(); });
+
+        // Distance to the sea, after the dialog has opened (calculated once, then cached on the server).
+        Nadlan.api.get(options.assetId ? "/api/assets/" + options.assetId + "/sea-distance" : "/api/parcels/" + options.parcel.parcelId + "/sea-distance")
+          .then(function (r) { if (r.metres !== null) { $form.find(".sea-line").text("· " + Nadlan.format.seaDistance(r.metres)).prop("hidden", false); } },
+            function () { /* no line */ });
+
+        // Beach chosen (owner, 2026-10-27): "Not for sale", and - when none is set - the user's contact, else the
+        // "Contact for public places" setting; with neither the user picks one (the server refuses a beach without).
+        var beachType = (ref.propertyTypes || []).filter(function (t) { return t.code === "BEACH"; })[0];
+        var notForSale = (ref.assetStatuses || []).filter(function (s) { return s.code === "NOT_FOR_SALE"; })[0];
+        var typeBefore = asset.propertyTypeId || null;
+        $form.on("change", "[name=propertyTypeId]", function () {
+          var typeId = Number(this.value) || null;
+          var madeBeach = beachType && typeId === beachType.id && typeBefore !== beachType.id;
+          typeBefore = typeId;
+          if (!madeBeach) { return; }
+          if (notForSale) { $form.find("[name=assetStatusId]").val(String(notForSale.id)); }
+          if (relation && !relation.getValue()) {
+            Nadlan.api.get("/api/places/beach-defaults").then(function (r) {
+              if (r.contact && !relation.getValue()) { relation.setValue({ contactId: r.contact.contactId, displayName: r.contact.displayName }); }
+            }, function () { /* the user picks one */ });
+          }
+        });
 
         function save() {
           var data = Nadlan.dialog.readForm($form);

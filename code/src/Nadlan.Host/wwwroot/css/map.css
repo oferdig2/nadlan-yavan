@@ -42,6 +42,7 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .results-list li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; border-top: 1px solid var(--border); cursor: pointer; }
 .results-list li:hover { background: var(--bg); }
 .results-list input[type=checkbox] { margin-top: 3px; }
+.results-list .row-no-select { width: 13px; flex: none; } /* a beach: nothing to select */
 .row-body { flex: 1; min-width: 0; }
 .row-sub { font-size: 12px; }
 
@@ -94,6 +95,7 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .map-card.minimized .card-icon { width: 22px; height: 22px; font-size: 13px !important; color: var(--accent) !important; border: none; background: none; cursor: pointer; }
 .map-card.minimized.dragging { cursor: grabbing; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.3); }
 .card-body, .card-details { padding: 6px 10px 8px; }
+.card-sea { padding: 0 10px 8px; margin-top: -6px; } /* the distance to the sea, under the parcel facts */
 .card-details { border-top: 1px dashed var(--border); }
 .card-row { display: flex; gap: 8px; padding: 3px 0; }
 .card-label { width: 100px; flex-shrink: 0; color: var(--muted); }

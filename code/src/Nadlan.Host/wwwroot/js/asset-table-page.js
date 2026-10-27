@@ -66,6 +66,9 @@
       sortValue: function (r) { return r.remarks || ""; },
       editable: function (r) { return r.canEdit; }, value: function (r) { return r.remarks || ""; },
       html: function (r) { return r.remarks ? esc(r.remarks) : "<span class=\"muted\">—</span>"; } },
+    // Distance to the sea: read-only, from the cache only (shown once someone opened the card since the last beach change).
+    { key: "sea", label: "Sea", cls: "col-sea", sortValue: function (r) { return r.seaMetres === null || r.seaMetres === undefined ? Number.MAX_VALUE : r.seaMetres; },
+      html: function (r) { return r.seaMetres === null || r.seaMetres === undefined ? "<span class=\"muted\">—</span>" : esc(Nadlan.format.seaDistance(r.seaMetres).replace(" to the sea", "")); } },
     { key: "files", label: "Files", cls: "col-files", action: true,
       html: function () { return "<button type=\"button\" class=\"btn btn-small\" tabindex=\"-1\" data-files>Files</button>"; } }
   ];

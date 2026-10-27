@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Mvc;
 using Nadlan.Core.Editing;
 using Nadlan.Core.Assets;
 using Nadlan.Core.Contacts;
+using Nadlan.Core.Places;
+using Nadlan.Core.Reference;
 using Nadlan.Core.Security;
 using Nadlan.Core.Validation;
 using Nadlan.Host.Geo;
@@ -43,7 +45,7 @@ public static class AssetEndpoints
         var group = app.MapGroup("/api/assets");
 
         // The Assets layer of the map (the Asset table has its own list: /api/asset-table).
-        group.MapGet("/", async ([AsParameters] AssetQueryParams q, UserAccess me, IAssetStore assets, CancellationToken ct) =>
+        group.MapGet("/", async ([AsParameters] AssetQueryParams q, UserAccess me, IAssetStore assets, PlacesSettings places, CancellationToken ct) =>
         {
             AccessPolicy.RequireMap(me);
             var found = await assets.QueryAsync(new AssetQuery
@@ -65,7 +67,7 @@ public static class AssetEndpoints
             return Results.Ok(new
             {
                 truncated = found.Count >= MaxResults,
-                items = found.Select(a => new { summary = Summary(a), geometry = GeoJson.Polygon(a.Geometry) }),
+                items = found.Select(a => new { summary = Summary(a, places), geometry = GeoJson.Polygon(a.Geometry) }),
             });
         });
 
@@ -108,7 +110,8 @@ public static class AssetEndpoints
             });
         });
 
-        group.MapPost("/", async (AssetDto dto, UserAccess me, AccessPolicy policy, AssetService service, CancellationToken ct) =>
+        group.MapPost("/", async (AssetDto dto, UserAccess me, AccessPolicy policy, AssetService service, SeaDistanceService sea,
+            IReferenceDataStore reference, CancellationToken ct) =>
         {
             if (!AccessPolicy.CanCreateAsset(me))
             {
@@ -122,7 +125,9 @@ public static class AssetEndpoints
 
             // Without EDIT_ALL_ASSETS the Managing Contact is always the user's own Contact (Scenario 2 / Appendix 1 §10.3).
             var managing = me.Has(Permissions.EditAllAssets) ? dto.ManagingContactId : me.ContactId!.Value;
-            var created = await service.CreateAsync(ToAsset(dto with { ManagingContactId = managing }, 0) with
+            // A beach without a status or contact gets the beach defaults (or is refused without a contact).
+            var input = await Beaches.WithDefaultsAsync(ToAsset(dto with { ManagingContactId = managing }, 0), me, sea.Settings, reference, ct);
+            var created = await service.CreateAsync(input with
             {
                 ParcelIds = dto.ParcelId is long pid ? new[] { pid } : Array.Empty<long>(),
                 CreatedByUserId = me.UserId,
@@ -175,7 +180,8 @@ public static class AssetEndpoints
 
     public sealed record AssetContactDto(long ContactId, string? RelationshipType, string? Notes);
 
-    internal static object Summary(AssetMapItem a) => new
+    /// <param name="places">To show the distance to the sea (cached only; under the display limit). Null = not shown.</param>
+    internal static object Summary(AssetMapItem a, PlacesSettings? places = null) => new
     {
         assetId = a.AssetId,
         parcelId = a.ParcelId,
@@ -191,6 +197,8 @@ public static class AssetEndpoints
         statusName = a.StatusName,
         statusColor = a.StatusColor,
         propertyType = a.PropertyTypeName,
+        isBeach = a.IsBeach,        // a public place: own map colour, never in a Portfolio or presentation
+        seaMetres = places?.Shown(a.SeaMetres),
         canEdit = a.CanEdit,
     };
 

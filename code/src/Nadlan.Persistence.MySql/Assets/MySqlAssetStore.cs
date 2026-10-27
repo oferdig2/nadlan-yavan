@@ -3,6 +3,7 @@ using Nadlan.Core.Assets;
 using Nadlan.Core.Geo;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Security;
+using Nadlan.Persistence.MySql.Places;
 using Nadlan.Persistence.MySql.Security;
 
 namespace Nadlan.Persistence.MySql.Assets;
@@ -11,12 +12,13 @@ public sealed class MySqlAssetStore : IAssetStore
 {
     private const string FromWkt = "ST_GeomFromText(@Wkt, 4326, 'axis-order=long-lat')";
 
-    // {0} = price-visible expression, {1} = can-edit expression (AccessSql, per caller).
+    // {0} = price-visible expression, {1} = can-edit expression (AccessSql, per caller), {2} = the fresh sea-distance join.
     private const string MapItemSelectFormat = """
         SELECT a.asset_id, p.parcel_id, p.registry_id, p.registry_id_is_provisional, ga.name AS geographic_area,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt,
                a.managing_contact_id, c.display_name AS managing_contact_name, a.ask_price, a.currency_code,
                a.asset_status_id, s.name AS status_name, s.map_color AS status_color, pt.name AS property_type_name,
+               pt.code AS property_type_code, sd.distance_m AS sea_metres,
                ({0}) AS price_visible, ({1}) AS can_edit
         FROM asset a
         JOIN asset_parcel ap ON ap.asset_id = a.asset_id
@@ -25,6 +27,7 @@ public sealed class MySqlAssetStore : IAssetStore
         JOIN asset_status s ON s.asset_status_id = a.asset_status_id
         LEFT JOIN property_type pt ON pt.property_type_id = a.property_type_id
         LEFT JOIN geographic_area ga ON ga.geographic_area_id = p.geographic_area_id
+        {2}
         """;
 
     private readonly MySqlDatabase _db;
@@ -134,6 +137,11 @@ public sealed class MySqlAssetStore : IAssetStore
         AddIn(where, args, "a.property_type_id", "typeIds", query.PropertyTypeIds);
         AddIn(where, args, "a.asset_id", "assetIds", query.AssetIds);
 
+        if (query.ExcludeBeaches)
+        {
+            where.Add("NOT " + SeaDistanceSql.IsBeachAsset("a"));
+        }
+
         if (query.PortfolioIds.Count > 0)
         {
             where.Add("EXISTS (SELECT 1 FROM portfolio_asset pa WHERE pa.asset_id = a.asset_id AND pa.portfolio_id IN @portfolioIds)");
@@ -159,7 +167,7 @@ public sealed class MySqlAssetStore : IAssetStore
     }
 
     private static string MapItemSelect(AccessScope scope, DynamicParameters args)
-        => string.Format(MapItemSelectFormat, AccessSql.PriceVisible("a", scope, args), AccessSql.CanEditAsset("a", scope, args));
+        => string.Format(MapItemSelectFormat, AccessSql.PriceVisible("a", scope, args), AccessSql.CanEditAsset("a", scope, args), SeaDistanceSql.FreshJoin("p"));
 
     public async Task<IReadOnlyList<AssetPortfolioMembership>> ListPortfoliosAsync(long assetId, CancellationToken ct = default)
     {
@@ -201,6 +209,8 @@ public sealed class MySqlAssetStore : IAssetStore
         public string StatusName { get; init; } = "";
         public string StatusColor { get; init; } = "";
         public string? PropertyTypeName { get; init; }
+        public string? PropertyTypeCode { get; init; }
+        public int? SeaMetres { get; init; }
         public bool PriceVisible { get; init; }
         public bool CanEdit { get; init; }
 
@@ -220,6 +230,8 @@ public sealed class MySqlAssetStore : IAssetStore
             StatusName = StatusName,
             StatusColor = StatusColor,
             PropertyTypeName = PropertyTypeName,
+            IsBeach = PropertyTypeCode == Nadlan.Core.Places.Beaches.BeachTypeCode,
+            SeaMetres = SeaMetres,
             PriceVisible = PriceVisible,
             CanEdit = CanEdit,
         };

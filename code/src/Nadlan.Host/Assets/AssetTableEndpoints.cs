@@ -24,7 +24,7 @@ public static class AssetTableEndpoints
     {
         var group = app.MapGroup("/api/asset-table");
 
-        group.MapGet("/", async (UserAccess me, IAssetTableStore rows, CancellationToken ct) =>
+        group.MapGet("/", async (UserAccess me, IAssetTableStore rows, Nadlan.Core.Places.PlacesSettings places, CancellationToken ct) =>
         {
             AccessPolicy.RequireAssetTable(me);
             var found = await rows.ListAsync(me.Scope, MaxRows, ct);
@@ -34,7 +34,7 @@ public static class AssetTableEndpoints
                 canCreate = AccessPolicy.CanCreateAsset(me) && me.ContactId is not null,
                 noContact = me.ContactId is null, // "+" then says: ask an admin to link one
                 editParcels = me.Has(Permissions.EditAllParcels), // OT / plot editable once set (rights re-checked on save)
-                items = found.Select(Row),
+                items = found.Select(r => Row(r, places)),
             });
         });
 
@@ -60,6 +60,7 @@ public static class AssetTableEndpoints
                 RegistryId = byKaek ? k : null,
                 Ot = byKaek ? null : ot,
                 Plot = byKaek ? null : plot,
+                ExcludeBeaches = true, // a beach is a public place, not somewhere to add an Asset
                 Limit = MaxParcels + 1,
                 Scope = me.Scope,
             }, ct);
@@ -81,22 +82,24 @@ public static class AssetTableEndpoints
             });
         });
 
-        group.MapPost("/", async (CreateDto dto, UserAccess me, AssetTableService service, IAssetTableStore rows, CancellationToken ct) =>
+        group.MapPost("/", async (CreateDto dto, UserAccess me, AssetTableService service, IAssetTableStore rows,
+            Nadlan.Core.Places.PlacesSettings places, CancellationToken ct) =>
         {
             var id = await service.CreateAsync(me, dto.ParcelId, ct);
-            return Results.Ok(Row(await rows.GetAsync(me.Scope, id, ct) ?? throw new EntityNotFoundException("Asset", id)));
+            return Results.Ok(Row(await rows.GetAsync(me.Scope, id, ct) ?? throw new EntityNotFoundException("Asset", id), places));
         });
 
         // One cell: { field: status | propertyType | price | houseSqm | remarks | ot | plot, value, currency? }. Returns the row.
         group.MapPut("/{assetId:long}", async (long assetId, CellDto dto, UserAccess me, AssetTableService service, IAssetTableStore rows,
-            CancellationToken ct) =>
+            Nadlan.Core.Places.PlacesSettings places, CancellationToken ct) =>
         {
             await service.SetFieldAsync(me, assetId, dto.Field, dto.Value, dto.Currency, ct);
-            return Results.Ok(Row(await rows.GetAsync(me.Scope, assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId)));
+            return Results.Ok(Row(await rows.GetAsync(me.Scope, assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId), places));
         });
     }
 
-    internal static object Row(AssetTableRow r) => new
+    /// <param name="places">To show the cached distance to the sea (under the display limit); null = not shown.</param>
+    internal static object Row(AssetTableRow r, Nadlan.Core.Places.PlacesSettings? places = null) => new
     {
         assetId = r.AssetId,
         parcelId = r.ParcelId,
@@ -115,5 +118,6 @@ public static class AssetTableEndpoints
         canEdit = r.CanEdit,
         createdUtc = r.CreatedUtc,
         updatedUtc = r.UpdatedUtc,
+        seaMetres = places?.Shown(r.SeaMetres), // cached only: the table never calculates
     };
 }

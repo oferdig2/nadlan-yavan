@@ -1,5 +1,6 @@
 using Nadlan.Core.Editing;
 using Nadlan.Core.Assets;
+using Nadlan.Core.Places;
 using Nadlan.Core.Portfolios;
 using Nadlan.Core.Reference;
 using Nadlan.Core.Security;
@@ -32,7 +33,7 @@ public static class PortfolioEndpoints
 
         // One Portfolio with its Assets in manual order (for the Portfolio panel and "show on map").
         group.MapGet("/{portfolioId:long}", async (long portfolioId, UserAccess me, AccessPolicy policy, IPortfolioStore portfolios,
-            IAssetStore assets, IReferenceDataStore reference, IEditVersionStore versions, CancellationToken ct) =>
+            IAssetStore assets, IReferenceDataStore reference, IEditVersionStore versions, PlacesSettings places, CancellationToken ct) =>
         {
             var rights = await policy.PortfolioAsync(me, portfolioId, ct);
             var version = await versions.GetAsync(EditTargets.Portfolio, portfolioId, ct); // before the data: a save in between = a 409, never a stale form
@@ -57,13 +58,14 @@ public static class PortfolioEndpoints
                 version, // sent back on save (edit check)
                 // One row per Asset (a multi-Parcel Asset would appear once per Parcel; Phase 1 has one Parcel each).
                 assets = items.OrderBy(a => rank.GetValueOrDefault(a.AssetId, int.MaxValue))
-                    .Select(a => new { summary = AssetEndpoints.Summary(a), geometry = GeoJson.Polygon(a.Geometry) }),
+                    .Select(a => new { summary = AssetEndpoints.Summary(a, places), geometry = GeoJson.Polygon(a.Geometry) }),
                 rights = new { rights.CanEdit },
             });
         });
 
         // Create, optionally with a first set of Assets (the "create Portfolio from selection" flow).
-        group.MapPost("/", async (CreatePortfolioDto dto, UserAccess me, AccessPolicy policy, PortfolioService service, CancellationToken ct) =>
+        group.MapPost("/", async (CreatePortfolioDto dto, UserAccess me, AccessPolicy policy, PortfolioService service, SeaDistanceService sea,
+            CancellationToken ct) =>
         {
             if (!me.Has(Permissions.ManagePortfolios))
             {
@@ -71,6 +73,7 @@ public static class PortfolioEndpoints
             }
 
             await RequireVisibleAssetsAsync(me, policy, dto.AssetIds, ct);
+            await sea.RequireNoBeachesAsync(dto.AssetIds, ct); // a customer never gets a beach as a property
             var portfolio = await service.CreateAsync(dto.Name ?? "", dto.PortfolioTypeId, dto.Description, ct);
             var added = dto.AssetIds is { Length: > 0 } ids ? await service.AddAssetsAsync(portfolio.PortfolioId, ids, ct) : 0;
             return Results.Ok(new { portfolio.PortfolioId, portfolio.Name, added });
@@ -86,10 +89,11 @@ public static class PortfolioEndpoints
         });
 
         group.MapPost("/{portfolioId:long}/assets", async (long portfolioId, AddAssetsDto dto, UserAccess me, AccessPolicy policy,
-            PortfolioService service, CancellationToken ct) =>
+            PortfolioService service, SeaDistanceService sea, CancellationToken ct) =>
         {
             await policy.RequirePortfolioEditAsync(me, portfolioId, ct);
             await RequireVisibleAssetsAsync(me, policy, dto.AssetIds, ct);
+            await sea.RequireNoBeachesAsync(dto.AssetIds, ct);
             return Results.Ok(new { added = await service.AddAssetsAsync(portfolioId, dto.AssetIds ?? Array.Empty<long>(), ct) });
         });
 

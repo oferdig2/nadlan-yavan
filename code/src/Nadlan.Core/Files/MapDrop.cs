@@ -676,7 +676,7 @@ public sealed class MapDropService
             return Array.Empty<(long, string?, GeoPolygon)>(); // a broken track spanning tens of km: find nothing rather than everything
         }
 
-        var found = await _parcels.QueryAsync(new ParcelQuery { Area = area, Scope = me.Scope, Limit = 5000 }, ct);
+        var found = await _parcels.QueryAsync(new ParcelQuery { Area = area, Scope = me.Scope, Limit = 5000, ExcludeBeaches = true }, ct); // no beach suggestions
         return found.Select(p => (p.ParcelId, p.RegistryId, p.Geometry)).ToList();
     }
 
