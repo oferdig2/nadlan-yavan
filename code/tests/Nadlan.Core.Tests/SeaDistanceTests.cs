@@ -51,6 +51,41 @@ public class SeaDistanceTests
         Assert.Same(plot, await Beaches.WithDefaultsAsync(plot, User(null), new PlacesSettings(), new Reference(), default));
     }
 
+    // ---- who may make a beach (review 2026-10-27: an Agent turned their own Asset into a fake beach) ---------------
+
+    private static UserAccess Agent() => new() { UserId = 8, RoleCode = "AGENT", ContactId = 80,
+        Permissions = new HashSet<string> { Permissions.CreateAsset, Permissions.EditOwnAsset, Permissions.ViewOwnAsset } };
+
+    private static UserAccess DataPerson() => new() { UserId = 3, RoleCode = "DATA_PERSON", Permissions = new HashSet<string> { Permissions.EditAllAssets } };
+
+    [Fact]
+    public async Task Only_users_who_edit_every_Asset_set_or_remove_the_Beach_type()
+    {
+        var plotToBeach = new Asset { PropertyTypeId = BeachType, AssetStatusId = 1 };
+        var beachToPlot = new Asset { PropertyTypeId = 1, AssetStatusId = NotForSale };
+
+        foreach (var (asset, before) in new[] { (plotToBeach, (int?)1), (plotToBeach, null), (beachToPlot, BeachType) })
+        {
+            var refused = await Assert.ThrowsAsync<ForbiddenException>(() => Beaches.CheckTypeChangeAsync(asset, before, Agent(), new Reference(), default));
+            Assert.Equal(("ASSET_BEACH_FORBIDDEN", Beaches.ChangeForbiddenMessage), (refused.Code, refused.Message));
+        }
+
+        // Admin / Data person: allowed, and the new beach is Not for sale whatever the form sent.
+        Assert.Equal(NotForSale, (await Beaches.CheckTypeChangeAsync(plotToBeach, 1, DataPerson(), new Reference(), default)).AssetStatusId);
+        Assert.Equal(NotForSale, (await Beaches.CheckTypeChangeAsync(plotToBeach, null, new UserAccess { RoleCode = SecurityRoles.Admin }, new Reference(), default)).AssetStatusId);
+        Assert.Equal(1, (await Beaches.CheckTypeChangeAsync(beachToPlot with { AssetStatusId = 1 }, BeachType, DataPerson(), new Reference(), default)).AssetStatusId);
+    }
+
+    [Fact]
+    public async Task Saves_that_dont_change_beach_or_not_pass_untouched()
+    {
+        // An Agent's ordinary edit; a Data person's later save of a beach keeps the status chosen since.
+        var plot = new Asset { PropertyTypeId = 1, AssetStatusId = 1 };
+        Assert.Same(plot, await Beaches.CheckTypeChangeAsync(plot, 1, Agent(), new Reference(), default));
+        var beach = new Asset { PropertyTypeId = BeachType, AssetStatusId = 1 };
+        Assert.Same(beach, await Beaches.CheckTypeChangeAsync(beach, BeachType, DataPerson(), new Reference(), default));
+    }
+
     [Theory]
     [InlineData(4999, 4999)]
     [InlineData(5000, 5000)]

@@ -304,7 +304,7 @@
     if (c.editor === "status") {
       $editor = $("<select class=\"cell-editor\"></select>").html(Nadlan.reference.optionsHtml(Nadlan.reference.forPicker(ref.assetStatuses, r.statusId), r.statusId));
     } else if (c.editor === "type") {
-      $editor = $("<select class=\"cell-editor\"></select>").html(Nadlan.reference.optionsHtml(Nadlan.reference.forPicker(ref.propertyTypes, r.propertyTypeId), r.propertyTypeId, "—"));
+      $editor = $("<select class=\"cell-editor\"></select>").html(Nadlan.reference.optionsHtml(Nadlan.reference.propertyTypesFor(ref.propertyTypes, r.propertyTypeId), r.propertyTypeId, "—"));
     } else if (c.editor === "textarea") {
       $editor = $("<textarea class=\"cell-editor\" rows=\"3\" maxlength=\"4000\" aria-label=\"Remarks\"></textarea>").val(start);
     } else {

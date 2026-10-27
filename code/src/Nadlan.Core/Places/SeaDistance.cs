@@ -17,6 +17,43 @@ public static class Beaches
 
     public const string NoContactMessage = "Choose a contact for this beach.";
 
+    public const string ChangeForbiddenMessage = "Only an Admin or a Data person can make an Asset a beach, or change a beach to another type.";
+
+    /// <summary>
+    /// Who may set or remove the Beach type: users who may edit every Asset (Admin, Data person). A beach changes the
+    /// map for everyone - the distance of every Parcel near it, "done" on the map, gone from "+" and Map drop - so an
+    /// Agent's own Asset can't become one (review 2026-10-27).
+    /// </summary>
+    public static bool MayChangeBeach(UserAccess me) => me.Has(Permissions.EditAllAssets);
+
+    /// <summary>
+    /// Every save that changes whether an Asset is a beach (create, the map's editor, the Asset table): refused unless
+    /// <see cref="MayChangeBeach"/>, and an Asset that becomes a beach is "Not for sale" (later saves keep any status).
+    /// <paramref name="typeBefore"/>: the stored type; null for a new Asset.
+    /// </summary>
+    public static async Task<Assets.Asset> CheckTypeChangeAsync(Assets.Asset after, int? typeBefore, UserAccess me, IReferenceDataStore reference,
+        CancellationToken ct)
+    {
+        if (await BeachTypeIdAsync(reference, ct) is not int beach)
+        {
+            return after;
+        }
+
+        var wasBeach = typeBefore == beach;
+        var isBeach = after.PropertyTypeId == beach;
+        if (wasBeach == isBeach)
+        {
+            return after;
+        }
+
+        if (!MayChangeBeach(me))
+        {
+            throw new ForbiddenException("ASSET_BEACH_FORBIDDEN", ChangeForbiddenMessage);
+        }
+
+        return isBeach && await DefaultStatusIdAsync(reference, ct) is int notForSale ? after with { AssetStatusId = notForSale } : after;
+    }
+
     public static async Task<int?> BeachTypeIdAsync(IReferenceDataStore reference, CancellationToken ct)
         => (await reference.ListAsync(ReferenceList.PropertyType, ct)).FirstOrDefault(t => t.Code == BeachTypeCode)?.Id;
 

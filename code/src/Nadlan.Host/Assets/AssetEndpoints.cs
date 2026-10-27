@@ -127,6 +127,7 @@ public static class AssetEndpoints
             var managing = me.Has(Permissions.EditAllAssets) ? dto.ManagingContactId : me.ContactId!.Value;
             // A beach without a status or contact gets the beach defaults (or is refused without a contact).
             var input = await Beaches.WithDefaultsAsync(ToAsset(dto with { ManagingContactId = managing }, 0), me, sea.Settings, reference, ct);
+            input = await Beaches.CheckTypeChangeAsync(input, typeBefore: null, me, reference, ct); // a new beach: Admin / Data person, Not for sale
             var created = await service.CreateAsync(input with
             {
                 ParcelIds = dto.ParcelId is long pid ? new[] { pid } : Array.Empty<long>(),
@@ -136,19 +137,19 @@ public static class AssetEndpoints
         });
 
         group.MapPut("/{assetId:long}", async (long assetId, AssetDto dto, UserAccess me, AccessPolicy policy, IAssetStore assets,
-            AssetService service, IEditVersionStore versions, CancellationToken ct) =>
+            AssetService service, IEditVersionStore versions, IReferenceDataStore reference, CancellationToken ct) =>
         {
             var rights = await policy.RequireAssetEditAsync(me, assetId, ct);
             await using var edit = await versions.BeginEditAsync(EditTargets.Asset, assetId, dto.Version, ct);
-            var input = ToAsset(dto, assetId);
-            if (!rights.CanChangeManagingContact)
+            var existing = await assets.GetAsync(assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId);
+            if (!rights.CanChangeManagingContact && dto.ManagingContactId != existing.ManagingContactId)
             {
-                var existing = await assets.GetAsync(assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId);
-                if (dto.ManagingContactId != existing.ManagingContactId)
-                {
-                    throw new ForbiddenException("ASSET_MANAGING_CONTACT_FORBIDDEN", "Only an administrator can change the Managing Contact.");
-                }
+                throw new ForbiddenException("ASSET_MANAGING_CONTACT_FORBIDDEN", "Only an administrator can change the Managing Contact.");
             }
+
+            // Made a beach (or no longer one): Admin / Data person only; a new beach is Not for sale - on the server, not
+            // only in the editor (review 2026-10-27).
+            var input = await Beaches.CheckTypeChangeAsync(ToAsset(dto, assetId), existing.PropertyTypeId, me, reference, ct);
 
             await service.UpdateAsync(input, ct);
             return Results.Ok(new { assetId });

@@ -148,12 +148,8 @@ public sealed class AssetTableService
             AssetTableFields.Price => WithPrice(asset, ParseDecimal(text, "Price"), currency),
             _ => throw new DomainValidationException("ASSET_TABLE_FIELD_INVALID", $"Unknown column '{field}'."),
         };
-        // Made a beach: "Not for sale" (owner, 2026-10-27). The user may change the status afterwards.
-        if (field == AssetTableFields.PropertyType && asset.PropertyTypeId is int typeId && typeId != typeBefore
-            && typeId == await Places.Beaches.BeachTypeIdAsync(_reference, ct) && await Places.Beaches.DefaultStatusIdAsync(_reference, ct) is int notForSale)
-        {
-            asset = asset with { AssetStatusId = notForSale };
-        }
+        // Beach or not: Admin / Data person only, and a new beach is "Not for sale" (the user may change it afterwards).
+        asset = await Places.Beaches.CheckTypeChangeAsync(asset, typeBefore, me, _reference, ct);
 
         await _service.UpdateAsync(asset, ct);
     }

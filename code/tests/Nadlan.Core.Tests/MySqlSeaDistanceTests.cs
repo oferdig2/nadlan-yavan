@@ -255,6 +255,42 @@ public class MySqlSeaDistanceTests : IClassFixture<ScratchMySql>
     }
 
     [Fact]
+    public async Task An_Agent_cant_turn_their_own_Asset_into_a_beach()
+    {
+        if (_db is null) { return; }
+        var w = await SeedAsync();
+        await using var c = await _db.OpenAsync();
+        // The reviewer's case: an Agent's own Asset on a plot, changed to Beach in the Asset table.
+        var agentUser = await IdAsync(c, """
+            INSERT INTO app_user (email, display_name, contact_id, security_role_id)
+            SELECT @email, 'Agent', @contact, security_role_id FROM security_role WHERE code = 'AGENT'
+            """, new { email = "sea.agent" + Guid.NewGuid().ToString("N")[..8] + "@example.gr", contact = w.Contact });
+        await c.ExecuteAsync("UPDATE asset SET created_by_user_id = @agentUser WHERE asset_id = @id", new { agentUser, id = w.NearAsset });
+        var user = (await new MySqlUserStore(_db).GetAsync(agentUser))!;
+        var agent = Nadlan.Core.Security.AuthService.ToAccess(user, await new MySqlRoleStore(_db).GetRolePermissionCodesAsync(user.SecurityRoleId))
+            with { Permissions = (await new MySqlRoleStore(_db).GetRolePermissionCodesAsync(user.SecurityRoleId)).Append(Nadlan.Core.Security.Permissions.AllAreas).ToHashSet() };
+        var (sea, _) = Service();
+        var before = await sea.ShortestAsync(new[] { w.Touching });
+        var beachType = await c.ExecuteScalarAsync<int>("SELECT property_type_id FROM property_type WHERE code = 'BEACH'");
+
+        var refused = await Assert.ThrowsAsync<ForbiddenException>(() =>
+            TableService().SetFieldAsync(agent, w.NearAsset, AssetTableFields.PropertyType, beachType.ToString(CultureInfo.InvariantCulture), null));
+        Assert.Equal("ASSET_BEACH_FORBIDDEN", refused.Code);
+        Assert.NotEqual(beachType, (await new MySqlAssetStore(_db).GetAsync(w.NearAsset))!.PropertyTypeId);
+        Assert.Equal(before, await sea.ShortestAsync(new[] { w.Touching })); // no fake beach: nobody's distance moved
+    }
+
+    private AssetTableService TableService()
+    {
+        var assets = new MySqlAssetStore(_db!);
+        var parcels = new MySqlParcelStore(_db!);
+        var reference = new Nadlan.Persistence.MySql.Reference.MySqlReferenceDataStore(_db!);
+        return new AssetTableService(assets, parcels, new AssetService(assets, parcels, new Nadlan.Persistence.MySql.Contacts.MySqlContactStore(_db!), reference),
+            new ParcelService(parcels, new Nadlan.Persistence.MySql.GeographicAreas.MySqlGeographicAreaStore(_db!), new Nadlan.Persistence.MySql.GeographicAreas.MySqlCountryStore(_db!)),
+            new Nadlan.Core.Security.AccessPolicy(new MySqlAccessStore(_db!), assets), reference, new Nadlan.Persistence.MySql.Editing.MySqlEditVersionStore(_db!));
+    }
+
+    [Fact]
     public async Task Making_an_Asset_a_beach_in_the_table_sets_Not_for_sale()
     {
         if (_db is null) { return; }

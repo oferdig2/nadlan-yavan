@@ -36,6 +36,13 @@
       });
     },
 
+    // Property types an Asset may be given: "Beach" only for users who may edit every Asset (Admin, Data person) - the
+    // server refuses it from anyone else - unless the Asset already is a beach.
+    propertyTypesFor: function (list, currentId) {
+      var mayBeach = !!Nadlan.session && Nadlan.session.can("EDIT_ALL_ASSETS");
+      return this.forPicker(list, currentId).filter(function (t) { return mayBeach || t.code !== "BEACH" || t.id === currentId; });
+    },
+
     optionsHtml: function (list, selectedId, emptyLabel) {
       var esc = Nadlan.format.escapeHtml;
       var html = emptyLabel === undefined ? "" : "<option value=\"\">" + esc(emptyLabel) + "</option>";

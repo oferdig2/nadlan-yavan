@@ -19,7 +19,7 @@
         "<label>Status<select class=\"input\" name=\"assetStatusId\" data-type=\"id\">" +
           Nadlan.reference.optionsHtml(Nadlan.reference.forPicker(ref.assetStatuses, a.assetStatusId), a.assetStatusId, "Select…") + "</select></label>" +
         "<label>Property type<select class=\"input\" name=\"propertyTypeId\" data-type=\"id\">" +
-          Nadlan.reference.optionsHtml(Nadlan.reference.forPicker(ref.propertyTypes, a.propertyTypeId), a.propertyTypeId, "—") + "</select></label>" +
+          Nadlan.reference.optionsHtml(Nadlan.reference.propertyTypesFor(ref.propertyTypes, a.propertyTypeId), a.propertyTypeId, "—") + "</select></label>" +
       "</div>" +
       "<div class=\"form-row\">" +
         "<label>Ask price<input class=\"input\" name=\"askPrice\" data-type=\"number\" inputmode=\"decimal\" value=\"" + num(a.askPrice) + "\"></label>" +
