@@ -78,6 +78,7 @@ public static class PersistenceRegistration
         services.AddHostedService(sp => sp.GetRequiredService<Nadlan.Host.Parcels.ParcelCoverageService>());
         services.AddSingleton<AuthService>();
         services.AddSingleton<UserAdminService>();
+        Nadlan.Host.Work.WorkModule.AddWorkModule(services); // work requests for contractors: its stores and services (Nadlan.Host/Work)
         return services;
     }
 }

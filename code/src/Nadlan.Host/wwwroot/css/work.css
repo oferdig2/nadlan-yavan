@@ -1,0 +1,61 @@
+/* Work page (work.html): work requests for contractors. Header and tables as on the Admin page (admin.css). */
+.work-main { padding: 16px; max-width: 1440px; margin: 0 auto; }
+.work-status { font-size: 13px; color: var(--muted); margin-left: auto; max-width: 50vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-status.error { color: var(--error); }
+.work-body .work-status ~ .user-menu { margin-left: 0; }
+
+.work-back { margin-bottom: 6px; font-size: 13px; }
+.work-title { margin: 0 0 10px; font-size: 18px; }
+.work-title .muted { font-weight: 400; }
+.work-meta { font-size: 12px; }
+
+/* The request's name / contractor card and the link card side by side; one under the other on narrow screens. */
+.work-top { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; margin-bottom: 12px; }
+.work-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.work-card h3 { margin: 0 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.work-works, .work-history { margin-bottom: 12px; }
+.work-head-row > label { min-width: 0; }
+.contractor-picker { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.contractor-picker select { flex: 1; min-width: 180px; }
+.work-link { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.work-link .btn-row { margin: 2px 0; }
+.work-link-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.work-password { font: 600 28px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 3px; text-align: center; padding: 8px;
+  background: var(--bg); border: 1px dashed var(--border); border-radius: 6px; user-select: all; }
+.copy-box { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+/* Filter chips: All, Open offers, Approved, In work, Done, Paid (with the number of parcels). */
+.work-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.work-chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 16px; padding: 4px 12px; font: inherit;
+  font-size: 13px; cursor: pointer; min-height: 30px; }
+.work-chip:hover { border-color: var(--accent); }
+.work-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.work-chip-count { opacity: 0.75; font-size: 12px; margin-left: 2px; }
+
+/* Wide tables scroll inside their card, never the page. */
+.work-table-wrap { overflow-x: auto; }
+.work-items, .work-requests { min-width: 900px; }
+.work-items td, .work-requests td { vertical-align: middle; }
+.work-items td { white-space: nowrap; }
+.work-requests tr[data-id] { cursor: pointer; }
+.work-requests tr[data-id]:hover td, .work-requests tr[data-id]:focus td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.meta-table th.num, .meta-table td.num { text-align: right; }
+.meta-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.meta-table th.sortable:hover { color: var(--text); }
+.nowrap { white-space: nowrap; }
+.table-empty { padding: 20px; }
+
+/* + Add parcel */
+.add-work-parcel .add-or { text-align: center; margin: -2px 0; }
+.add-work-parcel .add-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.add-work-parcel .add-table th, .add-work-parcel .add-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+.add-work-parcel .add-table th { color: var(--muted); font-weight: 600; }
+.work-type-checks { gap: 6px 16px; }
+.work-type-checks .check { font-size: 14px; }
+.add-work-parcel .done-note { display: inline-block; padding: 2px 6px; }
+
+@media (max-width: 900px) {
+  .work-top { grid-template-columns: minmax(0, 1fr); }
+  .work-main { padding: 12px; }
+  .work-head-row { flex-direction: column; }
+}
