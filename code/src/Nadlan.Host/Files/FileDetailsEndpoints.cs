@@ -56,12 +56,18 @@ public static class FileDetailsEndpoints
                 throw new DomainValidationException("FILE_NOT_MEDIA", "Only photos and videos are read this way.");
             }
 
-            if (start < 0 || end <= start || end - start > MaxSliceBytes)
+            // At or past the file's end: nothing to read, and storage is not asked at all.
+            if (Slice(start, end, file.FileSize) is not { } slice)
             {
-                throw new DomainValidationException("FILE_RANGE_INVALID", $"Ask for 1 byte to {MaxSliceBytes / 1048576} MB at a time.");
+                return Results.File(Array.Empty<byte>(), "application/octet-stream");
             }
 
-            var bytes = await storage.ReadRangeAsync(file.StorageKey, start, (int)Math.Min(end - start, file.FileSize - start), ct)
+            if (!storage.IsConfigured)
+            {
+                return Results.Json(new { error = "STORAGE_NOT_CONFIGURED", message = "File storage is not configured." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            var bytes = await storage.ReadRangeAsync(file.StorageKey, slice.Offset, slice.Count, ct)
                         ?? throw new EntityNotFoundException("File", fileAttachmentId);
             return Results.File(bytes, "application/octet-stream");
         });
@@ -88,6 +94,21 @@ public static class FileDetailsEndpoints
 
             return Results.NoContent();
         });
+    }
+
+    /// <summary>
+    /// The bytes to read for [start, end) of a file of <paramref name="fileSize"/> bytes: cut at the file's end; null when
+    /// nothing is left (start at or past the end). A bad or too large request is refused (at most 8 MB at a time).
+    /// </summary>
+    internal static (long Offset, int Count)? Slice(long start, long end, long fileSize)
+    {
+        if (start < 0 || end <= start || end - start > MaxSliceBytes)
+        {
+            throw new DomainValidationException("FILE_RANGE_INVALID", $"Ask for 1 byte to {MaxSliceBytes / 1048576} MB at a time.");
+        }
+
+        var count = Math.Min(end, fileSize) - start;
+        return count > 0 ? (start, (int)count) : null;
     }
 
     private static async Task<FileAttachment> VisibleReadyFileAsync(long fileAttachmentId, UserAccess me, AccessPolicy policy, IFileAttachmentStore files,

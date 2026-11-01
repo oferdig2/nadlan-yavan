@@ -73,8 +73,13 @@ public static class AssetEndpoints
         });
 
         // N2: the agent of a Managing Contact - the editor's "Let agent know" box shows (ticked) when there is one.
-        group.MapGet("/agent-for-contact/{contactId:long}", async (long contactId, UserAccess me, AgentShareService shares, CancellationToken ct) =>
-            Results.Ok(await shares.AgentOfContactAsync(me, contactId, ct) is { } agent ? new { agent.UserId, agent.DisplayName } : null));
+        // coversArea false: the agent's areas don't include the Asset's (or the new Asset's Parcel's) - a share would give
+        // them nothing, so the box is not offered (review 2026-11-01).
+        group.MapGet("/agent-for-contact/{contactId:long}", async (long contactId, long? assetId, long? parcelId, UserAccess me,
+            AgentShareService shares, CancellationToken ct) =>
+            Results.Ok(await shares.AgentOfContactAsync(me, contactId, ct) is { } agent
+                ? new { agent.UserId, agent.DisplayName, coversArea = await shares.CoversAsync(agent.UserId, assetId, parcelId, ct) }
+                : null));
 
         group.MapGet("/{assetId:long}", async (long assetId, UserAccess me, AccessPolicy policy, IAssetStore assets,
             IContactStore contacts, IEditVersionStore versions, AgentShareService shares, CancellationToken ct) =>

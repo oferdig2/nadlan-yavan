@@ -23,6 +23,12 @@ public interface IAgentShareStore
     /// Grants given by hand (Access to objects) are never touched.
     /// </summary>
     Task SetAsync(long assetId, long? userId, long grantedByUserId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The user would see an Asset there through the area rule: their role has ALL_AREAS, or every Parcel of the Asset
+    /// (or the one Parcel of a new Asset) lies in their areas. False = a share would give them nothing (review 2026-11-01).
+    /// </summary>
+    Task<bool> CoversAsync(long userId, long? assetId, long? parcelId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -49,6 +55,10 @@ public sealed class AgentShareService
     /// <summary>The agent of <paramref name="contactId"/> (for the editor's box, ticked by default when there is one).</summary>
     public async Task<(long UserId, string DisplayName)?> AgentOfContactAsync(UserAccess me, long contactId, CancellationToken ct = default)
         => MayShare(me) ? await _store.FindAgentAsync(contactId, ct) : null;
+
+    /// <summary>Whether the agent covers the Asset's (or a new Asset's Parcel's) area - else the box is not offered.</summary>
+    public Task<bool> CoversAsync(long agentUserId, long? assetId, long? parcelId, CancellationToken ct = default)
+        => _store.CoversAsync(agentUserId, assetId, parcelId, ct);
 
     /// <summary>The state of the Asset's box: its Managing Contact's agent, and whether it is shared with them. Null = no agent.</summary>
     public async Task<AgentShareState?> GetAsync(UserAccess me, Asset asset, CancellationToken ct = default)

@@ -87,14 +87,27 @@
       onFilterChange: function () { if (state.mode === "parcels") { reload(); } }
     });
     assetOverlay = Nadlan.createAssetMapOverlay(map, {
-      onClick: function (group) {
+      onClick: function (group, domEvent) {
         if (mapDrop && mapDrop.isPicking()) { mapDrop.picked(group); return; }
+        // Ctrl+click (Cmd+click on a Mac) picks the parcel's Asset(s) straight on the map (owner, C2): the same selection
+        // as the card's tick and the list. A plain click opens the card as before.
+        if (domEvent && (domEvent.ctrlKey || domEvent.metaKey)) { toggleOnMap(group); return; }
         popups.showParcel(group);
       },
       isSelected: function (id) { return selection.has(id); }
     });
     assetOverlay.setVisible(false);
     selection.onChange(function () { assetOverlay.refreshStyles(); });
+
+    // All of the parcel's Assets in or out together (beaches can't be selected: no Portfolio, no presentation).
+    function toggleOnMap(group) {
+      var ids = (group.assets || []).filter(function (a) { return !a.isBeach; }).map(function (a) { return a.assetId; });
+      if (!ids.length) { setStatus("A beach can't be selected."); return; }
+      var allIn = ids.every(function (id) { return selection.has(id); });
+      if (allIn) { ids.forEach(function (id) { selection.toggle(id, false); }); } else { selection.addMany(ids); }
+      setStatus((allIn ? "Removed from" : "Added to") + " the selection: " + ids.length + " Asset" + (ids.length === 1 ? "" : "s") +
+        " (" + selection.size() + " selected). Ctrl+click another parcel to add it.");
+    }
 
     // "Where am I": centre on the user; once the Parcels there are loaded, say (and highlight) which one they stand on.
     Nadlan.myLocation.createMyLocationControl(map, {

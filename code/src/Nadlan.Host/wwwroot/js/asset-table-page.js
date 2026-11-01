@@ -65,6 +65,7 @@
     { key: "remarks", label: "Remarks", cls: "col-remarks", field: "remarks", editor: "textarea",
       sortValue: function (r) { return r.remarks || ""; },
       editable: function (r) { return r.canEdit; }, value: function (r) { return r.remarks || ""; },
+      tip: function (r) { return r.remarks; },
       html: function (r) { return r.remarks ? esc(r.remarks) : "<span class=\"muted\">—</span>"; } },
     // Distance to the sea: read-only, from the cache only (shown once someone opened the card since the last beach change).
     { key: "sea", label: "Sea", cls: "col-sea", sortValue: function (r) { return r.seaMetres === null || r.seaMetres === undefined ? Number.MAX_VALUE : r.seaMetres; },
@@ -78,6 +79,7 @@
   var STAFF_COLUMNS = [
     { key: "manager", label: "Managing contact", cls: "col-person", editor: "dialog", open: function (td, r) { openManager(td, r); },
       sortValue: function (r) { return r.staff ? r.staff.managingContactName || "" : ""; },
+      tip: function (r) { return r.staff ? r.staff.managingContactName : null; },
       editable: function (r) { return !!r.staff; },
       html: function (r) {
         if (!r.staff) { return "<span class=\"muted\">—</span>"; }
@@ -86,6 +88,7 @@
       } },
     { key: "creator", label: "Created by", cls: "col-person", editor: "dialog", open: function (td, r) { openCreator(td, r); },
       sortValue: function (r) { return r.staff ? r.staff.createdByName || "" : ""; },
+      tip: function (r) { return r.staff ? r.staff.createdByName : null; },
       editable: function (r) { return !!r.staff && !!meta.canSetCreator; },
       locked: function (r) { return r.staff && !meta.canSetCreator ? "Only an Admin can hand an Asset to another user." : null; },
       html: function (r) { return r.staff && r.staff.createdByName ? esc(r.staff.createdByName) : "<span class=\"muted\">—</span>"; } }
@@ -229,7 +232,7 @@
     var locked = c.locked ? c.locked(r) : null;
     return "<td role=\"gridcell\" tabindex=\"-1\" data-col=\"" + c.key + "\" class=\"" + c.cls + (editable ? " editable" : "") + (c.action ? " action" : "") +
       (locked ? " locked" : "") + "\"" + (locked ? " title=\"" + esc(locked) + "\"" : "") + (editable ? "" : " aria-readonly=\"true\"") + ">" +
-      "<span class=\"cell-value\">" + c.html(r) + "</span></td>";
+      "<span class=\"cell-value\"" + (c.tip && c.tip(r) ? " title=\"" + esc(c.tip(r)) + "\"" : "") + ">" + c.html(r) + "</span></td>";
   }
 
   /** The row changed on the server: refresh its cells in place (keeps focus, save marks and an open editor). */
@@ -460,13 +463,20 @@
     var current = { contactId: r.staff.managingContactId, displayName: r.staff.managingContactName };
     var $form = $("<form class=\"form\"><div class=\"manager-slot\"></div>" +
       "<label class=\"check agent-share\" hidden><input type=\"checkbox\" name=\"letAgentKnow\"> <span>Let agent know: <strong class=\"agent-name\"></strong> sees and edits this Asset in their table</span></label>" +
+      "<div class=\"warn agent-area-note\" hidden></div>" +
       "</form>");
     var $share = $form.find(".agent-share");
     function showAgent(contactId, changed) {
       $share.prop("hidden", true).find("input").prop("checked", false);
+      $form.find(".agent-area-note").prop("hidden", true);
       if (!contactId) { return; }
-      Nadlan.api.get("/api/assets/agent-for-contact/" + contactId).then(function (agent) {
+      Nadlan.api.get("/api/assets/agent-for-contact/" + contactId, { assetId: r.assetId }).then(function (agent) {
         if (!agent) { return; }
+        if (!agent.coversArea) {
+          // The area rule wins: a share would give them nothing (review 2026-11-01).
+          $form.find(".agent-area-note").text(agent.displayName + " doesn't cover this area - they won't see this Asset.").prop("hidden", false);
+          return;
+        }
         $share.find(".agent-name").text(agent.displayName);
         // A newly chosen contact's agent: ticked by default (owner); the same contact: as it is now.
         $share.prop("hidden", false).find("input").prop("checked", changed ? true : !!r.staff.agentShared);

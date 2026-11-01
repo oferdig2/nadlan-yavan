@@ -22,6 +22,8 @@ public class AgentShareTests
         public Task<(long UserId, string DisplayName)?> FindAgentAsync(long contactId, CancellationToken ct = default)
             => Task.FromResult<(long, string)?>(Agents.TryGetValue(contactId, out var a) ? a : null);
 
+        public Task<bool> CoversAsync(long userId, long? assetId, long? parcelId, CancellationToken ct = default) => Task.FromResult(true);
+
         public Task<long?> GetSharedUserAsync(long assetId, CancellationToken ct = default)
             => Task.FromResult<long?>(Shared.TryGetValue(assetId, out var u) ? u : null);
 

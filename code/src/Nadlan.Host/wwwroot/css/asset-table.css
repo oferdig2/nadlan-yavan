@@ -64,13 +64,19 @@
 .asset-grid .col-num { width: 64px; }
 .asset-grid .col-money { width: 110px; }
 .asset-grid .col-status { width: 120px; }
-.asset-grid .col-remarks { min-width: 180px; max-width: 320px; }
+.asset-grid .col-remarks { min-width: 120px; max-width: 180px; }
+/* Long texts end in "…" instead of widening the table: with the Admin's two extra columns it still fits 1440 px
+   (review 2026-11-01). The full text is in the cell's editor / dialog and in the tooltip. */
+.asset-grid .col-remarks .cell-value { max-width: 180px; }
+.asset-grid .col-area .cell-value { max-width: 140px; }
+.asset-grid .col-type .cell-value { max-width: 120px; }
 .asset-grid .col-files { width: 64px; }
 /* Files stays in reach on a narrow screen (C6): pinned to the right edge, the other columns scroll under it. */
 .asset-grid .col-files { position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -1px 0 0 var(--border); }
 .asset-grid th.col-files { z-index: 3; background: #f1f5f9; }
 .asset-grid .col-sea { width: 80px; color: var(--muted); }
-.asset-grid .col-person { min-width: 130px; max-width: 200px; }
+.asset-grid .col-person { min-width: 110px; max-width: 150px; }
+.asset-grid .col-person .cell-value { max-width: 150px; }
 .asset-grid .cell-note { color: #15803d; font-size: 11px; white-space: nowrap; }
 .asset-grid .col-files .cell-value { padding: 2px 8px; }
 

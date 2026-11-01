@@ -44,6 +44,21 @@ public sealed class MySqlAgentShareStore : IAgentShareStore
         public string DisplayName { get; init; } = "";
     }
 
+    public async Task<bool> CoversAsync(long userId, long? assetId, long? parcelId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            SELECT EXISTS (SELECT 1 FROM app_user u JOIN security_role r ON r.security_role_id = u.security_role_id
+                           WHERE u.user_id = @userId AND (r.is_system = 1 OR EXISTS (
+                               SELECT 1 FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id
+                               WHERE rp.security_role_id = u.security_role_id AND p.code = 'ALL_AREAS')))
+                OR NOT EXISTS (SELECT 1 FROM parcel p
+                               WHERE (p.parcel_id = @parcelId OR p.parcel_id IN (SELECT ap.parcel_id FROM asset_parcel ap WHERE ap.asset_id = @assetId))
+                                 AND (p.geographic_area_id IS NULL
+                                      OR p.geographic_area_id NOT IN (SELECT ua.geographic_area_id FROM app_user_area ua WHERE ua.user_id = @userId)))
+            """, new { userId, assetId, parcelId }, cancellationToken: ct));
+    }
+
     public async Task<long?> GetSharedUserAsync(long assetId, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);

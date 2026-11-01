@@ -17,6 +17,7 @@
       "<div class=\"relation-slot\"></div>" +
       // N2 (Admin / Data person): share with the Managing Contact's agent - shown when the contact belongs to one.
       "<label class=\"check agent-share\" hidden><input type=\"checkbox\" name=\"letAgentKnow\"> <span>Let agent know: <strong class=\"agent-name\"></strong> sees and edits this Asset in their table</span></label>" +
+      "<div class=\"warn agent-area-note\" hidden></div>" +
       "<div class=\"form-row\">" +
         "<label>Status<select class=\"input\" name=\"assetStatusId\" data-type=\"id\">" +
           Nadlan.reference.optionsHtml(Nadlan.reference.forPicker(ref.assetStatuses, a.assetStatusId), a.assetStatusId, "Select…") + "</select></label>" +
@@ -77,9 +78,15 @@
         var $share = $form.find(".agent-share");
         function showAgent(contactId, chosenNow) {
           $share.prop("hidden", true).find("input").prop("checked", false);
+          $form.find(".agent-area-note").prop("hidden", true);
           if (!relation || !contactId) { return; }
-          Nadlan.api.get("/api/assets/agent-for-contact/" + contactId).then(function (agent) {
+          Nadlan.api.get("/api/assets/agent-for-contact/" + contactId, options.assetId ? { assetId: options.assetId } : { parcelId: options.parcel.parcelId }).then(function (agent) {
             if (!agent || (relation.getValue() || {}).contactId !== contactId) { return; }
+            if (!agent.coversArea) {
+              // The area rule wins: a share would give them nothing (review 2026-11-01).
+              $form.find(".agent-area-note").text(agent.displayName + " doesn't cover this area - they won't see this Asset.").prop("hidden", false);
+              return;
+            }
             $share.find(".agent-name").text(agent.displayName);
             var shared = detail && detail.agentShare && detail.agentShare.agentUserId === agent.userId ? detail.agentShare.shared : false;
             $share.prop("hidden", false).find("input").prop("checked", chosenNow || !detail ? true : shared);

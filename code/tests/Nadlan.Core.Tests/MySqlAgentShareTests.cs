@@ -111,6 +111,22 @@ public class MySqlAgentShareTests : IClassFixture<ScratchMySql>
     }
 
     [Fact]
+    public async Task An_agent_covers_an_Asset_only_when_all_its_parcels_are_in_their_areas()
+    {
+        if (_db is null) { return; }
+        var w = await SeedAsync();
+        var shares = new MySqlAgentShareStore(_db);
+        Assert.True(await shares.CoversAsync(w.Agent, w.Asset, null));
+        Assert.True(await shares.CoversAsync(w.Agent, null, w.Parcel)); // a new Asset on that parcel
+        Assert.True(await shares.CoversAsync(w.Sales, w.Asset, null));  // ALL_AREAS
+
+        await using var c = await _db.OpenAsync();
+        await c.ExecuteAsync("DELETE FROM app_user_area WHERE user_id = @id", new { id = w.Agent }); // now another area only
+        Assert.False(await shares.CoversAsync(w.Agent, w.Asset, null));
+        Assert.False(await shares.CoversAsync(w.Agent, null, w.Parcel));
+    }
+
+    [Fact]
     public async Task Another_Managing_Contact_removes_the_first_agents_share()
     {
         if (_db is null) { return; }
