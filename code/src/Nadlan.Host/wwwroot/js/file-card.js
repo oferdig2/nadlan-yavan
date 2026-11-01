@@ -185,12 +185,21 @@
   }
 
   /** @returns {string} HTML for one card; data-file-id carries the id for click handling. */
+  // "2026-10-19 14:28:01" (the camera's own clock, no time zone) -> "19 Oct 2026"; with time -> "19 Oct 2026, 14:28".
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function takenDate(text, withTime) {
+    var m = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d)/.exec(text || "");
+    if (!m) { return text || ""; }
+    return Number(m[3]) + " " + MONTHS[Number(m[2]) - 1] + " " + m[1] + (withTime ? ", " + m[4] + ":" + m[5] : "");
+  }
+
   function renderFileCard(file) {
     var esc = Nadlan.format.escapeHtml;
     var html = "<div class=\"file-card\" data-file-id=\"" + file.fileAttachmentId + "\" title=\"Click to edit details\">" +
       "<div class=\"file-thumb-wrap\">" + thumbHtml(file) + "</div>" +
       "<div class=\"file-title\">" + esc(file.caption || file.originalFileName) + "</div>" +
       "<div class=\"file-sub muted\">" + esc(file.fileTypeName) + " · " + Nadlan.formatFileSize(file.fileSize) + "</div>" +
+      (file.takenLocal ? "<div class=\"file-sub file-taken muted\">taken " + esc(takenDate(file.takenLocal)) + "</div>" : "") +
       segmentsHtml(file) +
       "</div>";
     // On a Parcel with time frames, ▶ on the picture starts at the first one too.
@@ -203,4 +212,5 @@
   Nadlan.renderFileCard = renderFileCard;
   Nadlan.mediaViewer = { open: openViewer, formatTime: fmtTime };
   Nadlan.fileKind = kind;
+  Nadlan.takenDate = takenDate;
 })(window, jQuery);

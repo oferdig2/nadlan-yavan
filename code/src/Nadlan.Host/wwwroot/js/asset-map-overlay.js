@@ -101,7 +101,7 @@
     layer.addListener("click", function (e) {
       focusedParcelId = e.feature.getId();
       refresh();
-      options.onClick(e.feature.getProperty("group"));
+      options.onClick(e.feature.getProperty("group"), e.domEvent); // the keys held (Ctrl / Cmd + click selects, C2)
     });
 
     function refresh() {

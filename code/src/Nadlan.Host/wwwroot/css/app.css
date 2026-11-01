@@ -74,10 +74,10 @@ html, body {
 .header-admin { margin-left: auto; }
 .header-admin:not([hidden]) ~ .user-menu { margin-left: 0; }
 
-/* Phones (customer, 2026-10-27): the header's buttons scroll sideways inside it (swipe) instead of making the whole page
-   wider than the screen. The user menu's list is fixed to the screen, so the scrolling header doesn't cut it off.
-   Admin pages wrap their header instead (admin.css). */
-@media (max-width: 600px) {
+/* Phones (customer, 2026-10-27) and tablets (C5, 2026-10-31: 986 px wide at 800): the header's buttons scroll sideways
+   inside it (swipe) instead of making the whole page wider than the screen. The user menu's list is fixed to the screen,
+   so the scrolling header doesn't cut it off. Admin pages wrap their header instead (admin.css). */
+@media (max-width: 1100px) {
   body:not(.admin-body) .app-header { gap: 8px; padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   body:not(.admin-body) .app-header::-webkit-scrollbar { display: none; }
   body:not(.admin-body) .app-header > * { flex-shrink: 0; }

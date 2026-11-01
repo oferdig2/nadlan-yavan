@@ -1,6 +1,10 @@
 /* Files: drop zones, upload queue, file cards, gallery. */
 
 .files-dialog { display: flex; flex-direction: column; gap: 14px; }
+/* Many files (38 on one parcel): the grid scrolls inside the dialog, which stays within the window (N4, 2026-10-31).
+   The drop zones stay on top; title and buttons of the dialog take about 150 px. */
+.files-dialog { max-height: calc(100vh - 160px); max-height: calc(100dvh - 160px); }
+.files-dialog .gallery { flex: 1 1 auto; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
 .zones { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
 
 .drop-area {
@@ -53,6 +57,10 @@ video.media-viewer-media { width: min(100%, 1600px); }
 .file-sub { padding: 0 6px 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .file-preview .file-card { cursor: default; max-width: 260px; }
+/* File details: what is inside the photo / video (N3) */
+.file-facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0; font-size: 13px; }
+.file-facts dt { color: var(--muted); }
+.file-facts dd { margin: 0; overflow-wrap: anywhere; }
 .btn-danger { color: var(--error); border-color: #fecaca; }
 
 /* Map card thumbnails */

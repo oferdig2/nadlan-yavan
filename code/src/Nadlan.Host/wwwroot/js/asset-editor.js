@@ -15,6 +15,9 @@
         (parcel.geographicArea ? " <span class=\"muted\">· " + esc(parcel.geographicArea) + "</span>" : "") +
         " <span class=\"muted sea-line\" hidden></span></div>" +
       "<div class=\"relation-slot\"></div>" +
+      // N2 (Admin / Data person): share with the Managing Contact's agent - shown when the contact belongs to one.
+      "<label class=\"check agent-share\" hidden><input type=\"checkbox\" name=\"letAgentKnow\"> <span>Let agent know: <strong class=\"agent-name\"></strong> sees and edits this Asset in their table</span></label>" +
+      "<div class=\"warn agent-area-note\" hidden></div>" +
       "<div class=\"form-row\">" +
         "<label>Status<select class=\"input\" name=\"assetStatusId\" data-type=\"id\">" +
           Nadlan.reference.optionsHtml(Nadlan.reference.forPicker(ref.assetStatuses, a.assetStatusId), a.assetStatusId, "Select…") + "</select></label>" +
@@ -67,8 +70,29 @@
           source: Nadlan.entitySources.contact,
           value: contact,
           renderSummary: Nadlan.contactEditor.summaryHtml,
-          edit: function (current) { return Nadlan.contactEditor.open(current ? current.contactId : null); }
+          edit: function (current) { return Nadlan.contactEditor.open(current ? current.contactId : null); },
+          onChange: function (c) { showAgent(c && c.contactId, true); }
         }) : null;
+
+        // "Let agent know" (N2): ticked by default for a newly chosen contact's agent; an existing Asset shows how it is.
+        var $share = $form.find(".agent-share");
+        function showAgent(contactId, chosenNow) {
+          $share.prop("hidden", true).find("input").prop("checked", false);
+          $form.find(".agent-area-note").prop("hidden", true);
+          if (!relation || !contactId) { return; }
+          Nadlan.api.get("/api/assets/agent-for-contact/" + contactId, options.assetId ? { assetId: options.assetId } : { parcelId: options.parcel.parcelId }).then(function (agent) {
+            if (!agent || (relation.getValue() || {}).contactId !== contactId) { return; }
+            if (!agent.coversArea) {
+              // The area rule wins: a share would give them nothing (review 2026-11-01).
+              $form.find(".agent-area-note").text(agent.displayName + " doesn't cover this area - they won't see this Asset.").prop("hidden", false);
+              return;
+            }
+            $share.find(".agent-name").text(agent.displayName);
+            var shared = detail && detail.agentShare && detail.agentShare.agentUserId === agent.userId ? detail.agentShare.shared : false;
+            $share.prop("hidden", false).find("input").prop("checked", chosenNow || !detail ? true : shared);
+          }, function () { /* no box */ });
+        }
+        if (relation && contact) { showAgent(contact.contactId, false); }
         if (!canChoose) {
           $form.find(".relation-slot").html("<div class=\"form-static\"><span class=\"card-label\">Managing contact</span> " +
             Nadlan.format.escapeHtml(contact ? contact.displayName : "You (your own Contact)") + "</div>");
@@ -123,7 +147,8 @@
             specialConditions: data.specialConditions,
             remarks: data.remarks,
             isExclusive: data.exclusive === "yes" ? true : data.exclusive === "no" ? false : null,
-            version: detail ? detail.version : null // edit check: refused if someone else saved meanwhile
+            version: detail ? detail.version : null, // edit check: refused if someone else saved meanwhile
+            letAgentKnow: relation ? !$share.prop("hidden") && $share.find("[name=letAgentKnow]").prop("checked") : null
           };
           if (body.askPrice !== null && isNaN(body.askPrice)) { d.showError("Ask price must be a number."); return; }
           if (body.houseSqm !== null && isNaN(body.houseSqm)) { d.showError("House m² must be a number."); return; }

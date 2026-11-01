@@ -99,4 +99,7 @@ public interface IAssetStore
     Task<IReadOnlyList<AssetMapItem>> QueryAsync(AssetQuery query, CancellationToken ct = default);
     Task<IReadOnlyList<AssetMapItem>> ListByParcelAsync(long parcelId, Security.AccessScope scope, CancellationToken ct = default);
     Task<IReadOnlyList<AssetPortfolioMembership>> ListPortfoliosAsync(long assetId, CancellationToken ct = default);
+
+    /// <summary>Hands the Asset to another user: its creator, who sees and edits it as their own (Admin only - the caller checks).</summary>
+    Task SetCreatorAsync(long assetId, long userId, CancellationToken ct = default) => throw new NotSupportedException();
 }

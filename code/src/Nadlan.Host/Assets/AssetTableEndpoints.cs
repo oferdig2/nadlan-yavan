@@ -20,6 +20,13 @@ public static class AssetTableEndpoints
 
     public sealed record CellDto(string? Field, string? Value, string? Currency);
 
+    public sealed record ManagerDto(long ContactId, bool? LetAgentKnow);
+
+    public sealed record CreatorDto(long UserId);
+
+    /// <summary>Who owns and who manages each Asset (N1): shown to users who edit every Asset - an Agent's table has neither.</summary>
+    private static bool Staff(UserAccess me) => AgentShareService.MayShare(me);
+
     public static void MapAssetTableEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/asset-table");
@@ -34,7 +41,9 @@ public static class AssetTableEndpoints
                 canCreate = AccessPolicy.CanCreateAsset(me) && me.ContactId is not null,
                 noContact = me.ContactId is null, // "+" then says: ask an admin to link one
                 editParcels = me.Has(Permissions.EditAllParcels), // OT / plot editable once set (rights re-checked on save)
-                items = found.Select(r => Row(r, places)),
+                staff = Staff(me),            // the "Managing contact" and "Created by" columns
+                canSetCreator = me.IsAdmin,   // hand an Asset to another user
+                items = found.Select(r => Row(r, places, Staff(me))),
             });
         });
 
@@ -86,7 +95,7 @@ public static class AssetTableEndpoints
             Nadlan.Core.Places.PlacesSettings places, CancellationToken ct) =>
         {
             var id = await service.CreateAsync(me, dto.ParcelId, ct);
-            return Results.Ok(Row(await rows.GetAsync(me.Scope, id, ct) ?? throw new EntityNotFoundException("Asset", id), places));
+            return Results.Ok(Row(await rows.GetAsync(me.Scope, id, ct) ?? throw new EntityNotFoundException("Asset", id), places, Staff(me)));
         });
 
         // One cell: { field: status | propertyType | price | houseSqm | remarks | ot | plot, value, currency? }. Returns the row.
@@ -94,12 +103,47 @@ public static class AssetTableEndpoints
             Nadlan.Core.Places.PlacesSettings places, CancellationToken ct) =>
         {
             await service.SetFieldAsync(me, assetId, dto.Field, dto.Value, dto.Currency, ct);
-            return Results.Ok(Row(await rows.GetAsync(me.Scope, assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId), places));
+            return Results.Ok(Row(await rows.GetAsync(me.Scope, assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId), places, Staff(me)));
+        });
+
+        // N1 / N2: another Managing Contact, and "Let agent know" for its agent (Admin / Data person). Returns the row.
+        group.MapPut("/{assetId:long}/manager", async (long assetId, ManagerDto dto, UserAccess me, AccessPolicy policy, IAssetStore assets,
+            AssetService service, AgentShareService shares, Nadlan.Core.Editing.IEditVersionStore versions, IAssetTableStore rows,
+            Nadlan.Core.Places.PlacesSettings places, CancellationToken ct) =>
+        {
+            AccessPolicy.RequireAssetTable(me);
+            var rights = await policy.RequireAssetEditAsync(me, assetId, ct);
+            if (!rights.CanChangeManagingContact)
+            {
+                throw new ForbiddenException("ASSET_MANAGING_CONTACT_FORBIDDEN", "Only an administrator can change the Managing Contact.");
+            }
+
+            await using (await versions.BeginEditAsync(Nadlan.Core.Editing.EditTargets.Asset, assetId, null, ct))
+            {
+                var asset = await assets.GetAsync(assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId);
+                if (asset.ManagingContactId != dto.ContactId)
+                {
+                    await service.UpdateAsync(asset with { ManagingContactId = dto.ContactId }, ct);
+                }
+            }
+
+            await shares.ApplyAsync(me, assetId, dto.LetAgentKnow, ct);
+            return Results.Ok(Row(await rows.GetAsync(me.Scope, assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId), places, Staff(me)));
+        });
+
+        // N1: hand the Asset to another user, who then owns it (Admin only; the page asks to confirm first).
+        group.MapPut("/{assetId:long}/creator", async (long assetId, CreatorDto dto, UserAccess me, AssetCreatorService creators, IAssetTableStore rows,
+            Nadlan.Core.Places.PlacesSettings places, CancellationToken ct) =>
+        {
+            AccessPolicy.RequireAssetTable(me);
+            await creators.SetCreatorAsync(me, assetId, dto.UserId, ct);
+            return Results.Ok(Row(await rows.GetAsync(me.Scope, assetId, ct) ?? throw new EntityNotFoundException("Asset", assetId), places, Staff(me)));
         });
     }
 
     /// <param name="places">To show the cached distance to the sea (under the display limit); null = not shown.</param>
-    internal static object Row(AssetTableRow r, Nadlan.Core.Places.PlacesSettings? places = null) => new
+    /// <param name="staff">Add who owns and who manages it (N1) - only for users who edit every Asset.</param>
+    internal static object Row(AssetTableRow r, Nadlan.Core.Places.PlacesSettings? places = null, bool staff = false) => new
     {
         assetId = r.AssetId,
         parcelId = r.ParcelId,
@@ -119,5 +163,14 @@ public static class AssetTableEndpoints
         createdUtc = r.CreatedUtc,
         updatedUtc = r.UpdatedUtc,
         seaMetres = places?.Shown(r.SeaMetres), // cached only: the table never calculates
+        staff = staff ? new
+        {
+            createdByUserId = r.CreatedByUserId,
+            createdByName = r.CreatedByName,
+            managingContactId = r.ManagingContactId,
+            managingContactName = r.ManagingContactName,
+            agentName = r.AgentName,     // the Managing Contact's agent, if any ("Let agent know")
+            agentShared = r.AgentShared,
+        } : null,
     };
 }

@@ -198,6 +198,39 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             }
         });
 
+    public Task<byte[]?> ReadRangeAsync(string key, long offset, int count, CancellationToken ct = default)
+        => Guard(async () =>
+        {
+            // An empty or negative range is never sent: S3 ignores an invalid Range and answers with the WHOLE object
+            // (review 2026-11-01: a 1.1 GB drone video on a 1 GB server).
+            if (offset < 0 || count <= 0)
+            {
+                return (byte[]?)Array.Empty<byte>();
+            }
+
+            try
+            {
+                using var response = await Client.GetObjectAsync(new GetObjectRequest
+                {
+                    BucketName = _options.Bucket, Key = _options.FullKey(key), ByteRange = new ByteRange(offset, offset + count - 1),
+                }, ct);
+                // Never more than asked for, whatever S3 sends.
+                var buffer = new byte[count];
+                var read = 0;
+                int n;
+                while (read < count && (n = await response.ResponseStream.ReadAsync(buffer.AsMemory(read, count - read), ct)) > 0)
+                {
+                    read += n;
+                }
+
+                return (byte[]?)(read == count ? buffer : buffer[..read]);
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+            {
+                return ex.StatusCode == System.Net.HttpStatusCode.NotFound ? null : Array.Empty<byte>();
+            }
+        });
+
     public string GetAttachmentUrl(string key, string downloadName, TimeSpan lifetime)
         => Guard(() =>
         {

@@ -67,6 +67,9 @@ public sealed record FileListItem
     public int? SortOrder { get; init; }
     public DateTime UploadedUtc { get; init; }
     public bool HasThumbnail { get; init; }
+
+    /// <summary>When the photo / video was taken, as its camera wrote it ("yyyy-MM-dd HH:mm:ss", no time zone); null = not read or none.</summary>
+    public string? TakenLocal { get; init; }
 }
 
 public sealed record FileType(int Id, string Code, string Name, string Category, bool IsActive, int SortOrder);

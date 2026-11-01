@@ -40,6 +40,12 @@ public interface IObjectStorage
     /// <summary>A small text object (at most <paramref name="maxBytes"/>), or null if it doesn't exist or is larger.</summary>
     Task<string?> ReadTextAsync(string key, int maxBytes, CancellationToken ct = default) => throw new NotSupportedException();
 
+    /// <summary>
+    /// Bytes <paramref name="offset"/> .. offset + <paramref name="count"/> - 1 of an object (fewer at its end), or null if it
+    /// doesn't exist. For reading what is inside an already stored photo or video (File details) in small slices.
+    /// </summary>
+    Task<byte[]?> ReadRangeAsync(string key, long offset, int count, CancellationToken ct = default) => throw new NotSupportedException();
+
     /// <summary>A short-lived link that downloads the object as a file named <paramref name="downloadName"/> (never shown inline).</summary>
     string GetAttachmentUrl(string key, string downloadName, TimeSpan lifetime) => throw new NotSupportedException();
 }

@@ -122,6 +122,16 @@
     }).catch(function () { /* no preview */ });
   }
 
+  /** Date taken, camera, size, length, location (media-inspect.js) for File details. Best effort: an upload never fails for it. */
+  function storeMediaData(fileAttachmentId, file) {
+    if (!Nadlan.mediaInspect) { return Promise.resolve(); }
+    var kind = Nadlan.mediaInspect.kindOf(file);
+    if (kind !== "jpeg" && kind !== "video") { return Promise.resolve(); }
+    return Nadlan.mediaInspect.inspect(file).then(function (metadata) {
+      return Nadlan.api.put("/api/files/" + fileAttachmentId + "/media-data", { metadata: metadata });
+    }).catch(function () { /* nothing read: File details reads it later */ });
+  }
+
   /**
    * @param {File} file
    * @param {{ attachedToType: string, attachedToId: number, fileTypeId: number }} target
@@ -275,6 +285,9 @@
           return complete().then(function (r) {
             if (cancelled) { return null; } // the server removes a file whose upload was cancelled mid-complete
             return storeThumbnail(r.fileAttachmentId, file).then(function () {
+              // N3: what is inside the photo / video, read from the local file (Map drop stores its own reading).
+              return target.attachedToType === "MapDrop" ? null : storeMediaData(r.fileAttachmentId, file);
+            }).then(function () {
               handlers.onState("done");
               resolveDone(r.fileAttachmentId);
             });

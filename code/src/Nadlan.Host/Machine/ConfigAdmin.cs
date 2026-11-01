@@ -68,7 +68,7 @@ public sealed class ConfigAdmin
         new ConfigField("Nadlan:Auth:Email:From", "From address", "text", "A sender address verified with the mail service."),
         new ConfigField("Nadlan:Auth:Email:EnableSsl", "Use TLS", "bool", ""),
 
-        new ConfigField("Nadlan:Places:PublicContactId", "Contact for public places", "text", "Contact id given to a new beach when its creator has no linked contact (e.g. Alon Schwarz's). Empty = the user picks one."),
+        new ConfigField("Nadlan:Places:PublicContactId", "Contact for public places", "contact", "Given to a new beach when its creator has no linked contact (e.g. Alon Schwarz). None = the user picks one."),
         new ConfigField("Nadlan:Places:SeaDistanceMaxKm", "Show the distance to the sea up to (km)", "number", "Longer distances are not shown."),
         new ConfigField("Nadlan:Places:SeaSearchKm", "Look for beaches within (km)", "number", "Beaches further away don't count. Raising it recalculates every parcel at its next opening."),
 

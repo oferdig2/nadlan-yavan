@@ -169,6 +169,13 @@ public sealed class MySqlAssetStore : IAssetStore
     private static string MapItemSelect(AccessScope scope, DynamicParameters args)
         => string.Format(MapItemSelectFormat, AccessSql.PriceVisible("a", scope, args), AccessSql.CanEditAsset("a", scope, args), SeaDistanceSql.FreshJoin("p"));
 
+    public async Task SetCreatorAsync(long assetId, long userId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE asset SET created_by_user_id = @userId, updated_utc = UTC_TIMESTAMP(3) WHERE asset_id = @assetId", new { assetId, userId }, cancellationToken: ct));
+    }
+
     public async Task<IReadOnlyList<AssetPortfolioMembership>> ListPortfoliosAsync(long assetId, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);

@@ -196,6 +196,8 @@ public class MySqlAgentTableTests : IClassFixture<ScratchMySql>
                 DROP TABLE parcel_sea_distance;
                 DELETE FROM property_type WHERE code = 'BEACH';
                 DELETE FROM schema_version WHERE version = 19;
+                ALTER TABLE resource_access DROP COLUMN source;
+                DELETE FROM schema_version WHERE version = 20;
                 INSERT INTO security_role (code, name, is_system, sort_order) VALUES ('CUSTOM', 'Made by an Admin', 0, 99);
                 INSERT INTO role_permission (security_role_id, permission_id)
                 SELECT r.security_role_id, p.permission_id FROM security_role r JOIN permission p ON p.code = 'VIEW_PRICE' WHERE r.code = 'CUSTOM';

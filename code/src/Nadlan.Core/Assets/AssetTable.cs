@@ -35,6 +35,16 @@ public sealed record AssetTableRow
     /// <summary>Distance to the sea in metres, from a fresh cache row only (the table never calculates it).</summary>
     public int? SeaMetres { get; init; }
 
+    // Who owns and who manages it (N1) - sent only to users who edit every Asset; an Agent's table shows neither.
+    public long? CreatedByUserId { get; init; }
+    public string? CreatedByName { get; init; }
+    public long ManagingContactId { get; init; }
+    public string? ManagingContactName { get; init; }
+
+    /// <summary>The agent linked to the Managing Contact ("Let agent know", N2), and whether the Asset is shared with them.</summary>
+    public string? AgentName { get; init; }
+    public bool AgentShared { get; init; }
+
     /// <summary>False when the caller may not see this Asset's price (the API then leaves it out).</summary>
     public bool PriceVisible { get; init; }
 
