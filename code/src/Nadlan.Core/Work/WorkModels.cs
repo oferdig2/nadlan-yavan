@@ -144,6 +144,12 @@ public static class WorkActions
     public const string Done = "DONE";
     public const string Paid = "PAID";
     public const string Corrected = "CORRECTED";
+
+    // piece 3: pictures and location
+    public const string FileUploaded = "FILE_UPLOADED";
+    public const string CopiedToParcel = "COPIED_TO_PARCEL";
+    public const string LocationShared = "LOCATION_SHARED";
+    public const string LocationRefused = "LOCATION_REFUSED";
 }
 
 /// <summary>A Parcel of a request on the map: its polygon (WKT, long-lat) and own status.</summary>

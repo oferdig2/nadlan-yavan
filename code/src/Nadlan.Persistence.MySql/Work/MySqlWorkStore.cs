@@ -11,7 +11,7 @@ namespace Nadlan.Persistence.MySql.Work;
 /// <c>work_request_id = @workRequestId</c>, so an id from a page never reaches another request's rows. A Parcel's own
 /// status is worked out again (<see cref="ParcelWorkStatuses.From"/>) in the same transaction as every change of its works.
 /// </summary>
-public sealed class MySqlWorkStore : IWorkStore
+public sealed partial class MySqlWorkStore : IWorkStore
 {
     private const string ContractorRoleCode = "CONTRACTOR";
 

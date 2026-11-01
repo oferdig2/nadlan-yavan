@@ -1,4 +1,5 @@
 using System.Globalization;
+using Nadlan.Core.Files;
 using Nadlan.Core.Geo;
 using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Parcels;
@@ -239,6 +240,91 @@ internal static class WorkEndpoints
             await work.RemoveWorkAsync(me, id, workItemId, ct);
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
+
+        // ---- a Parcel's conversation and work pictures (piece 3) ------------------------------------------------
+
+        group.MapGet("/requests/{id:long}/parcels/{parcelId:long}/messages", async (long id, long parcelId, UserAccess me, WorkService work,
+            CancellationToken ct) => Results.Ok(StaffMessages((await work.GetAsync(me, id, ct)).ContractorName, await work.MessagesAsync(me, id, parcelId, ct))));
+
+        group.MapPost("/requests/{id:long}/parcels/{parcelId:long}/messages", async (long id, long parcelId, MessageDto dto, UserAccess me,
+            WorkService work, CancellationToken ct) =>
+        {
+            await work.SendMessageAsync(me, id, parcelId, dto.Body, ct);
+            return Results.Ok(StaffMessages((await work.GetAsync(me, id, ct)).ContractorName, await work.MessagesAsync(me, id, parcelId, ct)));
+        });
+
+        // The work pictures of one Parcel, with what was read from each (taken, camera, place) and the phone's position.
+        group.MapGet("/requests/{id:long}/parcels/{parcelId:long}/files", async (long id, long parcelId, UserAccess me, AccessPolicy policy,
+            WorkService work, IWorkStore store, IFileUrlProvider urls, CancellationToken ct) =>
+        {
+            await work.GetAsync(me, id, ct);
+            await policy.RequireParcelViewAsync(me, parcelId, ct);
+            return Results.Ok((await store.ListWorkFilesAsync(id, parcelId, ct)).Select(f => StaffFile(f, urls)));
+        });
+
+        group.MapPost("/requests/{id:long}/files/{fileId:long}/copy-to-parcel", async (long id, long fileId, UserAccess me, WorkMediaService media,
+            IWorkStore store, IFileUrlProvider urls, CancellationToken ct) =>
+        {
+            await media.CopyToParcelAsync(me, id, fileId, ct);
+            return Results.Ok(StaffFile((await store.GetWorkFileAsync(id, fileId, ct))!, urls));
+        });
+
+        // ---- the contractor's location (piece 3) ----------------------------------------------------------------
+
+        // The last position (any day) and one day's trail; the page asks for its own local day (fromUtc .. toUtc).
+        group.MapGet("/requests/{id:long}/locations", async (long id, DateTime fromUtc, DateTime toUtc, UserAccess me, WorkService work,
+            CancellationToken ct) =>
+        {
+            var (latest, trail) = await work.LocationsAsync(me, id, fromUtc.ToUniversalTime(), toUtc.ToUniversalTime(), ct);
+            return Results.Ok(new
+            {
+                latest,
+                trail = trail.Select(p => new[] { p.Latitude, p.Longitude }),
+                truncated = trail.Count >= WorkService.MaxTrailPoints,
+            });
+        });
+    }
+
+    public sealed record MessageDto(string? Body);
+
+    private static object StaffMessages(string contractor, IReadOnlyList<WorkMessage> messages)
+        => messages.Select(m => new
+        {
+            m.WorkMessageId,
+            fromContractor = m.AuthorKind == WorkActorKinds.Contractor,
+            author = m.AuthorKind == WorkActorKinds.Contractor ? contractor : m.AuthorName ?? "GreekPlot",
+            m.Body,
+            m.CreatedUtc,
+        });
+
+    private static object StaffFile(WorkFile f, IFileUrlProvider urls)
+    {
+        var video = f.MimeType.StartsWith("video/", StringComparison.Ordinal);
+        return new
+        {
+            f.WorkFileId,
+            f.WorkItemId,
+            f.WorkTypeName,
+            kind = video ? "video" : "image",
+            name = f.OriginalName,
+            url = urls.GetUrl(f.StorageKey, f.OriginalName),
+            downloadUrl = urls.GetDownloadUrl(f.StorageKey, f.OriginalName),
+            thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null,
+            f.FileSize,
+            f.TakenLocal,
+            f.CameraMake,
+            f.CameraModel,
+            f.Latitude,
+            f.Longitude,
+            f.Width,
+            f.Height,
+            f.DurationS,
+            f.UploadLatitude,
+            f.UploadLongitude,
+            f.UploadAccuracyM,
+            f.UploadedUtc,
+            copied = f.CopiedToFileAttachmentId is not null,
+        };
     }
 
     /// <summary>Found Parcels for "+ Add parcel": numbers, area, size and whether this request has them already.</summary>
@@ -271,6 +357,8 @@ internal static class WorkEndpoints
     {
         var r = await work.GetAsync(me, id, ct);
         var items = await store.ListItemsAsync(id, me.Scope, ct);
+        var pictures = (await store.ListWorkFilesAsync(id, null, ct)).GroupBy(f => f.WorkItemId).ToDictionary(g => g.Key, g => g.Count());
+        var messages = (await store.ListMessagesAsync(id, null, ct)).GroupBy(m => m.ParcelId).ToDictionary(g => g.Key, g => g.Count());
         var now = DateTime.UtcNow;
         return new
         {
@@ -312,6 +400,8 @@ internal static class WorkEndpoints
                 w.StartedUtc,
                 w.DoneUtc,
                 w.PaidUtc,
+                pictures = pictures.GetValueOrDefault(w.WorkItemId),
+                messages = messages.GetValueOrDefault(w.ParcelId), // the Parcel's conversation
             }),
         };
     }

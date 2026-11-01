@@ -16,6 +16,8 @@ public static class WorkModule
         services.AddSingleton<IWorkLinkSealer, DataProtectionWorkLinkSealer>();
         services.AddSingleton<WorkService>();
         services.AddSingleton<WorkLinkService>();
+        services.AddSingleton<WorkMediaService>();
+        services.AddHostedService<WorkSweeper>(); // daily: the 90-day track limit, abandoned picture uploads
         return services;
     }
 

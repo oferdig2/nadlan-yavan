@@ -90,6 +90,55 @@ public interface IWorkStore
     /// <summary>The request's Parcels with their polygon (WKT) and own status, in order; null scope = all (the contractor).</summary>
     Task<IReadOnlyList<WorkParcelShape>> ListParcelShapesAsync(long workRequestId, AccessScope? scope, CancellationToken ct = default);
 
+    // ---- pictures, messages, track (piece 3) ---------------------------------------------------------------------
+
+    Task<long> InsertWorkFileAsync(WorkFile file, CancellationToken ct = default);
+
+    /// <summary>A work file of this request (any state), or null.</summary>
+    Task<WorkFile?> GetWorkFileAsync(long workRequestId, long workFileId, CancellationToken ct = default);
+
+    /// <summary>The request's Ready work files, optionally only one Parcel's, newest first.</summary>
+    Task<IReadOnlyList<WorkFile>> ListWorkFilesAsync(long workRequestId, long? parcelId, CancellationToken ct = default);
+
+    /// <summary>Pending → Ready. False if not Pending any more.</summary>
+    Task<bool> MarkWorkFileReadyAsync(long workFileId, CancellationToken ct = default);
+
+    /// <summary>Deletes the row only while Pending. True if deleted.</summary>
+    Task<bool> DeletePendingWorkFileAsync(long workFileId, CancellationToken ct = default);
+
+    Task SetWorkFileThumbnailAsync(long workFileId, CancellationToken ct = default);
+
+    /// <summary>What was read from inside the file (date, camera, place, size, length).</summary>
+    Task SetWorkFileMediaAsync(long workFileId, WorkFile media, CancellationToken ct = default);
+
+    /// <summary>Records the Parcel file it was copied to, only if not copied yet. True if this call recorded it.</summary>
+    Task<bool> MarkWorkFileCopiedAsync(long workFileId, long fileAttachmentId, CancellationToken ct = default);
+
+    /// <summary>Uploads still Pending that started before the cutoff, from every request (the daily job).</summary>
+    Task<IReadOnlyList<WorkFile>> ListStalePendingWorkFilesAsync(DateTime startedBeforeUtc, int limit, CancellationToken ct = default);
+
+    Task<long> AddMessageAsync(long workRequestId, long parcelId, string authorKind, long? authorUserId, string body, CancellationToken ct = default);
+
+    /// <summary>A Parcel's conversation, oldest first (null parcel = the whole request's).</summary>
+    Task<IReadOnlyList<WorkMessage>> ListMessagesAsync(long workRequestId, long? parcelId, CancellationToken ct = default);
+
+    /// <summary>The Parcel is in the request.</summary>
+    Task<bool> HasParcelAsync(long workRequestId, long parcelId, CancellationToken ct = default);
+
+    Task AddLocationAsync(long workRequestId, double latitude, double longitude, decimal? accuracyM, CancellationToken ct = default);
+
+    Task<WorkLocationPoint?> LastLocationAsync(long workRequestId, CancellationToken ct = default);
+
+    /// <summary>The track between two moments, oldest first, at most <paramref name="limit"/> points.</summary>
+    Task<IReadOnlyList<WorkLocationPoint>> ListLocationsAsync(long workRequestId, DateTime fromUtc, DateTime toUtc, int limit, CancellationToken ct = default);
+
+    /// <summary>Deletes track points recorded before the cutoff (every request); returns how many.</summary>
+    Task<int> PurgeLocationsAsync(DateTime recordedBeforeUtc, CancellationToken ct = default);
+
+    /// <summary>The request's Parcels' customer-facing media: Ready Parcel files of the category and types given.</summary>
+    Task<IReadOnlyList<WorkParcelMedia>> ListParcelMediaAsync(long workRequestId, string category, IReadOnlyCollection<string> mimeTypes,
+        CancellationToken ct = default);
+
     Task AddEventAsync(NewWorkEvent workEvent, CancellationToken ct = default);
 
     /// <summary>The request's history, newest first.</summary>

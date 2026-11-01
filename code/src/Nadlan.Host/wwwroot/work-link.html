@@ -32,22 +32,40 @@
       <button type="submit" class="btn btn-primary wl-big" data-t="passwordOpen"></button>
     </form>
 
+    <!-- Location: asked once on this phone, before the phone's own prompt (piece 3). -->
+    <section class="wl-consent" id="wl-consent" hidden>
+      <h1 data-t="consentTitle"></h1>
+      <p data-t="consentText"></p>
+      <button type="button" class="btn btn-primary wl-big" data-act="consent-yes" data-t="consentAllow"></button>
+      <button type="button" class="btn wl-big" data-act="consent-no" data-t="consentDeny"></button>
+    </section>
+
     <div class="wl-app" id="wl-app" hidden>
       <div class="wl-map-box">
         <div class="wl-map" id="wl-map"></div>
+        <div class="wl-map-tools">
+          <button type="button" class="btn" data-act="where" data-t="whereAmI"></button>
+          <button type="button" class="btn" data-act="follow" aria-pressed="false" data-t="follow" hidden></button>
+          <button type="button" class="btn" data-act="share" data-t="shareLocation" hidden></button>
+        </div>
         <button type="button" class="btn wl-map-size" data-act="map-size"></button>
       </div>
       <div class="wl-sheet" id="wl-sheet"></div>
     </div>
   </main>
 
+  <div class="wl-sharing" id="wl-sharing" data-t="sharing" hidden></div>
   <div class="wl-toast" id="wl-toast" role="status" aria-live="polite" hidden></div>
 
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js" integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs" crossorigin="anonymous"></script>
   <script src="/js/formatters.js"></script>
+  <!-- what is inside a photo / video (read-only use) -->
+  <script src="/js/media-inspect.js"></script>
   <script src="/js/work-i18n.js"></script>
   <script src="/js/work-map.js"></script>
   <script src="/js/work-link-api.js"></script>
+  <script src="/js/work-link-upload.js"></script>
+  <script src="/js/work-link-location.js"></script>
   <script src="/js/work-link-page.js"></script>
 </body>
 </html>

@@ -46,6 +46,9 @@ public interface IObjectStorage
     /// </summary>
     Task<byte[]?> ReadRangeAsync(string key, long offset, int count, CancellationToken ct = default) => throw new NotSupportedException();
 
+    /// <summary>Copies an object to another key in the same storage, server side (work pictures → the Parcel's files).</summary>
+    Task CopyObjectAsync(string fromKey, string toKey, CancellationToken ct = default) => throw new NotSupportedException();
+
     /// <summary>A short-lived link that downloads the object as a file named <paramref name="downloadName"/> (never shown inline).</summary>
     string GetAttachmentUrl(string key, string downloadName, TimeSpan lifetime) => throw new NotSupportedException();
 }

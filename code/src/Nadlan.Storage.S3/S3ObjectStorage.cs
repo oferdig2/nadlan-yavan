@@ -130,6 +130,54 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             return true;
         });
 
+    // S3 copies up to 5 GB in one request; larger objects (uploads may be up to 20 GB) go in parts of this size.
+    private const long SingleCopyMaxBytes = 5L * 1024 * 1024 * 1024;
+    private const long CopyPartBytes = 512L * 1024 * 1024;
+
+    /// <summary>A server-side copy within the bucket: the type and download name go with it. Nothing passes through the app.</summary>
+    public Task CopyObjectAsync(string fromKey, string toKey, CancellationToken ct = default)
+        => Guard(async () =>
+        {
+            var source = _options.FullKey(fromKey);
+            var target = _options.FullKey(toKey);
+            var meta = await Client.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = _options.Bucket, Key = source }, ct);
+            if (meta.ContentLength <= SingleCopyMaxBytes)
+            {
+                await Client.CopyObjectAsync(new CopyObjectRequest
+                {
+                    SourceBucket = _options.Bucket, SourceKey = source, DestinationBucket = _options.Bucket, DestinationKey = target,
+                }, ct);
+                return;
+            }
+
+            var start = new InitiateMultipartUploadRequest { BucketName = _options.Bucket, Key = target, ContentType = meta.Headers.ContentType };
+            start.Headers.ContentDisposition = meta.Headers.ContentDisposition;
+            var uploadId = (await Client.InitiateMultipartUploadAsync(start, ct)).UploadId;
+            try
+            {
+                var parts = new List<PartETag>();
+                for (long first = 0, n = 1; first < meta.ContentLength; first += CopyPartBytes, n++)
+                {
+                    var part = await Client.CopyPartAsync(new CopyPartRequest
+                    {
+                        SourceBucket = _options.Bucket, SourceKey = source, DestinationBucket = _options.Bucket, DestinationKey = target,
+                        UploadId = uploadId, PartNumber = (int)n, FirstByte = first, LastByte = Math.Min(first + CopyPartBytes, meta.ContentLength) - 1,
+                    }, ct);
+                    parts.Add(new PartETag((int)n, part.ETag));
+                }
+
+                await Client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+                {
+                    BucketName = _options.Bucket, Key = target, UploadId = uploadId, PartETags = parts,
+                }, ct);
+            }
+            catch
+            {
+                await Client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = _options.Bucket, Key = target, UploadId = uploadId }, CancellationToken.None);
+                throw;
+            }
+        });
+
     public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default)
         => Guard(async () =>
         {
