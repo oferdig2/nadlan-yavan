@@ -49,6 +49,7 @@
 
 .form-error { color: var(--error); background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
 .warn { color: var(--warn-text); }
+.nowrap { white-space: nowrap; } /* a phrase that moves to the next line whole, e.g. "≈ 150 m to the sea" */
 
 .geometry-box { border: 1px dashed var(--border); border-radius: 8px; padding: 6px 10px; }
 .geometry-box legend { color: var(--muted); padding: 0 4px; }

@@ -115,6 +115,17 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
   .popup-layer { width: 300px; }
 }
 
+/* "Hide search" (N7): phones and tablets only. Folded, the panel is a slim bar above the map with the Search button -
+   nothing covers the map's own controls (Map / Satellite sits top-left). */
+.search-toggle { display: none; }
+@media (max-width: 1100px) {
+  .search-toggle { display: block; flex: none; margin: 8px 12px 0 auto; }
+  body.search-hidden .layout { flex-direction: column; }
+  body.search-hidden .sidebar { width: auto; max-height: none; overflow: visible; flex: none; border-right: none; border-bottom: 1px solid var(--border); }
+  body.search-hidden .search-toggle { margin: 5px 12px 5px auto; }
+  body.search-hidden #filters, body.search-hidden #results { display: none; }
+}
+
 @media (max-width: 600px) {
   .layout { flex-direction: column; }
   .popup-layer { width: auto; left: 12px; top: auto; max-height: 50%; }

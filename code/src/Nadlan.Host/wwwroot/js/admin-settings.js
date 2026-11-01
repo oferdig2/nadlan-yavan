@@ -151,6 +151,23 @@
           choices.forEach(function (c) { $input.append($("<option></option>").val(c).text(c)); });
           $input.val(String(value));
           $label.append($input);
+        } else if (kind === "contact") {
+          // A contact picked by name (C6): the setting itself stays the contact's id.
+          $input = $("<input type=\"hidden\">").val(value === null || value === undefined ? "" : String(value));
+          var $slot = $("<div class=\"settings-contact\"></div>");
+          $label.append($input);
+          $field.append($slot);
+          var picker = Nadlan.initializeEntityRelationEditor($slot, {
+            label: "", emptyText: "None - the user picks one", source: Nadlan.entitySources.contact, value: null,
+            renderSummary: function (c) { return Nadlan.format.escapeHtml(c.displayName) + " <span class=\"muted\">#" + c.contactId + "</span> <a href=\"#\" data-act=\"unset\">clear</a>"; },
+            edit: function (c) { return Nadlan.contactEditor.open(c ? c.contactId : null); },
+            onChange: function (c) { $input.val(c ? String(c.contactId) : ""); }
+          });
+          $slot.on("click", "[data-act=unset]", function (e) { e.preventDefault(); picker.setValue(null); $input.val(""); });
+          if (/^\d+$/.test(String(value || ""))) {
+            Nadlan.api.get("/api/contacts/" + value).then(function (c) { picker.setValue({ contactId: c.contactId, displayName: c.displayName }); },
+              function () { picker.setValue({ contactId: Number(value), displayName: "Contact" }); });
+          }
         } else {
           $input = $("<input type=\"text\" class=\"input\" spellcheck=\"false\">")
             .val(kind === "json" ? JSON.stringify(value) : value === null || value === undefined ? "" : String(value));

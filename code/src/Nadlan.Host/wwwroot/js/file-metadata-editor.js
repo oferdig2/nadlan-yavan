@@ -34,6 +34,69 @@
     return t.split(":").reduce(function (total, part) { return total * 60 + Number(part); }, 0) * 1000;
   }
 
+  // ---- what is inside the file (owner, 2026-10-31, N3): read-only ----
+
+  // A stored file as media-inspect.js reads a local one: small slices, here fetched through the server (same rights).
+  function storedFile(file) {
+    return {
+      name: file.originalFileName, type: file.mimeType, size: file.fileSize,
+      slice: function (start, end) {
+        return {
+          arrayBuffer: function () {
+            return fetch("/api/files/" + file.fileAttachmentId + "/bytes?start=" + start + "&end=" + Math.min(end, file.fileSize),
+              { credentials: "same-origin" }).then(function (r) { if (!r.ok) { throw new Error("HTTP " + r.status); } return r.arrayBuffer(); });
+          }
+        };
+      }
+    };
+  }
+
+  function when(utc) {
+    if (!utc) { return ""; }
+    var d = new Date(/Z$|[+-]\d\d:\d\d$/.test(utc) ? utc : utc + "Z");
+    return d.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function length(s) {
+    if (!(s > 0)) { return null; }
+    var t = Math.round(s), h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), sec = t % 60;
+    return (h ? h + ":" + (m < 10 ? "0" : "") : "") + m + ":" + (sec < 10 ? "0" : "") + sec;
+  }
+
+  function factsHtml(details, m) {
+    var esc = Nadlan.format.escapeHtml;
+    var rows = [];
+    if (m && m.takenLocal) { rows.push(["Taken", esc(Nadlan.takenDate(m.takenLocal, true)) + " <span class=\"muted\">(camera clock)</span>"]); }
+    rows.push(["Uploaded", esc(when(details.uploadedUtc)) + (details.uploadedBy ? " · " + esc(details.uploadedBy) : "")]);
+    if (m) {
+      var camera = [m.cameraMake, m.cameraModel].filter(Boolean).join(" ");
+      if (camera) { rows.push(["Camera", esc(camera)]); }
+      if (m.width && m.height) { rows.push(["Size", m.width + " × " + m.height + " px"]); }
+      if (length(m.durationS)) { rows.push(["Length", length(m.durationS)]); }
+      if (m.latitude !== null && m.latitude !== undefined && m.longitude !== null && m.longitude !== undefined) {
+        var at = Number(m.latitude).toFixed(6) + ", " + Number(m.longitude).toFixed(6);
+        rows.push(["Location", esc(at) + " <a target=\"_blank\" rel=\"noopener\" href=\"https://www.google.com/maps/search/?api=1&amp;query=" +
+          encodeURIComponent(at) + "\">Show on map</a>"]);
+      } else {
+        rows.push(["Location", "<span class=\"muted\">none in the file</span>"]);
+      }
+    }
+    return rows.map(function (r) { return "<dt>" + r[0] + "</dt><dd>" + r[1] + "</dd>"; }).join("");
+  }
+
+  function showFacts(file, $facts) {
+    Nadlan.api.get("/api/files/" + file.fileAttachmentId + "/details").then(function (details) {
+      $facts.html(factsHtml(details, details.media));
+      if (!details.readFromFile || !Nadlan.mediaInspect) { return; }
+      // Stored before this was read: read it now, from the file itself (and keep it, with the rights).
+      $facts.append("<dt></dt><dd class=\"muted reading\">Reading the file…</dd>");
+      Nadlan.mediaInspect.inspect(storedFile(file)).then(function (m) {
+        $facts.html(factsHtml(details, m));
+        if (details.canSave) { Nadlan.api.put("/api/files/" + file.fileAttachmentId + "/media-data", { metadata: m }).catch(function () { /* read again next time */ }); }
+      }, function () { $facts.find(".reading").text("Couldn't read the file."); });
+    }, function (err) { $facts.html("<dt></dt><dd class=\"error\">" + Nadlan.format.escapeHtml(err.message) + "</dd>"); });
+  }
+
   function open(file, fileTypes) {
     return new Promise(function (resolve) {
       var esc = Nadlan.format.escapeHtml;
@@ -42,6 +105,7 @@
         "<form class=\"form\">" +
           "<div class=\"file-preview\">" + Nadlan.renderFileCard(file) + "</div>" +
           "<div class=\"muted\">" + esc(file.originalFileName) + " · " + Nadlan.formatFileSize(file.fileSize) + "</div>" +
+          "<dl class=\"file-facts\"><dt>Uploaded</dt><dd class=\"muted\">Loading…</dd></dl>" +
           "<label>Document type<select class=\"input\" name=\"fileTypeId\" data-type=\"id\">" + typeOptionsHtml(fileTypes, file.fileTypeId) + "</select></label>" +
           "<label>Title / caption<input class=\"input\" name=\"caption\" value=\"" + esc(file.caption || "") + "\"></label>" +
           "<label>Notes<textarea class=\"input\" name=\"notes\" rows=\"3\">" + esc(file.notes || "") + "</textarea></label>" +
@@ -80,6 +144,8 @@
             }, function (err) { d.busy(false); d.showError(err.message); });
           });
       });
+
+      showFacts(file, $form.find(".file-facts"));
 
       // ---- time frames (Map drop; data entry = MAP_DROP) ----
       var $rows = $form.find(".frame-rows");

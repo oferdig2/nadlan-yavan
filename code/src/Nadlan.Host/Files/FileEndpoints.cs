@@ -218,6 +218,7 @@ public static class FileEndpoints
         notes = f.Notes,
         sortOrder = f.SortOrder,
         uploadedUtc = f.UploadedUtc,
+        takenLocal = f.TakenLocal, // under the thumbnail: "taken 19 Oct 2026"
         url = urls.GetUrl(f.StorageKey), // direct, signed, expiring - for the viewer and downloads
         downloadUrl = urls.GetDownloadUrl(f.StorageKey, f.OriginalFileName), // the same file, saved instead of shown
         thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null, // small preview for cards

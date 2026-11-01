@@ -40,9 +40,10 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         var rows = await conn.QueryAsync<FileListItem>(new CommandDefinition("""
             SELECT f.file_attachment_id, f.file_type_id, t.code AS file_type_code, t.name AS file_type_name, t.category,
                    f.attached_to_type, f.attached_to_id, f.storage_key, f.original_file_name, f.mime_type, f.file_size,
-                   f.caption, f.notes, f.sort_order, f.uploaded_utc, f.has_thumbnail
+                   f.caption, f.notes, f.sort_order, f.uploaded_utc, f.has_thumbnail, m.taken_local
             FROM file_attachment f
             JOIN file_type t ON t.file_type_id = f.file_type_id
+            LEFT JOIN file_media_metadata m ON m.file_attachment_id = f.file_attachment_id
             WHERE f.attached_to_type = @attachedToType AND f.attached_to_id = @attachedToId AND f.upload_status = 'Ready'
             ORDER BY t.sort_order, COALESCE(f.sort_order, 2147483647), f.uploaded_utc
             """, new { attachedToType, attachedToId }, cancellationToken: ct));

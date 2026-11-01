@@ -198,6 +198,25 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
             }
         });
 
+    public Task<byte[]?> ReadRangeAsync(string key, long offset, int count, CancellationToken ct = default)
+        => Guard(async () =>
+        {
+            try
+            {
+                using var response = await Client.GetObjectAsync(new GetObjectRequest
+                {
+                    BucketName = _options.Bucket, Key = _options.FullKey(key), ByteRange = new ByteRange(offset, offset + count - 1),
+                }, ct);
+                using var memory = new MemoryStream();
+                await response.ResponseStream.CopyToAsync(memory, ct);
+                return (byte[]?)memory.ToArray();
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+            {
+                return ex.StatusCode == System.Net.HttpStatusCode.NotFound ? null : Array.Empty<byte>();
+            }
+        });
+
     public string GetAttachmentUrl(string key, string downloadName, TimeSpan lifetime)
         => Guard(() =>
         {

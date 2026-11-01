@@ -73,6 +73,34 @@
       html: function () { return "<button type=\"button\" class=\"btn btn-small\" tabindex=\"-1\" data-files>Files</button>"; } }
   ];
 
+  // Who manages and who owns each Asset (owner, 2026-10-31, N1) - Admin / Data person only; an Agent's table has neither.
+  // Both open a small dialog: the Managing Contact with "Let agent know" (N2), and "Created by" (Admin: hand it over).
+  var STAFF_COLUMNS = [
+    { key: "manager", label: "Managing contact", cls: "col-person", editor: "dialog", open: function (td, r) { openManager(td, r); },
+      sortValue: function (r) { return r.staff ? r.staff.managingContactName || "" : ""; },
+      editable: function (r) { return !!r.staff; },
+      html: function (r) {
+        if (!r.staff) { return "<span class=\"muted\">—</span>"; }
+        return esc(r.staff.managingContactName || "#" + r.staff.managingContactId) +
+          (r.staff.agentShared ? " <span class=\"cell-note\" title=\"Let agent know: shared with " + esc(r.staff.agentName || "the agent") + " (view and edit)\">✓ agent knows</span>" : "");
+      } },
+    { key: "creator", label: "Created by", cls: "col-person", editor: "dialog", open: function (td, r) { openCreator(td, r); },
+      sortValue: function (r) { return r.staff ? r.staff.createdByName || "" : ""; },
+      editable: function (r) { return !!r.staff && !!meta.canSetCreator; },
+      locked: function (r) { return r.staff && !meta.canSetCreator ? "Only an Admin can hand an Asset to another user." : null; },
+      html: function (r) { return r.staff && r.staff.createdByName ? esc(r.staff.createdByName) : "<span class=\"muted\">—</span>"; } }
+  ];
+
+  function addStaffColumns() {
+    if (!meta.staff || column("manager")) { return; }
+    var at = COLUMNS.indexOf(column("files"));
+    Array.prototype.splice.apply(COLUMNS, [at, 0].concat(STAFF_COLUMNS));
+    $root.find("thead").html(headHtml());
+  }
+
+  // Cells edited as you type (not a list or a dialog): typing on them starts the edit.
+  function typedEditor(col) { return col.editor !== "status" && col.editor !== "type" && col.editor !== "dialog"; }
+
   function column(key) { return COLUMNS.filter(function (c) { return c.key === key; })[0]; }
   function rowOf(id) { return rows.filter(function (r) { return r.assetId === id; })[0]; }
 
@@ -80,6 +108,14 @@
 
   function setStatus(text, isError) {
     $status.text(text || "").toggleClass("error", !!isError).attr("title", text || "");
+  }
+
+  function headHtml() {
+    return "<tr>" + COLUMNS.map(function (c) {
+      return "<th scope=\"col\" class=\"" + c.cls + "\"" + (c.sortValue ? " aria-sort=\"none\"" : "") + ">" +
+        (c.sortValue ? "<button type=\"button\" class=\"sort-btn\" data-sort=\"" + c.key + "\">" + esc(c.label) + "<span class=\"sort-mark\" aria-hidden=\"true\"></span></button>" : esc(c.label)) +
+        "</th>";
+    }).join("") + "</tr>";
   }
 
   function build() {
@@ -96,11 +132,7 @@
       "</div>" +
       "<div class=\"asset-grid-wrap\">" +
         "<table class=\"asset-grid\" role=\"grid\" aria-label=\"Assets\">" +
-          "<thead><tr>" + COLUMNS.map(function (c) {
-            return "<th scope=\"col\" class=\"" + c.cls + "\"" + (c.sortValue ? " aria-sort=\"none\"" : "") + ">" +
-              (c.sortValue ? "<button type=\"button\" class=\"sort-btn\" data-sort=\"" + c.key + "\">" + esc(c.label) + "<span class=\"sort-mark\" aria-hidden=\"true\"></span></button>" : esc(c.label)) +
-              "</th>";
-          }).join("") + "</tr></thead>" +
+          "<thead>" + headHtml() + "</thead>" +
           "<tbody><tr><td colspan=\"" + COLUMNS.length + "\" class=\"muted\">Loading…</td></tr></tbody>" +
         "</table>" +
       "</div>" +
@@ -132,6 +164,7 @@
     return Nadlan.api.get("/api/asset-table").then(function (data) {
       meta = data;
       rows = data.items;
+      addStaffColumns();
       $root.find("[data-act=add]").prop("hidden", !data.canCreate && !data.noContact);
       if (data.truncated) { setStatus("Showing the newest " + rows.length + " Assets.", false); }
       render();
@@ -270,18 +303,18 @@
         if (col.action) { openFiles(td); } else if ($(td).hasClass("editable")) { startEdit(td, null); }
         return;
       case " ":
-        if (col.action || col.editor === "status" || col.editor === "type") {
+        if (col.action || !typedEditor(col)) {
           e.preventDefault();
           if (col.action) { openFiles(td); } else if ($(td).hasClass("editable")) { startEdit(td, null); }
         }
         return;
       case "Backspace":
       case "Delete":
-        if ($(td).hasClass("editable") && col.editor !== "status" && col.editor !== "type") { e.preventDefault(); startEdit(td, ""); }
+        if ($(td).hasClass("editable") && typedEditor(col)) { e.preventDefault(); startEdit(td, ""); }
         return;
       default:
         // Typing on a cell starts editing it with what was typed (as in a spreadsheet).
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && $(td).hasClass("editable") && col.editor !== "status" && col.editor !== "type") {
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && $(td).hasClass("editable") && typedEditor(col)) {
           e.preventDefault();
           startEdit(td, e.key);
         }
@@ -296,6 +329,7 @@
     var c = column($td.data("col"));
     var r = rowOf(Number($td.closest("tr").data("id")));
     if (!r || !c.editable || !c.editable(r)) { return; }
+    if (c.editor === "dialog") { c.open(td, r); return; }
 
     var original = c.value(r);
     var failed = $td.data("failed"); // what didn't save last time: back in the editor to fix and retry
@@ -410,6 +444,95 @@
   }
 
   // ---- files and "+ Add an Asset" ------------------------------------------------------------------------------
+
+  // ---- N1 / N2: Managing Contact (+ "Let agent know") and "Created by" ----------------------------------------
+
+  function rowSaved(td, row, what) {
+    updateRow(row);
+    var $cell = $tbody.find("tr[data-id=" + row.assetId + "] td[data-col=" + $(td).data("col") + "]");
+    $cell.addClass("is-saved");
+    setTimeout(function () { $cell.removeClass("is-saved"); }, 1600);
+    setStatus("Saved " + what + " of " + (row.registryId || "Asset #" + row.assetId) + ".");
+    focusCell($cell.get(0));
+  }
+
+  function openManager(td, r) {
+    var current = { contactId: r.staff.managingContactId, displayName: r.staff.managingContactName };
+    var $form = $("<form class=\"form\"><div class=\"manager-slot\"></div>" +
+      "<label class=\"check agent-share\" hidden><input type=\"checkbox\" name=\"letAgentKnow\"> <span>Let agent know: <strong class=\"agent-name\"></strong> sees and edits this Asset in their table</span></label>" +
+      "</form>");
+    var $share = $form.find(".agent-share");
+    function showAgent(contactId, changed) {
+      $share.prop("hidden", true).find("input").prop("checked", false);
+      if (!contactId) { return; }
+      Nadlan.api.get("/api/assets/agent-for-contact/" + contactId).then(function (agent) {
+        if (!agent) { return; }
+        $share.find(".agent-name").text(agent.displayName);
+        // A newly chosen contact's agent: ticked by default (owner); the same contact: as it is now.
+        $share.prop("hidden", false).find("input").prop("checked", changed ? true : !!r.staff.agentShared);
+      }, function () { /* no box */ });
+    }
+    var picker = Nadlan.initializeEntityRelationEditor($form.find(".manager-slot"), {
+      label: "Managing contact", emptyText: "Choose a contact", source: Nadlan.entitySources.contact, value: current,
+      renderSummary: function (c) { return "<span class=\"summary-title\">" + esc(c.displayName) + "</span>"; },
+      edit: function (c) { return Nadlan.contactEditor ? Nadlan.contactEditor.open(c ? c.contactId : null) : Promise.resolve(null); },
+      onChange: function (c) { showAgent(c && c.contactId, !c || c.contactId !== current.contactId); }
+    });
+    showAgent(current.contactId, false);
+    var d = Nadlan.dialog.open({
+      title: "Managing contact - " + (r.registryId || "Asset #" + r.assetId),
+      content: $form,
+      width: Math.min(480, window.innerWidth - 24),
+      buttons: [
+        { text: "Save", primary: true, click: save },
+        { text: "Cancel", click: function () { d.close(); } }
+      ],
+      onClose: function () { focusCell(td); }
+    });
+    function save() {
+      var c = picker.getValue();
+      if (!c) { d.showError("Choose a contact."); return; }
+      d.busy(true);
+      Nadlan.api.put("/api/asset-table/" + r.assetId + "/manager", {
+        contactId: c.contactId, letAgentKnow: !$share.prop("hidden") && $share.find("input").prop("checked")
+      }).then(function (row) { d.close(); rowSaved(td, row, "the managing contact"); }, function (err) { d.busy(false); d.showError(err.message); });
+    }
+  }
+
+  var usersList = null;
+  function openCreator(td, r) {
+    (usersList || (usersList = Nadlan.api.get("/api/admin/users", { includeInactive: false }))).then(function (users) {
+      var active = users.filter(function (u) { return u.isActive; });
+      var $form = $("<form class=\"form\"><label>Created by - the user who owns this Asset<select class=\"input\" name=\"userId\">" +
+        active.map(function (u) {
+          return "<option value=\"" + u.userId + "\"" + (u.userId === r.staff.createdByUserId ? " selected" : "") + ">" + esc(u.displayName) + " · " + esc(u.roleName) + "</option>";
+        }).join("") + "</select></label>" +
+        "<div class=\"muted\">The owner sees and edits it as their own Asset (an Agent: in their table).</div></form>");
+      var d = Nadlan.dialog.open({
+        title: "Created by - " + (r.registryId || "Asset #" + r.assetId),
+        content: $form,
+        width: Math.min(460, window.innerWidth - 24),
+        buttons: [
+          { text: "Hand over", primary: true, click: save },
+          { text: "Cancel", click: function () { d.close(); } }
+        ],
+        onClose: function () { focusCell(td); }
+      });
+      function save() {
+        var id = Number($form.find("[name=userId]").val());
+        if (id === r.staff.createdByUserId) { d.close(); return; }
+        var to = active.filter(function (u) { return u.userId === id; })[0];
+        Nadlan.dialog.confirm("Hand over the Asset", "Hand this Asset to <strong>" + esc(to.displayName) + "</strong>? They will see and edit it as their own" +
+          (r.staff.createdByName ? "; <strong>" + esc(r.staff.createdByName) + "</strong> no longer will, unless it is shared with them" : "") + ".", "Hand over")
+          .then(function (ok) {
+            if (!ok) { return; }
+            d.busy(true);
+            Nadlan.api.put("/api/asset-table/" + r.assetId + "/creator", { userId: id })
+              .then(function (row) { d.close(); rowSaved(td, row, "the owner"); }, function (err) { d.busy(false); d.showError(err.message); });
+          });
+      }
+    }, function (err) { usersList = null; setStatus(err.message, true); });
+  }
 
   function openFiles(td) {
     var r = rowOf(Number($(td).closest("tr").data("id")));

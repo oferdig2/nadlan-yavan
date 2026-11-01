@@ -36,7 +36,8 @@ public static class AssetEndpoints
 
     public sealed record AssetDto(
         long? ParcelId, long ManagingContactId, int? PropertyTypeId, int AssetStatusId, decimal? AskPrice,
-        string? CurrencyCode, decimal? HouseSqm, string? SpecialConditions, string? Remarks, bool? IsExclusive, string? Version = null);
+        string? CurrencyCode, decimal? HouseSqm, string? SpecialConditions, string? Remarks, bool? IsExclusive, string? Version = null,
+        bool? LetAgentKnow = null); // N2: share with the Managing Contact's agent (Admin / Data person); null = the form has no box
 
     private const int MaxResults = 2000;
 
@@ -71,8 +72,12 @@ public static class AssetEndpoints
             });
         });
 
+        // N2: the agent of a Managing Contact - the editor's "Let agent know" box shows (ticked) when there is one.
+        group.MapGet("/agent-for-contact/{contactId:long}", async (long contactId, UserAccess me, AgentShareService shares, CancellationToken ct) =>
+            Results.Ok(await shares.AgentOfContactAsync(me, contactId, ct) is { } agent ? new { agent.UserId, agent.DisplayName } : null));
+
         group.MapGet("/{assetId:long}", async (long assetId, UserAccess me, AccessPolicy policy, IAssetStore assets,
-            IContactStore contacts, IEditVersionStore versions, CancellationToken ct) =>
+            IContactStore contacts, IEditVersionStore versions, AgentShareService shares, CancellationToken ct) =>
         {
             var rights = await policy.RequireAssetViewAsync(me, assetId, ct);
             var version = await versions.GetAsync(EditTargets.Asset, assetId, ct); // before the data: a save in between = a 409, never a stale form
@@ -99,6 +104,7 @@ public static class AssetEndpoints
                 version, // sent back on save (edit check)
                 managingContact = contact is null ? null : new { contact.ContactId, contact.DisplayName, contact.Email, Phone = contact.CellPhone ?? contact.Phone },
                 portfolios,
+                agentShare = await shares.GetAsync(me, asset, ct), // N2, Admin / Data person only: { agentUserId, agentName, shared }
                 rights = new
                 {
                     rights.CanEdit,
@@ -111,7 +117,7 @@ public static class AssetEndpoints
         });
 
         group.MapPost("/", async (AssetDto dto, UserAccess me, AccessPolicy policy, AssetService service, SeaDistanceService sea,
-            IReferenceDataStore reference, CancellationToken ct) =>
+            IReferenceDataStore reference, AgentShareService shares, CancellationToken ct) =>
         {
             if (!AccessPolicy.CanCreateAsset(me))
             {
@@ -133,11 +139,12 @@ public static class AssetEndpoints
                 ParcelIds = dto.ParcelId is long pid ? new[] { pid } : Array.Empty<long>(),
                 CreatedByUserId = me.UserId,
             }, ct);
+            await shares.ApplyAsync(me, created.AssetId, dto.LetAgentKnow, ct);
             return Results.Ok(new { created.AssetId });
         });
 
         group.MapPut("/{assetId:long}", async (long assetId, AssetDto dto, UserAccess me, AccessPolicy policy, IAssetStore assets,
-            AssetService service, IEditVersionStore versions, IReferenceDataStore reference, CancellationToken ct) =>
+            AssetService service, IEditVersionStore versions, IReferenceDataStore reference, AgentShareService shares, CancellationToken ct) =>
         {
             var rights = await policy.RequireAssetEditAsync(me, assetId, ct);
             await using var edit = await versions.BeginEditAsync(EditTargets.Asset, assetId, dto.Version, ct);
@@ -152,6 +159,7 @@ public static class AssetEndpoints
             var input = await Beaches.CheckTypeChangeAsync(ToAsset(dto, assetId), existing.PropertyTypeId, me, reference, ct);
 
             await service.UpdateAsync(input, ct);
+            await shares.ApplyAsync(me, assetId, dto.LetAgentKnow, ct); // another Managing Contact, or the box unticked: the old share goes
             return Results.Ok(new { assetId });
         });
 

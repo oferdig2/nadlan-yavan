@@ -695,6 +695,9 @@ public sealed class MapDropService
         }
     }
 
+    /// <summary>What a browser read from a file, made safe to store (any upload's File details, not only Map drop).</summary>
+    public static MediaMetadata Clean(MediaMetadata m) => Validate(m);
+
     private static MediaMetadata Validate(MediaMetadata m)
     {
         static string? Text(string? s, int max) => string.IsNullOrWhiteSpace(s) ? null : (s.Trim().Length <= max ? s.Trim() : s.Trim()[..max]);

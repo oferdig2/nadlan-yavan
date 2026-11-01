@@ -96,8 +96,13 @@
 
       function load() {
         Nadlan.api.get("/api/files", { attachedToType: options.attachedToType, attachedToId: options.attachedToId })
-          .then(function (list) { files = list; render(); },
+          .then(function (list) { files = list; render(); recenter(); },
                 function (err) { $gallery.html("<div class=\"error\">" + Nadlan.format.escapeHtml(err.message) + "</div>"); });
+      }
+
+      // Opened while still loading (small): centred again once the files are in, so it stays inside the window.
+      function recenter() {
+        try { d.$el.dialog("option", "position", { my: "center", at: "center", of: window }); } catch (e) { /* closed meanwhile */ }
       }
 
       function render() {

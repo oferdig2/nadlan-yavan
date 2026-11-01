@@ -34,7 +34,8 @@ public class MigrationScriptTests
                     statement.StartsWith("CREATE ", StringComparison.OrdinalIgnoreCase) ||
                     statement.StartsWith("INSERT ", StringComparison.OrdinalIgnoreCase) ||
                     statement.StartsWith("ALTER ", StringComparison.OrdinalIgnoreCase) ||
-                    statement.StartsWith("DELETE ", StringComparison.OrdinalIgnoreCase),
+                    statement.StartsWith("DELETE ", StringComparison.OrdinalIgnoreCase) ||
+                    statement.StartsWith("UPDATE ", StringComparison.OrdinalIgnoreCase), // 020: permission texts only
                     $"{script}: unexpected statement start: {statement[..Math.Min(80, statement.Length)]}");
                 Assert.Equal(statement.Count(c => c == '('), statement.Count(c => c == ')'));
             }

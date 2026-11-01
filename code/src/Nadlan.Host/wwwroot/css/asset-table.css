@@ -66,7 +66,12 @@
 .asset-grid .col-status { width: 120px; }
 .asset-grid .col-remarks { min-width: 180px; max-width: 320px; }
 .asset-grid .col-files { width: 64px; }
+/* Files stays in reach on a narrow screen (C6): pinned to the right edge, the other columns scroll under it. */
+.asset-grid .col-files { position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -1px 0 0 var(--border); }
+.asset-grid th.col-files { z-index: 3; background: #f1f5f9; }
 .asset-grid .col-sea { width: 80px; color: var(--muted); }
+.asset-grid .col-person { min-width: 130px; max-width: 200px; }
+.asset-grid .cell-note { color: #15803d; font-size: 11px; white-space: nowrap; }
 .asset-grid .col-files .cell-value { padding: 2px 8px; }
 
 /* Save states, on the cell itself. */

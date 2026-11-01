@@ -606,6 +606,15 @@
     if (!Nadlan.session.canAny(["VIEW_ALL_PARCELS", "EDIT_ALL_PARCELS"])) { setMode("assets"); }
   }
 
+  // Phones and tablets (N7, owner 2026-10-31): "Hide search" folds the panel away so the map gets the screen; it always
+  // starts open (not remembered), and stays open after a search.
+  $(document).on("click", ".search-toggle", function () {
+    var hidden = !document.body.classList.contains("search-hidden");
+    document.body.classList.toggle("search-hidden", hidden);
+    $(this).attr("aria-expanded", String(!hidden)).text(hidden ? "Search" : "Hide search");
+    window.dispatchEvent(new Event("resize")); // the map takes the freed space
+  });
+
   // Without USE_MAP the map is not for this user (an Agent works in the Asset table): nothing of the map loads.
   Nadlan.session.ready.then(function () {
     if (!Nadlan.session.can("USE_MAP")) {
