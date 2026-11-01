@@ -19,14 +19,15 @@
       <button type="button" class="active" data-view="parcels">Parcels</button>
       <button type="button" data-view="assets">Assets</button>
     </nav>
+    <button type="button" class="btn" data-tool="portfolios">Portfolios</button>
     <button type="button" class="btn" data-tool="new-parcel" data-requires="EDIT_ALL_PARCELS" hidden>+ New parcel</button>
     <span class="quick-entry-setting" data-requires="EDIT_ALL_PARCELS" hidden>
       <label class="check" title="Click a parcel to type its OT and plot straight away (Enter saves)"><input type="checkbox" data-role="quick-entry"> Quick OT/plot entry</label>
       <label class="quick-digits" title="If every OT has this many digits, the cursor jumps to Plot once they are typed. Empty = off." hidden>OT digits <input class="input" data-role="ot-digits" inputmode="numeric" maxlength="1"></label>
     </span>
-    <button type="button" class="btn" data-tool="portfolios">Portfolios</button>
-    <a class="btn" href="/admin.html" data-requires="MANAGE_USERS MANAGE_METADATA MANAGE_CONTACTS VIEW_ALL_CONTACTS" hidden>Admin</a>
+    <!-- Map drop (map-drop.js) is placed here, after the quick-entry box. Admin sits on the right, before the user menu. -->
     <span id="map-status" class="map-status"></span>
+    <a class="btn header-admin" href="/admin.html" data-requires="MANAGE_USERS MANAGE_METADATA MANAGE_CONTACTS VIEW_ALL_CONTACTS" hidden>Admin</a>
   </header>
 
   <div class="layout">
