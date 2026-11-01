@@ -82,20 +82,54 @@ public sealed class MySqlWorkStore : IWorkStore
         return await conn.ExecuteScalarAsync<long>(new CommandDefinition(InsertRequest, request, cancellationToken: ct));
     }
 
+    private const string RequestSelect = """
+        SELECT r.work_request_id, r.name, r.contractor_contact_id, c.display_name AS contractor_name,
+               r.link_token_hash, r.link_token_sealed, r.link_enabled, r.link_expires_utc, r.password_hash, r.password_version,
+               r.failed_unlocks, r.locked_until_utc, r.show_size_to_contractor, r.copied_from_request_id, src.name AS copied_from_name,
+               r.created_by_user_id, u.display_name AS created_by_name, r.created_utc, r.updated_utc
+        FROM work_request r
+        JOIN contact c ON c.contact_id = r.contractor_contact_id
+        LEFT JOIN work_request src ON src.work_request_id = r.copied_from_request_id
+        LEFT JOIN app_user u ON u.user_id = r.created_by_user_id
+        """;
+
     public async Task<WorkRequest?> GetRequestAsync(long workRequestId, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        return await conn.QueryFirstOrDefaultAsync<WorkRequest>(new CommandDefinition("""
-            SELECT r.work_request_id, r.name, r.contractor_contact_id, c.display_name AS contractor_name,
-                   r.link_token_hash, r.link_token_sealed, r.link_enabled, r.link_expires_utc, r.password_hash, r.password_version,
-                   r.failed_unlocks, r.locked_until_utc, r.show_size_to_contractor, r.copied_from_request_id, src.name AS copied_from_name,
-                   r.created_by_user_id, u.display_name AS created_by_name, r.created_utc, r.updated_utc
-            FROM work_request r
-            JOIN contact c ON c.contact_id = r.contractor_contact_id
-            LEFT JOIN work_request src ON src.work_request_id = r.copied_from_request_id
-            LEFT JOIN app_user u ON u.user_id = r.created_by_user_id
-            WHERE r.work_request_id = @workRequestId
+        return await conn.QueryFirstOrDefaultAsync<WorkRequest>(new CommandDefinition(
+            RequestSelect + " WHERE r.work_request_id = @workRequestId", new { workRequestId }, cancellationToken: ct));
+    }
+
+    public async Task<WorkRequest?> GetRequestByTokenHashAsync(string tokenHash, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.QueryFirstOrDefaultAsync<WorkRequest>(new CommandDefinition(
+            RequestSelect + " WHERE r.link_token_hash = @tokenHash", new { tokenHash }, cancellationToken: ct));
+    }
+
+    public async Task<int> CountWrongUnlockAsync(long workRequestId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<int>(new CommandDefinition("""
+            UPDATE work_request SET failed_unlocks = failed_unlocks + 1 WHERE work_request_id = @workRequestId;
+            SELECT failed_unlocks FROM work_request WHERE work_request_id = @workRequestId;
             """, new { workRequestId }, cancellationToken: ct));
+    }
+
+    public async Task LockLinkAsync(long workRequestId, DateTime lockedUntilUtc, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE work_request SET failed_unlocks = 0, locked_until_utc = @lockedUntilUtc WHERE work_request_id = @workRequestId",
+            new { workRequestId, lockedUntilUtc }, cancellationToken: ct));
+    }
+
+    public async Task ResetUnlocksAsync(long workRequestId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE work_request SET failed_unlocks = 0, locked_until_utc = NULL WHERE work_request_id = @workRequestId",
+            new { workRequestId }, cancellationToken: ct));
     }
 
     public async Task<IReadOnlyList<WorkRequestSummary>> ListRequestsAsync(AccessScope scope, CancellationToken ct = default)
@@ -173,24 +207,28 @@ public sealed class MySqlWorkStore : IWorkStore
 
     // ---- Parcels and works --------------------------------------------------------------------------------------
 
-    public async Task<IReadOnlyList<WorkItemRow>> ListItemsAsync(long workRequestId, AccessScope scope, CancellationToken ct = default)
+    private const string ItemSelect = """
+        SELECT wi.work_item_id, wi.work_request_id, wi.parcel_id, p.registry_id, p.registry_id_is_provisional,
+               CASE WHEN p.ot IS NULL THEN NULL ELSE CONCAT(p.ot, COALESCE(p.ot_ext, '')) END AS ot,
+               CASE WHEN p.plot_number IS NULL THEN NULL ELSE CONCAT(p.plot_number, COALESCE(p.plot_ext, '')) END AS plot,
+               ga.name AS geographic_area, p.official_area_sqm, wrp.status AS parcel_status, wrp.sort_order AS parcel_sort_order,
+               wi.work_type_id, wt.code AS work_type_code, wt.name AS work_type_name, wt.name_el AS work_type_name_el, wi.status,
+               wi.price, wi.currency_code, wi.est_start_date, wi.offered_utc, wi.approved_utc, wi.started_utc, wi.done_utc, wi.paid_utc
+        FROM work_item wi
+        JOIN work_request_parcel wrp ON wrp.work_request_id = wi.work_request_id AND wrp.parcel_id = wi.parcel_id
+        JOIN parcel p ON p.parcel_id = wi.parcel_id
+        LEFT JOIN geographic_area ga ON ga.geographic_area_id = p.geographic_area_id
+        JOIN work_type wt ON wt.work_type_id = wi.work_type_id
+        """;
+
+    public async Task<IReadOnlyList<WorkItemRow>> ListItemsAsync(long workRequestId, AccessScope? scope, CancellationToken ct = default)
     {
         var args = new DynamicParameters();
         args.Add("workRequestId", workRequestId);
-        var visible = AccessSql.ParcelVisible("p", scope, args);
+        var visible = scope is null ? "1 = 1" : AccessSql.ParcelVisible("p", scope, args);
         await using var conn = await _db.OpenAsync(ct);
         return (await conn.QueryAsync<WorkItemRow>(new CommandDefinition($"""
-            SELECT wi.work_item_id, wi.parcel_id, p.registry_id, p.registry_id_is_provisional,
-                   CASE WHEN p.ot IS NULL THEN NULL ELSE CONCAT(p.ot, COALESCE(p.ot_ext, '')) END AS ot,
-                   CASE WHEN p.plot_number IS NULL THEN NULL ELSE CONCAT(p.plot_number, COALESCE(p.plot_ext, '')) END AS plot,
-                   ga.name AS geographic_area, p.official_area_sqm, wrp.status AS parcel_status, wrp.sort_order AS parcel_sort_order,
-                   wi.work_type_id, wt.code AS work_type_code, wt.name AS work_type_name, wi.status, wi.price, wi.currency_code,
-                   wi.est_start_date, wi.offered_utc, wi.approved_utc, wi.started_utc, wi.done_utc, wi.paid_utc
-            FROM work_item wi
-            JOIN work_request_parcel wrp ON wrp.work_request_id = wi.work_request_id AND wrp.parcel_id = wi.parcel_id
-            JOIN parcel p ON p.parcel_id = wi.parcel_id
-            LEFT JOIN geographic_area ga ON ga.geographic_area_id = p.geographic_area_id
-            JOIN work_type wt ON wt.work_type_id = wi.work_type_id
+            {ItemSelect}
             WHERE wi.work_request_id = @workRequestId AND {visible}
             ORDER BY wrp.sort_order, wi.parcel_id, wt.sort_order, wt.work_type_id
             """, args, cancellationToken: ct))).ToList();
@@ -319,6 +357,74 @@ public sealed class MySqlWorkStore : IWorkStore
             """, new { id, sourceRequestId }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return id;
+    }
+
+    // ---- the steps and the map ----------------------------------------------------------------------------------
+
+    public async Task<WorkItemRow?> GetItemAsync(long workRequestId, long workItemId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.QueryFirstOrDefaultAsync<WorkItemRow>(new CommandDefinition(
+            ItemSelect + " WHERE wi.work_request_id = @workRequestId AND wi.work_item_id = @workItemId",
+            new { workRequestId, workItemId }, cancellationToken: ct));
+    }
+
+    public async Task<bool> ApplyStepAsync(long workRequestId, long workItemId, WorkStep step, decimal? price, DateTime? estStartDate, long? userId,
+        CancellationToken ct = default)
+    {
+        // Only fixed column names from the step's flags go into the SQL; every value is a parameter.
+        var set = new List<string> { "status = @to", "updated_utc = UTC_TIMESTAMP(3)" };
+        void Stamp(WorkStamps flag, params string[] columns)
+        {
+            if (step.Sets.HasFlag(flag))
+            {
+                set.AddRange(columns);
+            }
+            else if (step.Clears.HasFlag(flag))
+            {
+                set.AddRange(columns.Select(c => c[..c.IndexOf(" =", StringComparison.Ordinal)] + " = NULL"));
+            }
+        }
+
+        Stamp(WorkStamps.Price, "price = @price", "est_start_date = @estStartDate");
+        Stamp(WorkStamps.Offered, "offered_utc = UTC_TIMESTAMP(3)");
+        Stamp(WorkStamps.Approved, "approved_utc = UTC_TIMESTAMP(3)", "approved_by_user_id = @userId");
+        Stamp(WorkStamps.Started, "started_utc = UTC_TIMESTAMP(3)");
+        Stamp(WorkStamps.Done, "done_utc = UTC_TIMESTAMP(3)");
+        Stamp(WorkStamps.Paid, "paid_utc = UTC_TIMESTAMP(3)", "paid_by_user_id = @userId");
+
+        await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var changed = await conn.ExecuteAsync(new CommandDefinition($"""
+            UPDATE work_item SET {string.Join(", ", set)}
+            WHERE work_item_id = @workItemId AND work_request_id = @workRequestId AND status = @from
+            """, new { workRequestId, workItemId, from = step.From, to = step.To, price, estStartDate, userId }, tx, cancellationToken: ct));
+        if (changed != 1)
+        {
+            return false;
+        }
+
+        var parcelId = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+            "SELECT parcel_id FROM work_item WHERE work_item_id = @workItemId", new { workItemId }, tx, cancellationToken: ct));
+        await RefreshParcelStatusAsync(conn, tx, workRequestId, parcelId, ct);
+        await TouchAsync(conn, tx, workRequestId, ct);
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<WorkParcelShape>> ListParcelShapesAsync(long workRequestId, AccessScope? scope, CancellationToken ct = default)
+    {
+        var args = new DynamicParameters();
+        args.Add("workRequestId", workRequestId);
+        var visible = scope is null ? "1 = 1" : AccessSql.ParcelVisible("p", scope, args);
+        await using var conn = await _db.OpenAsync(ct);
+        return (await conn.QueryAsync<WorkParcelShape>(new CommandDefinition($"""
+            SELECT wrp.parcel_id, p.registry_id, ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt, wrp.status
+            FROM work_request_parcel wrp
+            JOIN parcel p ON p.parcel_id = wrp.parcel_id
+            WHERE wrp.work_request_id = @workRequestId AND {visible}
+            ORDER BY wrp.sort_order, wrp.parcel_id
+            """, args, cancellationToken: ct))).ToList();
     }
 
     // ---- history ------------------------------------------------------------------------------------------------

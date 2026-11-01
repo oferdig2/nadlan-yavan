@@ -15,12 +15,14 @@ public static class WorkModule
         services.AddSingleton<IWorkStore, MySqlWorkStore>();
         services.AddSingleton<IWorkLinkSealer, DataProtectionWorkLinkSealer>();
         services.AddSingleton<WorkService>();
+        services.AddSingleton<WorkLinkService>();
         return services;
     }
 
     public static void MapWorkEndpoints(this IEndpointRouteBuilder app)
     {
         WorkEndpoints.Map(app);
+        WorkLinkEndpoints.Map(app);
     }
 
     /// <summary>

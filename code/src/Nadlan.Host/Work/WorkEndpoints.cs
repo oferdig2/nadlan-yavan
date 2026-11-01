@@ -1,10 +1,12 @@
 using System.Globalization;
+using Nadlan.Core.Geo;
 using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Parcels;
 using Nadlan.Core.Security;
 using Nadlan.Core.Validation;
 using Nadlan.Core.Work;
 using Nadlan.Host.Auth;
+using Nadlan.Host.Geo;
 
 namespace Nadlan.Host.Work;
 
@@ -27,6 +29,10 @@ internal static class WorkEndpoints
     public sealed record PasswordDto(string? Password, bool Generate);
 
     public sealed record AddParcelDto(long ParcelId, int[]? WorkTypeIds);
+
+    public sealed record ApproveDto(long[]? WorkItemIds);
+
+    public sealed record CorrectDto(string? Reason);
 
     public static void Map(IEndpointRouteBuilder app)
     {
@@ -158,25 +164,7 @@ internal static class WorkEndpoints
                 Limit = MaxSearchParcels + 1,
                 Scope = me.Scope,
             }, ct);
-            var names = (await areas.ListAsync(ct)).ToDictionary(a => a.GeographicAreaId, a => a.Name);
-            var inRequest = requestId is long rid
-                ? (await store.ListItemsAsync(rid, me.Scope, ct)).Select(w => w.ParcelId).ToHashSet()
-                : new HashSet<long>();
-            return Results.Ok(new
-            {
-                more = found.Count > MaxSearchParcels,
-                items = found.Take(MaxSearchParcels).Select(p => new
-                {
-                    parcelId = p.ParcelId,
-                    registryId = p.RegistryId,
-                    registryIdIsProvisional = p.RegistryIdIsProvisional,
-                    geographicArea = p.GeographicAreaId is int id && names.TryGetValue(id, out var n) ? n : null,
-                    ot = p.OT is null ? null : p.OT + p.OTExt,
-                    plot = p.PlotNumber is null ? null : p.PlotNumber + p.PlotExt,
-                    officialAreaSqm = p.OfficialAreaSqm,
-                    inRequest = inRequest.Contains(p.ParcelId),
-                }),
-            });
+            return Results.Ok(await SearchReplyAsync(found, found.Count > MaxSearchParcels, requestId, me, areas, store, ct));
         });
 
         group.MapPost("/requests/{id:long}/parcels", async (long id, AddParcelDto dto, UserAccess me, WorkService work, IWorkStore store,
@@ -193,12 +181,89 @@ internal static class WorkEndpoints
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
 
+        // ---- staff steps (piece 2): approve, paid, correct ------------------------------------------------------
+
+        // One work, or several ("Approve selected": the ones not Offered are skipped).
+        group.MapPost("/requests/{id:long}/approve", async (long id, ApproveDto dto, UserAccess me, WorkService work, IWorkStore store,
+            CancellationToken ct) =>
+        {
+            var approved = await work.ApproveAsync(me, id, dto.WorkItemIds, ct);
+            return Results.Ok(new { approved, request = await DetailAsync(id, me, work, store, ct) });
+        });
+
+        group.MapPost("/requests/{id:long}/works/{workItemId:long}/paid", async (long id, long workItemId, UserAccess me, WorkService work,
+            IWorkStore store, CancellationToken ct) =>
+        {
+            await work.PaidAsync(me, id, workItemId, ct);
+            return Results.Ok(await DetailAsync(id, me, work, store, ct));
+        });
+
+        group.MapPost("/requests/{id:long}/works/{workItemId:long}/correct", async (long id, long workItemId, CorrectDto dto, UserAccess me,
+            WorkService work, IWorkStore store, CancellationToken ct) =>
+        {
+            await work.CorrectAsync(me, id, workItemId, dto.Reason, ct);
+            return Results.Ok(await DetailAsync(id, me, work, store, ct));
+        });
+
+        // ---- the request's map (piece 2) ------------------------------------------------------------------------
+
+        group.MapGet("/requests/{id:long}/shapes", async (long id, UserAccess me, WorkService work, IWorkStore store, CancellationToken ct) =>
+        {
+            await work.GetAsync(me, id, ct);
+            return Results.Ok((await store.ListParcelShapesAsync(id, me.Scope, ct)).Select(s => new
+            {
+                s.ParcelId,
+                s.RegistryId,
+                s.Status,
+                geometry = GeoJson.Polygon(GeoPolygon.FromWkt(s.GeometryWkt)),
+            }));
+        });
+
+        // "Pick on the map": the Parcels under a point, in the user's areas (then added as from the search).
+        group.MapGet("/parcels/at", async (double lat, double lng, long? requestId, UserAccess me, IParcelStore parcels, IGeographicAreaStore areas,
+            IWorkStore store, CancellationToken ct) =>
+        {
+            const double Box = 0.0005; // ~50 m around the point; the polygon test below decides
+            var found = (await parcels.QueryAsync(new ParcelQuery
+            {
+                Area = new GeoBounds(lng - Box, lat - Box, lng + Box, lat + Box),
+                Limit = 200,
+                Scope = me.Scope,
+            }, ct)).Where(p => p.Geometry.Contains(new GeoPoint(lng, lat))).ToList();
+            return Results.Ok(await SearchReplyAsync(found, false, requestId, me, areas, store, ct));
+        });
+
         group.MapDelete("/requests/{id:long}/works/{workItemId:long}", async (long id, long workItemId, UserAccess me, WorkService work,
             IWorkStore store, CancellationToken ct) =>
         {
             await work.RemoveWorkAsync(me, id, workItemId, ct);
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
+    }
+
+    /// <summary>Found Parcels for "+ Add parcel": numbers, area, size and whether this request has them already.</summary>
+    private static async Task<object> SearchReplyAsync(IReadOnlyList<Parcel> found, bool more, long? requestId, UserAccess me,
+        IGeographicAreaStore areas, IWorkStore store, CancellationToken ct)
+    {
+        var names = (await areas.ListAsync(ct)).ToDictionary(a => a.GeographicAreaId, a => a.Name);
+        var inRequest = requestId is long rid
+            ? (await store.ListItemsAsync(rid, me.Scope, ct)).Select(w => w.ParcelId).ToHashSet()
+            : new HashSet<long>();
+        return new
+        {
+            more,
+            items = found.Take(MaxSearchParcels).Select(p => new
+            {
+                parcelId = p.ParcelId,
+                registryId = p.RegistryId,
+                registryIdIsProvisional = p.RegistryIdIsProvisional,
+                geographicArea = p.GeographicAreaId is int id && names.TryGetValue(id, out var n) ? n : null,
+                ot = p.OT is null ? null : p.OT + p.OTExt,
+                plot = p.PlotNumber is null ? null : p.PlotNumber + p.PlotExt,
+                officialAreaSqm = p.OfficialAreaSqm,
+                inRequest = inRequest.Contains(p.ParcelId),
+            }),
+        };
     }
 
     /// <summary>The request page: header, link panel (never the token or the password) and one row per work.</summary>

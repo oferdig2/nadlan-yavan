@@ -69,6 +69,7 @@ public sealed record WorkRequestSummary
 public sealed record WorkItemRow
 {
     public long WorkItemId { get; init; }
+    public long WorkRequestId { get; init; }
     public long ParcelId { get; init; }
     public string? RegistryId { get; init; }
     public bool RegistryIdIsProvisional { get; init; }
@@ -81,6 +82,7 @@ public sealed record WorkItemRow
     public int WorkTypeId { get; init; }
     public string WorkTypeCode { get; init; } = "";
     public string WorkTypeName { get; init; } = "";
+    public string WorkTypeNameEl { get; init; } = "";
     public string Status { get; init; } = WorkStatuses.Requested;
     public decimal? Price { get; init; }
     public string CurrencyCode { get; init; } = "EUR";
@@ -131,6 +133,26 @@ public static class WorkActions
     public const string WorksAdded = "WORKS_ADDED";
     public const string ParcelRemoved = "PARCEL_REMOVED";
     public const string WorkRemoved = "WORK_REMOVED";
+
+    // piece 2: the link and the steps
+    public const string Unlocked = "UNLOCKED";
+    public const string WrongPassword = "WRONG_PASSWORD";
+    public const string LinkLocked = "LINK_LOCKED";
+    public const string Offered = "OFFERED";
+    public const string Approved = "APPROVED";
+    public const string Started = "STARTED";
+    public const string Done = "DONE";
+    public const string Paid = "PAID";
+    public const string Corrected = "CORRECTED";
+}
+
+/// <summary>A Parcel of a request on the map: its polygon (WKT, long-lat) and own status.</summary>
+public sealed record WorkParcelShape
+{
+    public long ParcelId { get; init; }
+    public string? RegistryId { get; init; }
+    public string GeometryWkt { get; init; } = "";
+    public string Status { get; init; } = ParcelWorkStatuses.OpenOffers;
 }
 
 /// <summary>work_event.actor_kind values.</summary>

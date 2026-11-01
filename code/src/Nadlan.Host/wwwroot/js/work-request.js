@@ -10,6 +10,8 @@
   var LAST_WORKS_KEY = "nadlan.work.lastWorks";
 
   var $panel, req, types = [], filter = "all", sort = null;
+  var picked = {}, highlighted = null; // works ticked for "Approve selected"; the Parcel clicked on the map
+  var mapApi = null, mapHasShapes = false, picking = false;
 
   function api(promise, okMessage) {
     return promise.then(function (res) {
@@ -84,7 +86,8 @@
     var l = req.link;
     return "<section class=\"work-card work-link\">" +
       "<h3>Link for the contractor " + W.linkBadge(l.state) + "</h3>" +
-      "<div class=\"muted\">Works without a login. The contractor's page comes with the next update of GreekPlot - until then the link opens nothing.</div>" +
+      "<div class=\"muted\">Works without a login, on the phone: the contractor sees these parcels on a map, sends prices, starts and finishes the works. " +
+        (l.hasPassword ? "Send the password separately." : "") + "</div>" +
       (l.lockedUntilUtc ? "<div class=\"warn\">Locked after wrong passwords until " + W.time(l.lockedUntilUtc) + " (" + W.date(l.lockedUntilUtc) + ").</div>" : "") +
       "<div class=\"btn-row\">" +
         "<button type=\"button\" class=\"btn btn-primary\" data-act=\"copy-link\">Copy link</button>" +
@@ -211,6 +214,8 @@
       "<div class=\"meta-toolbar\"><h3>Parcels and works</h3>" +
         "<span class=\"muted\">" + parcels + " parcel" + (parcels === 1 ? "" : "s") + " · " + req.items.length + " work" + (req.items.length === 1 ? "" : "s") + "</span>" +
         "<button type=\"button\" class=\"btn btn-primary\" data-act=\"add-parcel\">+ Add parcel</button>" +
+        "<button type=\"button\" class=\"btn\" data-act=\"approve-selected\"" + (pickedIds().length ? "" : " disabled") + ">Approve selected" +
+          (pickedIds().length ? " (" + pickedIds().length + ")" : "") + "</button>" +
       "</div>" +
       "<div class=\"work-chips\" role=\"group\" aria-label=\"Filter by status\">" + chips + "</div>" +
       "<div class=\"work-table-wrap\">" + tableHtml() + "</div>" +
@@ -244,7 +249,10 @@
       removable[p.parcelId] = req.items.every(function (r) { return r.parcelId !== p.parcelId || r.status === "REQUESTED"; });
     });
 
+    var offered = rows.filter(function (r) { return r.status === "OFFERED"; });
+    var allPicked = offered.length > 0 && offered.every(function (r) { return picked[r.workItemId]; });
     return "<table class=\"meta-table work-items\"><thead><tr>" +
+      "<th class=\"pick\">" + (offered.length ? "<input type=\"checkbox\" data-act=\"pick-all\" aria-label=\"Select every offered work shown\"" + (allPicked ? " checked" : "") + ">" : "") + "</th>" +
       COLUMNS.map(function (c) {
         var on = sort && sort.key === c.key;
         return "<th class=\"" + (c.num ? "num " : "") + "sortable\" data-sort=\"" + c.key + "\" aria-sort=\"" +
@@ -253,14 +261,15 @@
       rows.map(function (r) {
         var first = !firstShown[r.parcelId];
         firstShown[r.parcelId] = true;
-        return "<tr data-work=\"" + r.workItemId + "\">" +
+        return "<tr data-work=\"" + r.workItemId + "\" data-parcel-row=\"" + r.parcelId + "\"" + (r.parcelId === highlighted ? " class=\"is-highlighted\"" : "") + ">" +
+          "<td class=\"pick\">" + (r.status === "OFFERED" ? "<input type=\"checkbox\" data-act=\"pick\" aria-label=\"Select to approve\"" + (picked[r.workItemId] ? " checked" : "") + ">" : "") + "</td>" +
           "<td>" + Nadlan.format.registryId(r.registryId, r.registryIdIsProvisional) + "</td>" +
           "<td>" + Nadlan.format.text(r.ot) + " / " + Nadlan.format.text(r.plot) + "</td>" +
           "<td>" + Nadlan.format.text(r.geographicArea) + "</td>" +
           "<td class=\"num\">" + (r.officialAreaSqm === null ? "—" : esc(Number(r.officialAreaSqm).toLocaleString("en-US", { maximumFractionDigits: 0 }))) + "</td>" +
           "<td>" + esc(r.workTypeName) + "</td>" +
           "<td>" + W.workBadge(r.status) + "</td>" +
-          "<td class=\"num\">" + (r.price === null ? "—" : Nadlan.format.price(r.price, r.currencyCode)) + "</td>" +
+          "<td class=\"num\">" + (r.price === null ? "—" : W.money(r.price, r.currencyCode)) + "</td>" +
           "<td>" + W.date(r.estStartDate) + "</td>" +
           "<td>" + W.dateTime(r.offeredUtc) + "</td>" +
           "<td>" + W.dateTime(r.approvedUtc) + "</td>" +
@@ -268,6 +277,9 @@
           "<td>" + W.dateTime(r.doneUtc) + "</td>" +
           "<td>" + W.dateTime(r.paidUtc) + "</td>" +
           "<td class=\"row-buttons\">" +
+            (r.status === "OFFERED" ? "<button type=\"button\" class=\"btn btn-primary btn-small\" data-act=\"approve\" title=\"Approve this price: it is then locked for the contractor\">Approve</button>" : "") +
+            (r.status === "DONE" ? "<button type=\"button\" class=\"btn btn-primary btn-small\" data-act=\"paid\">Mark paid</button>" : "") +
+            (r.status !== "REQUESTED" ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"correct\" title=\"One step back, with a reason\">Correct…</button>" : "") +
             (r.status === "REQUESTED" ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"remove-work\" title=\"Remove this work from the parcel\">Remove</button>" : "") +
             (first && removable[r.parcelId] ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"remove-parcel\" data-parcel=\"" + r.parcelId +
               "\" title=\"Remove the parcel and all its works from the request\">Remove parcel</button>" : "") +
@@ -290,7 +302,7 @@
       render();
       $panel.find("th[data-sort=" + key + "]").trigger("focus");
     });
-    $works.on("click", "[data-act=add-parcel]", openAddParcel);
+    $works.on("click", "[data-act=add-parcel]", function () { openAddParcel(); });
     $works.on("click", "[data-act=remove-work]", function () {
       var id = Number($(this).closest("tr").data("work"));
       var row = req.items.filter(function (r) { return r.workItemId === id; })[0];
@@ -300,6 +312,42 @@
         if (ok) { api(Nadlan.api.del(url("/works/" + id))).then(function (d) { update(d, "Work removed."); }); }
       });
     });
+    $works.on("change", "[data-act=pick]", function () {
+      var id = Number($(this).closest("tr").data("work"));
+      if (this.checked) { picked[id] = true; } else { delete picked[id]; }
+      renderWorks();
+    });
+    $works.on("change", "[data-act=pick-all]", function () {
+      var on = this.checked;
+      $works.find("[data-act=pick]").each(function () {
+        var id = Number($(this).closest("tr").data("work"));
+        if (on) { picked[id] = true; } else { delete picked[id]; }
+      });
+      renderWorks();
+    });
+    $works.on("click", "[data-act=approve-selected]", function () {
+      var ids = pickedIds();
+      if (!ids.length) { return; }
+      api(Nadlan.api.post(url("/approve"), { workItemIds: ids })).then(function (res) {
+        picked = {};
+        update(res.request, res.approved + " price" + (res.approved === 1 ? "" : "s") + " approved.");
+      });
+    });
+    $works.on("click", "[data-act=approve]", function () {
+      var row = rowOf(this);
+      api(Nadlan.api.post(url("/approve"), { workItemIds: [row.workItemId] })).then(function (res) {
+        delete picked[row.workItemId];
+        update(res.request, row.workTypeName + " on " + (row.registryId || "the parcel") + " approved at " + W.money(row.price, row.currencyCode) + ".");
+      });
+    });
+    $works.on("click", "[data-act=paid]", function () {
+      var row = rowOf(this);
+      Nadlan.dialog.confirm("Mark paid", esc(row.workTypeName) + " on parcel " + esc(row.registryId || "") + ": " +
+        W.money(row.price, row.currencyCode) + " paid?", "Mark paid").then(function (ok) {
+        if (ok) { api(Nadlan.api.post(url("/works/" + row.workItemId + "/paid"))).then(function (d) { update(d, "Marked paid."); }); }
+      });
+    });
+    $works.on("click", "[data-act=correct]", function () { openCorrect(rowOf(this)); });
     $works.on("click", "[data-act=remove-parcel]", function () {
       var parcelId = Number($(this).data("parcel"));
       var row = req.items.filter(function (r) { return r.parcelId === parcelId; })[0];
@@ -307,6 +355,54 @@
         if (ok) { api(Nadlan.api.del(url("/parcels/" + parcelId))).then(function (d) { update(d, "Parcel removed."); }); }
       });
     });
+  }
+
+  function rowOf(el) {
+    var id = Number($(el).closest("tr").data("work"));
+    return req.items.filter(function (r) { return r.workItemId === id; })[0];
+  }
+
+  function pickedIds() {
+    var offered = {};
+    req.items.forEach(function (r) { if (r.status === "OFFERED") { offered[r.workItemId] = true; } });
+    return Object.keys(picked).map(Number).filter(function (id) { return offered[id]; });
+  }
+
+  // One step back, with a reason (owner): what each step undoes, as Nadlan.Core.Work.WorkTransitions says.
+  var BACK = {
+    OFFERED: { to: "REQUESTED", what: "The offered price and start date are cleared; the contractor offers again." },
+    APPROVED: { to: "OFFERED", what: "\"Reopen the price\": the approval is cleared; the contractor may change the price." },
+    IN_WORK: { to: "APPROVED", what: "The start is cleared." },
+    DONE: { to: "IN_WORK", what: "\"Done\" is cleared." },
+    PAID: { to: "DONE", what: "\"Paid\" is cleared." }
+  };
+
+  function openCorrect(row) {
+    var back = BACK[row.status];
+    if (!back) { return; }
+    var $form = $("<form class=\"form\">" +
+      "<div>" + esc(row.workTypeName) + " on parcel " + esc(row.registryId || "") + ": " + W.workBadge(row.status) + " → " + W.workBadge(back.to) + "</div>" +
+      "<div class=\"muted\">" + esc(back.what) + "</div>" +
+      "<label>Reason (goes into the history)<textarea class=\"input\" name=\"reason\" rows=\"3\" maxlength=\"300\"></textarea></label>" +
+      "</form>");
+    var d = Nadlan.dialog.open({
+      title: "Correct a status",
+      content: $form,
+      width: Math.min(480, window.innerWidth - 24),
+      buttons: [
+        { text: "Step back", primary: true, click: function () {
+          var reason = $.trim($form.find("[name=reason]").val() || "");
+          if (!reason) { d.showError("Write a short reason."); return; }
+          d.busy(true);
+          Nadlan.api.post(url("/works/" + row.workItemId + "/correct"), { reason: reason }).then(function (detail) {
+            d.close();
+            update(detail, "Corrected: back to " + W.WORK[back.to].name + ".");
+          }, function (err) { d.busy(false); d.showError(err.message); });
+        } },
+        { text: "Cancel", click: function () { d.close(); } }
+      ]
+    });
+    $form.find("[name=reason]").trigger("focus");
   }
 
   // ---- + Add parcel -------------------------------------------------------------------------------------------
@@ -319,7 +415,8 @@
     try { window.localStorage.setItem(LAST_WORKS_KEY, JSON.stringify(ids)); } catch (e) { /* private mode: fine */ }
   }
 
-  function openAddParcel() {
+  /** @param {object=} preset  parcels already found (picked on the map): shown at once, the search stays below */
+  function openAddParcel(preset) {
     var active = types.filter(function (t) { return t.isActive; });
     var checked = lastWorks();
     var $form = $(
@@ -346,7 +443,7 @@
         { text: "Close", click: function () { d.close(); } }
       ]
     });
-    $form.find("[name=kaek]").trigger("focus");
+    if (!preset) { $form.find("[name=kaek]").trigger("focus"); }
     $form.on("input", "[name=kaek]", function () { if (this.value) { $form.find("[name=ot], [name=plot]").val(""); } });
     $form.on("input", "[name=ot], [name=plot]", function () { if (this.value) { $form.find("[name=kaek]").val(""); } });
 
@@ -360,25 +457,31 @@
       d.busy(true);
       Nadlan.api.get("/api/work/parcels", { kaek: data.kaek || "", ot: data.ot || "", plot: data.plot || "", requestId: req.workRequestId }).then(function (res) {
         d.busy(false);
-        var $results = $form.find(".add-results");
-        if (!res.items.length) {
-          $results.html("<div class=\"warn\">No parcel found in your areas.</div>");
-          return;
-        }
-
-        $results.html(
-          "<table class=\"add-table\"><thead><tr><th>KAEK</th><th>Area</th><th>OT</th><th>Plot</th><th>m²</th><th></th></tr></thead><tbody>" +
-          res.items.map(function (p) {
-            return "<tr><td>" + Nadlan.format.registryId(p.registryId, false) + "</td><td>" + Nadlan.format.text(p.geographicArea) + "</td>" +
-              "<td>" + Nadlan.format.text(p.ot) + "</td><td>" + Nadlan.format.text(p.plot) + "</td>" +
-              "<td>" + (p.officialAreaSqm === null ? "—" : esc(Number(p.officialAreaSqm).toLocaleString("en-US", { maximumFractionDigits: 0 }))) + "</td>" +
-              "<td><button type=\"button\" class=\"btn btn-primary btn-small\" data-parcel=\"" + p.parcelId + "\">" + (p.inRequest ? "Add works" : "Add") + "</button>" +
-                (p.inRequest ? " <span class=\"muted\">(in this request)</span>" : "") + "</td></tr>";
-          }).join("") + "</tbody></table>" +
-          (res.more ? "<div class=\"muted\">More parcels match - type more of the KAEK.</div>" : ""));
-        $results.find("[data-parcel]").first().trigger("focus");
+        showResults(res, "No parcel found in your areas.");
       }, function (err) { d.busy(false); d.showError(err.message); });
     }
+
+    function showResults(res, none) {
+      var $results = $form.find(".add-results");
+      if (!res.items.length) {
+        $results.html("<div class=\"warn\">" + esc(none) + "</div>");
+        return;
+      }
+
+      $results.html(
+        "<table class=\"add-table\"><thead><tr><th>KAEK</th><th>Area</th><th>OT</th><th>Plot</th><th>m²</th><th></th></tr></thead><tbody>" +
+        res.items.map(function (p) {
+          return "<tr><td>" + Nadlan.format.registryId(p.registryId, false) + "</td><td>" + Nadlan.format.text(p.geographicArea) + "</td>" +
+            "<td>" + Nadlan.format.text(p.ot) + "</td><td>" + Nadlan.format.text(p.plot) + "</td>" +
+            "<td>" + (p.officialAreaSqm === null ? "—" : esc(Number(p.officialAreaSqm).toLocaleString("en-US", { maximumFractionDigits: 0 }))) + "</td>" +
+            "<td><button type=\"button\" class=\"btn btn-primary btn-small\" data-parcel=\"" + p.parcelId + "\">" + (p.inRequest ? "Add works" : "Add") + "</button>" +
+              (p.inRequest ? " <span class=\"muted\">(in this request)</span>" : "") + "</td></tr>";
+        }).join("") + "</tbody></table>" +
+        (res.more ? "<div class=\"muted\">More parcels match - type more of the KAEK.</div>" : ""));
+      $results.find("[data-parcel]").first().trigger("focus");
+    }
+
+    if (preset) { showResults(preset, "No parcel of yours at that point on the map."); }
 
     $form.on("click", "[data-parcel]", function () {
       var $btn = $(this);
@@ -463,21 +566,90 @@
 
   // ---- the page -----------------------------------------------------------------------------------------------
 
+  // ---- the request's map (piece 2) ----------------------------------------------------------------------------
+
+  function mapHtml() {
+    return "<section class=\"work-card work-map-card\">" +
+      "<div class=\"meta-toolbar\"><h3>Map</h3>" +
+        "<button type=\"button\" class=\"btn\" data-act=\"pick-on-map\" aria-pressed=\"false\">Pick a parcel on the map</button>" +
+        "<span class=\"muted work-map-hint\"></span>" +
+      "</div>" +
+      "<div class=\"work-map\" id=\"work-request-map\"></div>" +
+    "</section>";
+  }
+
+  function setPicking(on) {
+    picking = on;
+    var $card = $panel.find(".work-map-card");
+    $card.toggleClass("is-picking", on).find("[data-act=pick-on-map]").toggleClass("active", on).attr("aria-pressed", on ? "true" : "false")
+      .text(on ? "Cancel picking" : "Pick a parcel on the map");
+    $card.find(".work-map-hint").text(on ? "Click the parcel to add." : "");
+  }
+
+  function refreshMap() {
+    if (!mapApi) { return; }
+    Nadlan.api.get(url("/shapes")).then(function (shapes) {
+      var first = !mapHasShapes;
+      mapHasShapes = shapes.length > 0;
+      mapApi.setParcels(shapes);
+      mapApi.select(highlighted);
+      if (first && shapes.length) { mapApi.fit(); }
+    }, function (err) { W.setStatus(err.message, true); });
+  }
+
+  function startMap() {
+    var $map = $panel.find("#work-request-map");
+    Nadlan.api.get("/api/config/client").then(function (config) {
+      return Nadlan.workMap.load(config.googleMapsApiKey).then(function () {
+        mapApi = Nadlan.workMap.create($map.get(0), {
+          center: config.defaultCenter, zoom: config.defaultZoom,
+          onParcelClick: function (parcelId, at) {
+            if (picking && at) { pickAt(at); return; }
+            showParcel(parcelId);
+          },
+          onMapClick: function (at) { if (picking) { pickAt(at); } }
+        });
+        refreshMap();
+      });
+    }).catch(function (err) {
+      $panel.find(".work-map-card").addClass("no-map");
+      $map.html("<div class=\"muted\">The map isn't available" + (err && err.message === "NO_MAPS_KEY" ? ": no Google Maps key is set (Admin > Settings)." : ".") + "</div>");
+    });
+  }
+
+  // A click on the map while picking: the Parcels there (in the user's areas) go into "+ Add parcel".
+  function pickAt(at) {
+    setPicking(false);
+    api(Nadlan.api.get("/api/work/parcels/at", { lat: at.lat, lng: at.lng, requestId: req.workRequestId })).then(function (res) {
+      openAddParcel(res);
+    });
+  }
+
+  // A Parcel clicked on the map: its rows light up in the table (and the filter shows them).
+  function showParcel(parcelId) {
+    highlighted = parcelId;
+    if (mapApi) { mapApi.select(parcelId); }
+    var f = W.FILTERS.filter(function (x) { return x.key === filter; })[0];
+    if (!parcelIdsIn(f)[parcelId]) { filter = "all"; }
+    renderWorks();
+    var $row = $panel.find("tr[data-parcel-row=" + parcelId + "]").first();
+    if ($row.length) { $row.get(0).scrollIntoView({ block: "center", behavior: "smooth" }); }
+  }
+
+  // ---- the page -----------------------------------------------------------------------------------------------
+
+  function renderWorks() {
+    $panel.find(".wr-works").html(worksHtml());
+    bindWorks();
+  }
+
   function render() {
-    var scroll = window.scrollY;
-    $panel.off().html(
-      "<div class=\"work-back\"><a href=\"#\" data-act=\"back\">← All requests</a></div>" +
-      "<h2 class=\"work-title\">" + esc(req.name) + " <span class=\"muted\">· " + esc(req.contractor.displayName) + "</span></h2>" +
-      "<div class=\"work-top\">" + headerHtml() + linkHtml() + "</div>" +
-      worksHtml() +
-      historyHtml());
-    $panel.on("click", "[data-act=back]", function (e) { e.preventDefault(); Nadlan.workPage.showList(); });
-    $panel.on("click", "[data-act=copy-request]", openCopy);
+    $panel.find(".work-title").html(esc(req.name) + " <span class=\"muted\">· " + esc(req.contractor.displayName) + "</span>");
+    $panel.find(".wr-top").html(headerHtml() + linkHtml());
     bindHeader();
     bindLink();
-    bindWorks();
-    bindHistory();
-    window.scrollTo(0, scroll);
+    renderWorks();
+    refreshMap();
   }
 
   function open($target, id) {
@@ -485,9 +657,28 @@
     $panel.off().html("<div class=\"muted\">Loading…</div>");
     filter = "all";
     sort = null;
+    picked = {};
+    highlighted = null;
+    mapApi = null;
+    mapHasShapes = false;
+    picking = false;
     Promise.all([Nadlan.api.get("/api/work/requests/" + id), Nadlan.api.get("/api/work/work-types")]).then(function (loaded) {
       types = loaded[1];
-      update(loaded[0]);
+      req = loaded[0];
+      // The parts are drawn again after each change; the map stays (it only gets the Parcels again).
+      $panel.html(
+        "<div class=\"work-back\"><a href=\"#\" data-act=\"back\">← All requests</a></div>" +
+        "<h2 class=\"work-title\"></h2>" +
+        "<div class=\"work-top wr-top\"></div>" +
+        mapHtml() +
+        "<div class=\"wr-works\"></div>" +
+        historyHtml());
+      $panel.on("click", "[data-act=back]", function (e) { e.preventDefault(); Nadlan.workPage.showList(); });
+      $panel.on("click", "[data-act=copy-request]", openCopy);
+      $panel.on("click", "[data-act=pick-on-map]", function () { setPicking(!picking); });
+      bindHistory();
+      render();
+      startMap();
     }, function (err) {
       $panel.html("<div class=\"error\">" + esc(err.message) + "</div><div><a href=\"#\">← All requests</a></div>");
     });

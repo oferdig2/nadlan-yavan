@@ -14,7 +14,7 @@ namespace Nadlan.Core.Tests;
 /// Work requests (N5, piece 1) against a throwaway MySQL (NADLAN_TEST_MYSQL, see <see cref="ScratchMySql"/>): migration 021,
 /// the store's SQL and the staff service. Without the variable these tests do nothing.
 /// </summary>
-public class WorkMySqlTests : IClassFixture<ScratchMySql>
+public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
 {
     private readonly MySqlDatabase? _db;
 

@@ -59,3 +59,14 @@
   .work-main { padding: 12px; }
   .work-head-row { flex-direction: column; }
 }
+
+/* The request's map (piece 2): the Parcels coloured by status; "Pick a parcel on the map" adds one. */
+.work-map-card { margin-bottom: 12px; }
+.work-map { height: 380px; border-radius: 6px; overflow: hidden; background: #dfe6ee; }
+.work-map-card.no-map .work-map { height: auto; background: none; }
+.work-map-card.is-picking .work-map { outline: 3px solid var(--accent); outline-offset: -3px; cursor: crosshair; }
+.work-map-card [data-act=pick-on-map].active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.meta-table th.pick, .meta-table td.pick { width: 28px; text-align: center; padding-left: 6px; padding-right: 2px; }
+.work-items tr.is-highlighted td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.work-items .row-buttons .btn { margin-left: 4px; }
+@media (max-width: 900px) { .work-map { height: 300px; } }

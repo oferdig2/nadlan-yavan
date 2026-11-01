@@ -142,6 +142,14 @@
     return navigator.clipboard.writeText(text).then(function () { return true; }, fallback);
   }
 
+  // A price as staff approve it: cents shown when there are any (Nadlan.format.price rounds to whole euros).
+  function money(amount, currency) {
+    if (amount === null || amount === undefined) { return "—"; }
+    var whole = Number(amount) % 1 === 0;
+    return (currency === "EUR" || !currency ? "€" : esc(currency) + " ") +
+      Number(amount).toLocaleString("en-US", { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2 });
+  }
+
   Nadlan.work = {
     WORK: WORK,
     PARCEL: PARCEL,
@@ -155,6 +163,7 @@
     setStatus: setStatus,
     contractorPicker: contractorPicker,
     loadContractors: loadContractors,
-    copyText: copyText
+    copyText: copyText,
+    money: money
   };
 })(window, jQuery);

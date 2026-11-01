@@ -246,6 +246,79 @@ public sealed class WorkService
             parcelId, workItemId), ct);
     }
 
+    // ---- staff steps: approve, paid, correct (piece 2) ----------------------------------------------------------
+
+    /// <summary>
+    /// Approves the offered price of each work (the price is then locked for the contractor). One work: an error if it
+    /// isn't Offered. Several ("Approve selected"): the ones not Offered are skipped. Returns how many were approved.
+    /// </summary>
+    public async Task<int> ApproveAsync(UserAccess me, long workRequestId, IReadOnlyList<long>? workItemIds, CancellationToken ct = default)
+    {
+        await GetAsync(me, workRequestId, ct);
+        var ids = (workItemIds ?? Array.Empty<long>()).Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            throw new DomainValidationException("WORK_NONE_SELECTED", "Choose the works to approve.");
+        }
+
+        var approved = 0;
+        foreach (var id in ids)
+        {
+            var work = await RequireWorkAsync(me, workRequestId, id, ct);
+            if (ids.Count > 1 && work.Status != WorkStatuses.Offered)
+            {
+                continue;
+            }
+
+            await StepAsync(me, work, WorkTransitions.Move(work.Status, WorkStatuses.Approved, WorkActor.Staff), WorkActions.Approved,
+                $"Parcel {work.RegistryId}: {work.WorkTypeName} approved at € {Money(work.Price)}.", ct);
+            approved++;
+        }
+
+        return approved;
+    }
+
+    public async Task PaidAsync(UserAccess me, long workRequestId, long workItemId, CancellationToken ct = default)
+    {
+        await GetAsync(me, workRequestId, ct);
+        var work = await RequireWorkAsync(me, workRequestId, workItemId, ct);
+        await StepAsync(me, work, WorkTransitions.Move(work.Status, WorkStatuses.Paid, WorkActor.Staff), WorkActions.Paid,
+            $"Parcel {work.RegistryId}: {work.WorkTypeName} paid (€ {Money(work.Price)}).", ct);
+    }
+
+    /// <summary>One step back with a reason (a correction): the history keeps the reason and what was cleared.</summary>
+    public async Task CorrectAsync(UserAccess me, long workRequestId, long workItemId, string? reason, CancellationToken ct = default)
+    {
+        await GetAsync(me, workRequestId, ct);
+        var work = await RequireWorkAsync(me, workRequestId, workItemId, ct);
+        var step = WorkTransitions.Correct(work.Status, reason);
+        var cleared = step.Clears.HasFlag(WorkStamps.Price) ? $" The offer € {Money(work.Price)}" +
+            (work.EstStartDate is DateTime s ? $" (start {s.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)})" : "") + " was cleared." : "";
+        var text = reason!.Trim();
+        await StepAsync(me, work, step, WorkActions.Corrected,
+            $"Parcel {work.RegistryId}: {work.WorkTypeName} corrected from {WorkTransitions.Name(step.From)} back to {WorkTransitions.Name(step.To)}. " +
+            $"Reason: {(text.Length > 300 ? text[..300] : text)}.{cleared}", ct);
+    }
+
+    private async Task<WorkItemRow> RequireWorkAsync(UserAccess me, long workRequestId, long workItemId, CancellationToken ct)
+    {
+        var work = await _store.GetItemAsync(workRequestId, workItemId, ct) ?? throw new EntityNotFoundException("Work", workItemId);
+        await _policy.RequireParcelViewAsync(me, work.ParcelId, ct); // a Parcel outside the user's areas: not found
+        return work;
+    }
+
+    private async Task StepAsync(UserAccess me, WorkItemRow work, WorkStep step, string action, string summary, CancellationToken ct)
+    {
+        if (!await _store.ApplyStepAsync(work.WorkRequestId, work.WorkItemId, step, null, null, me.UserId, ct))
+        {
+            throw new WorkConflictException("WORK_CHANGED", "This work was changed meanwhile. Reload to see it now.");
+        }
+
+        await _store.AddEventAsync(new NewWorkEvent(work.WorkRequestId, WorkActorKinds.Staff, me.UserId, action, summary, work.ParcelId, work.WorkItemId), ct);
+    }
+
+    internal static string Money(decimal? price) => price is decimal p ? p.ToString(p % 1 == 0 ? "#,0" : "#,0.00", CultureInfo.InvariantCulture) : "-";
+
     // ---- helpers ------------------------------------------------------------------------------------------------
 
     private async Task RequireContractorAsync(long contactId, CancellationToken ct)

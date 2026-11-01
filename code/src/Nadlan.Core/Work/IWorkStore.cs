@@ -40,8 +40,8 @@ public interface IWorkStore
     /// <summary>Sets (or with null removes) the password: bumps the version, clears wrong tries and any lock.</summary>
     Task SetPasswordAsync(long workRequestId, string? passwordHash, CancellationToken ct = default);
 
-    /// <summary>The request's works on Parcels the scope may see, in the request's Parcel order.</summary>
-    Task<IReadOnlyList<WorkItemRow>> ListItemsAsync(long workRequestId, AccessScope scope, CancellationToken ct = default);
+    /// <summary>The request's works on Parcels the scope may see (null = all: the contractor's view), in the request's Parcel order.</summary>
+    Task<IReadOnlyList<WorkItemRow>> ListItemsAsync(long workRequestId, AccessScope? scope, CancellationToken ct = default);
 
     /// <summary>
     /// Adds the Parcel (at the end) if it isn't in the request yet, and those of the works it doesn't have yet. Returns the
@@ -62,6 +62,33 @@ public interface IWorkStore
 
     /// <summary>A new request with the source's Parcels and works, every work Requested (nothing else copied).</summary>
     Task<long> CopyRequestAsync(long sourceRequestId, NewWorkRequest request, CancellationToken ct = default);
+
+    // ---- the link and the steps (piece 2) ------------------------------------------------------------------------
+
+    /// <summary>The request whose link token has this SHA-256 (hex), or null.</summary>
+    Task<WorkRequest?> GetRequestByTokenHashAsync(string tokenHash, CancellationToken ct = default);
+
+    /// <summary>Counts one more wrong password; returns the count.</summary>
+    Task<int> CountWrongUnlockAsync(long workRequestId, CancellationToken ct = default);
+
+    /// <summary>Locks the link until then and starts the count again.</summary>
+    Task LockLinkAsync(long workRequestId, DateTime lockedUntilUtc, CancellationToken ct = default);
+
+    /// <summary>The right password: no wrong ones, no lock.</summary>
+    Task ResetUnlocksAsync(long workRequestId, CancellationToken ct = default);
+
+    /// <summary>One work of the request (any Parcel - the contractor's view isn't limited by areas), or null.</summary>
+    Task<WorkItemRow?> GetItemAsync(long workRequestId, long workItemId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves the work by <paramref name="step"/> only if it is still in <c>step.From</c> (else false: changed meanwhile),
+    /// setting / clearing what the step says; then the Parcel's status. One transaction.
+    /// </summary>
+    Task<bool> ApplyStepAsync(long workRequestId, long workItemId, WorkStep step, decimal? price, DateTime? estStartDate, long? userId,
+        CancellationToken ct = default);
+
+    /// <summary>The request's Parcels with their polygon (WKT) and own status, in order; null scope = all (the contractor).</summary>
+    Task<IReadOnlyList<WorkParcelShape>> ListParcelShapesAsync(long workRequestId, AccessScope? scope, CancellationToken ct = default);
 
     Task AddEventAsync(NewWorkEvent workEvent, CancellationToken ct = default);
 
