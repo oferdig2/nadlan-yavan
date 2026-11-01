@@ -67,6 +67,9 @@ public sealed class ParcelDeletionService
                 throw new EntityNotFoundException("Parcel", parcelId);
             case ParcelDeleteOutcome.HasAssets:
                 throw new DomainValidationException("PARCEL_HAS_ASSETS", $"An Asset was just added on Parcel {parcel.RegistryId}, so it can't be deleted.");
+            case ParcelDeleteOutcome.InWorkRequest:
+                throw new DomainValidationException("PARCEL_IN_WORK_REQUEST",
+                    $"Parcel {parcel.RegistryId} is in a work request (Work page), so it can't be deleted. Remove it from the request first.");
         }
 
         var leftInStorage = new List<string>();

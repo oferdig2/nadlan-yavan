@@ -4,6 +4,7 @@ using Nadlan.Core.Parcels;
 using Nadlan.Core.Security;
 using Nadlan.Core.Validation;
 using Nadlan.Core.Work;
+using Nadlan.Host.Auth;
 
 namespace Nadlan.Host.Work;
 
@@ -29,7 +30,11 @@ internal static class WorkEndpoints
 
     public static void Map(IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/work").WithWorkConflicts();
+        // One guard for the whole staff group, so a new endpoint can't forget it (the service checks again).
+        var group = app.MapGroup("/api/work").WithWorkConflicts().AddEndpointFilter(async (context, next) =>
+            context.HttpContext.GetUserAccess()?.Has(Permissions.ManageWork) == true
+                ? await next(context)
+                : Results.Json(new { error = "WORK_FORBIDDEN", message = "Your role doesn't include work requests." }, statusCode: StatusCodes.Status403Forbidden));
 
         group.MapGet("/work-types", async (UserAccess me, IWorkStore store, CancellationToken ct) =>
         {

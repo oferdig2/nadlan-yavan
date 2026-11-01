@@ -315,6 +315,24 @@ public class WorkMySqlTests : IClassFixture<ScratchMySql>
         Assert.Single(await store.ListItemsAsync(a, w.DataPerson.Scope)); // untouched
     }
 
+    [Fact]
+    public async Task A_parcel_in_a_work_request_can_not_be_deleted_and_says_why()
+    {
+        if (ScratchMySql.ServerConnectionString is null) { return; }
+
+        var w = await SeedAsync();
+        var (work, _, _) = Make();
+        var id = await work.CreateAsync(w.DataPerson, "Request", w.Contractor);
+        await work.AddParcelWorksAsync(w.DataPerson, id, w.PA1, new[] { w.Clear });
+        var parcels = new Nadlan.Persistence.MySql.Parcels.MySqlParcelStore(_db!);
+
+        Assert.Equal(Nadlan.Core.Parcels.ParcelDeleteOutcome.InWorkRequest, await parcels.DeleteAsync(w.PA1));
+        Assert.NotNull(await parcels.GetAsync(w.PA1));
+
+        await work.RemoveParcelAsync(w.DataPerson, id, w.PA1); // out of the request: then it can go
+        Assert.Equal(Nadlan.Core.Parcels.ParcelDeleteOutcome.Deleted, await parcels.DeleteAsync(w.PA1));
+    }
+
     // ---- the link panel -------------------------------------------------------------------------------------------
 
     [Fact]
