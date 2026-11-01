@@ -304,6 +304,12 @@ public sealed class MySqlParcelStore : IParcelStore
             return ParcelDeleteOutcome.HasAssets;
         }
 
+        if (await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+                "SELECT COUNT(*) FROM work_request_parcel WHERE parcel_id = @parcelId", new { parcelId }, tx, cancellationToken: ct)) > 0)
+        {
+            return ParcelDeleteOutcome.InWorkRequest;
+        }
+
         await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM file_attachment WHERE attached_to_type = 'Parcel' AND attached_to_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition("DELETE FROM parcel_legal_owner WHERE parcel_id = @parcelId", new { parcelId }, tx, cancellationToken: ct));

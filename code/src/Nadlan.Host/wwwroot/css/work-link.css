@@ -1,0 +1,85 @@
+/* The contractor's page (work-link.html). Phone first: one hand, big tap targets (44 px+), no sideways scroll at 360 px.
+   Phone: the map on top, the list / Parcel below it. From 800 px: the map on the left, the list on the right. */
+.wl-body { display: flex; flex-direction: column; height: 100%; height: 100dvh; overflow: hidden; font-size: 16px; }
+
+.wl-header { flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px; height: 52px; background: var(--surface);
+  border-bottom: 1px solid var(--border); padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+.wl-request { flex: 1; min-width: 0; color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-lang { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex: none; }
+.wl-lang button { border: none; background: var(--surface); font: inherit; font-size: 14px; font-weight: 600; min-width: 44px; height: 36px; cursor: pointer; color: var(--muted); }
+.wl-lang button.active { background: var(--accent); color: #fff; }
+
+.wl-main { flex: 1; min-height: 0; position: relative; }
+.wl-message:not(:empty) { padding: 24px 16px; font-size: 16px; text-align: center; color: var(--muted); }
+
+/* Password */
+.wl-password { max-width: 420px; margin: 0 auto; padding: 32px 16px; display: flex; flex-direction: column; gap: 12px; }
+.wl-password h1 { margin: 0; font-size: 22px; }
+.wl-password p { margin: 0; color: var(--muted); }
+.wl-password-input { font-size: 22px; padding: 10px 12px; letter-spacing: 2px; }
+.wl-error { color: var(--error); min-height: 1.3em; }
+.wl-big { min-height: 48px; font-size: 16px; padding: 10px 16px; width: 100%; border-radius: 8px; }
+
+/* Map + sheet */
+.wl-app { height: 100%; display: flex; flex-direction: column; }
+.wl-map-box { position: relative; flex: none; height: 42%; min-height: 180px; transition: height 0.2s; }
+.wl-app.big-map .wl-map-box { height: 72%; }
+.wl-app.no-map .wl-map-box { height: auto; min-height: 0; }
+.wl-app.no-map .wl-map-size { display: none; }
+.wl-map { position: absolute; inset: 0; background: #dfe6ee; }
+.wl-app.no-map .wl-map { position: static; }
+.wl-map-off { padding: 10px 12px; font-size: 14px; color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--border); }
+.wl-map-size { position: absolute; left: 8px; bottom: 24px; z-index: 2; min-height: 40px; font-size: 14px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
+.wl-sheet { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; background: var(--surface); border-top: 1px solid var(--border);
+  padding: 10px 12px calc(16px + env(safe-area-inset-bottom)); }
+
+/* Filters */
+.wl-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 4px; scrollbar-width: none; }
+.wl-chips::-webkit-scrollbar { display: none; }
+.wl-chip { flex: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 20px; padding: 0 14px;
+  min-height: 40px; font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.wl-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wl-chip-count { opacity: 0.75; font-size: 13px; margin-left: 2px; }
+
+/* The list of Parcels */
+.wl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wl-parcel { width: 100%; text-align: left; border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 10px 12px;
+  font: inherit; color: var(--text); cursor: pointer; display: flex; flex-direction: column; gap: 4px; min-height: 56px; }
+.wl-parcel:active { background: var(--bg); }
+.wl-parcel-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.wl-kaek { font-weight: 700; font-size: 17px; font-variant-numeric: tabular-nums; }
+.wl-parcel-sub { color: var(--muted); font-size: 14px; }
+.wl-parcel-works { display: flex; flex-wrap: wrap; gap: 4px; }
+.wl-work-tag { font-size: 13px; border-left: 4px solid var(--border); background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+.wl-empty { color: var(--muted); padding: 16px 0; text-align: center; }
+.wl-body .badge { font-size: 12px; padding: 2px 8px; }
+
+/* One Parcel */
+.wl-back { min-height: 40px; font-size: 15px; margin-bottom: 8px; }
+.wl-kaek-big { margin: 0 0 6px; font-size: 20px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wl-facts { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; }
+.wl-facts dt { color: var(--muted); font-size: 12px; }
+.wl-facts dd { margin: 0; }
+.wl-detail h3 { margin: 12px 0 6px; font-size: 16px; }
+.wl-work { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+.wl-work-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.wl-work-name { font-weight: 600; font-size: 17px; }
+.wl-offer { display: flex; flex-direction: column; gap: 8px; }
+.wl-field { display: flex; flex-direction: column; gap: 3px; font-size: 14px; color: var(--muted); }
+.wl-field .input { font-size: 18px; min-height: 44px; }
+.wl-money { display: flex; align-items: center; gap: 6px; }
+.wl-euro { font-size: 20px; font-weight: 600; color: var(--text); }
+.wl-note { font-size: 14px; }
+
+.wl-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 10;
+  max-width: calc(100vw - 32px); background: #0f172a; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 15px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); }
+.wl-toast.is-error { background: #991b1b; }
+
+@media (min-width: 800px) {
+  .wl-app { flex-direction: row; }
+  .wl-map-box, .wl-app.big-map .wl-map-box { flex: 1; height: auto; }
+  .wl-map-size { display: none; }
+  .wl-sheet { flex: 0 0 400px; border-top: none; border-left: 1px solid var(--border); }
+  .wl-app.no-map { flex-direction: column; }
+}

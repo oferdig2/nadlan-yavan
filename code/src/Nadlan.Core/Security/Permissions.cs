@@ -6,6 +6,7 @@ public static class Permissions
     // Pages and regions (migration 018)
     public const string UseMap = "USE_MAP";
     public const string UseAssetTable = "USE_ASSET_TABLE";
+    public const string ManageWork = "MANAGE_WORK"; // the Work page: work requests for contractors (migration 021)
 
     /// <summary>Every geographic area. Without it the user sees only the areas set on their user (app_user_area).</summary>
     public const string AllAreas = "ALL_AREAS";

@@ -16,6 +16,7 @@ using Nadlan.Host.Parcels;
 using Nadlan.Host.Portfolios;
 using Nadlan.Host.Presentation;
 using Nadlan.Host.Reference;
+using Nadlan.Host.Work;
 using Nadlan.Persistence.MySql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -65,5 +66,6 @@ app.MapActivityEndpoints();
 app.MapAdminEndpoints();
 app.MapMachineEndpoints();
 app.MapMapLinkEndpoints(); // "paste a Google Maps link": follows a short share link (Google hosts only)
+app.MapWorkEndpoints(); // work requests for contractors (Nadlan.Host/Work)
 
 app.Run();

@@ -198,6 +198,11 @@ public class MySqlAgentTableTests : IClassFixture<ScratchMySql>
                 DELETE FROM schema_version WHERE version = 19;
                 ALTER TABLE resource_access DROP COLUMN source;
                 DELETE FROM schema_version WHERE version = 20;
+                DROP TABLE work_event, work_location, work_file, work_message, work_item, work_request_parcel, work_request, work_type;
+                DELETE rp FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE p.code = 'MANAGE_WORK';
+                DELETE FROM permission WHERE code = 'MANAGE_WORK';
+                DELETE FROM contact_role WHERE code = 'CONTRACTOR';
+                DELETE FROM schema_version WHERE version = 21;
                 INSERT INTO security_role (code, name, is_system, sort_order) VALUES ('CUSTOM', 'Made by an Admin', 0, 99);
                 INSERT INTO role_permission (security_role_id, permission_id)
                 SELECT r.security_role_id, p.permission_id FROM security_role r JOIN permission p ON p.code = 'VIEW_PRICE' WHERE r.code = 'CUSTOM';
@@ -205,7 +210,7 @@ public class MySqlAgentTableTests : IClassFixture<ScratchMySql>
             var before = await RolePermissionsAsync(c);
 
             Assert.Equal(new[] { "018_agent_table_areas" }, (await migrator.MigrateAsync()).Take(1).ToArray()); // later ones follow
-            var after = await RolePermissionsAsync(c);
+            var after = (await RolePermissionsAsync(c)).ToDictionary(x => x.Key, x => x.Value.Where(code => code != Permissions.ManageWork).ToHashSet()); // 021 adds that one
 
             Assert.Equal(before.Keys.Order(), after.Keys.Order());
             foreach (var (role, had) in before)

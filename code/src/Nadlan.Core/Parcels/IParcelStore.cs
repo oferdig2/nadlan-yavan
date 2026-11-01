@@ -183,4 +183,5 @@ public enum ParcelDeleteOutcome
     Deleted,
     NotFound,
     HasAssets,
+    InWorkRequest, // a work request (Work page) lists it: the request's history needs it
 }

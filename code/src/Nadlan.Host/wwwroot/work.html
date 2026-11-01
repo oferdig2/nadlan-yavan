@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GreekPlot — Work</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/themes/base/jquery-ui.min.css" integrity="sha384-zR/jkclV8JzpZv6ONtyAg2c/SJQRL8k3ZYyDf2O9XGHO16FV9l6/kEdN4IGkspLj" crossorigin="anonymous" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="/css/forms.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
+  <link rel="stylesheet" href="/css/auth.css" />
+  <link rel="stylesheet" href="/css/work.css" />
+</head>
+<!-- Work requests for contractors (staff, MANAGE_WORK). The contractor's own page is work-link.html (piece 2). -->
+<body class="admin-body work-body">
+  <header class="app-header">
+    <span class="app-title">GreekPlot</span>
+    <a class="btn" href="/" data-requires="USE_MAP" hidden>← Map</a>
+    <a class="btn" href="/assets.html" data-requires="USE_ASSET_TABLE" hidden>Table</a>
+    <nav class="view-switch admin-tabs" aria-label="Work sections">
+      <button type="button" data-tab="requests" class="active">Requests</button>
+    </nav>
+    <span id="work-status" class="work-status" role="status" aria-live="polite"></span>
+  </header>
+
+  <main class="work-main" id="work-panel"></main>
+
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js" integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/jquery-ui.min.js" integrity="sha384-SStJQoPipVtHHnIgUfDI+jTAbSyU+HMbhwt2XRRNpLIRFg9VguopT6Y4+cdOlkqg" crossorigin="anonymous"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/formatters.js"></script>
+  <script src="/js/session.js"></script>
+  <script src="/js/reference-data.js"></script>
+  <script src="/js/dialog.js"></script>
+  <!-- "+ New contact" in the contractor picker (read-only use of the existing contact dialog) -->
+  <script src="/js/contact-editor.js"></script>
+  <script src="/js/work-map.js"></script>
+  <script src="/js/work-common.js"></script>
+  <script src="/js/work-request.js"></script>
+  <script src="/js/work-page.js"></script>
+</body>
+</html>
