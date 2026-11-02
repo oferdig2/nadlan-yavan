@@ -355,6 +355,7 @@ internal static class WorkLinkEndpoints
                         w.StartedUtc,
                         w.DoneUtc,
                         w.PaidUtc,
+                        remarks = w.Remarks, // staff's instruction for this work
                         pictures = WorkMediaService.TakesPictures(w.Status), // pictures can be added now
                         files = files[w.WorkItemId].Select(f => FileView(f, urls)),
                     }),

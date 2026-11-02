@@ -160,6 +160,9 @@ public interface IWorkStore
     /// <summary>The money of the matching works, per group and currency, worked out in the database.</summary>
     Task<IReadOnlyList<WorkTotals>> ReportTotalsAsync(WorkReportFilter filter, AccessScope scope, WorkReportGroup group, CancellationToken ct = default);
 
+    /// <summary>Staff's remark on one work of the request (null clears it). False if no such work in the request.</summary>
+    Task<bool> SetRemarksAsync(long workRequestId, long workItemId, string? remarks, CancellationToken ct = default);
+
     Task AddEventAsync(NewWorkEvent workEvent, CancellationToken ct = default);
 
     /// <summary>The request's history, newest first.</summary>

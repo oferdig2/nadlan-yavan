@@ -241,7 +241,9 @@
       body = "<div class=\"wl-note\">" + esc(t("approvedPrice", { price: money(w.price) })) + "</div>" +
         "<div class=\"wl-note\">" + esc(t("paidOn", { date: dayTime(w.paidUtc) })) + "</div>";
     }
-    return "<section class=\"wl-work\" data-status=\"" + esc(w.status) + "\">" + head + body + picturesHtml(w) + "</section>";
+    // Staff's remark on this work (an instruction for the job): as text, in its own lines.
+    var remark = w.remarks ? "<div class=\"wl-remark\"><div class=\"wl-remark-label\">" + esc(t("remark")) + "</div>" + esc(w.remarks) + "</div>" : "";
+    return "<section class=\"wl-work\" data-status=\"" + esc(w.status) + "\">" + head + remark + body + picturesHtml(w) + "</section>";
   }
 
   // ---- actions ------------------------------------------------------------------------------------------------

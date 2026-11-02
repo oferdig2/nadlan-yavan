@@ -1,11 +1,13 @@
-// Work on the map, stage 1 (owner, 2026-11-02): collect a work request's Parcels on the map and choose their works in a
+// Work on the map (owner, 2026-11-02, step by step): collect a work request's Parcels on the map and choose their works in a
 // small window over the map. "Work" (Parcels view, MANAGE_WORK) opens a chooser - an existing request or "+ New request" -
 // then the window. While it is open, a click on a Parcel selects / deselects it (no Parcel card):
-//   - a Parcel already in the work opens in the window's list (tick / untick its works, remove it);
+//   - a Parcel already in the work opens in the window's list: its works (a multi-select), a remark per work, remove it;
 //   - other selected Parcels wait under "Add to this work" with the works to give them.
-// The work's Parcels are outlined in their status colour, the selected ones in yellow. Statuses, files and messages stay on
-// the Work page (work.html) for now - "Work page" in the window opens it. The server checks every rule (areas, Requested).
-//   Nadlan.workMapPanel.init({ map, setStatus }) -> { isOpen(), clicked(parcelSummary), close() }
+// Hovering a KAEK in the window lights that Parcel up on the map; clicking it there brings the map to it.
+// The work's Parcels are outlined in their status colour, the selected ones in yellow. "Prepare link" opens the contractor's
+// link (status, password, send) over the map. Statuses, files and messages stay on the Work page (work.html) for now.
+// The server checks every rule (areas, Requested).
+//   Nadlan.workMapPanel.init({ map, setStatus }) -> { open(), isOpen(), clicked(parcelSummary), close() }
 (function (window, $) {
   "use strict";
 
@@ -14,6 +16,7 @@
 
   // The Parcel's own status in the request (ParcelWorkStatuses), as on the contractor's map.
   var STATUS_COLORS = { OPEN_OFFERS: "#f59e0b", APPROVED: "#3b82f6", IN_WORK: "#a855f7", DONE: "#22c55e", PAID: "#14b8a6" };
+  var HOVER_COLOR = "#22d3ee";
 
   function init(options) {
     var map = options.map;
@@ -24,12 +27,16 @@
     var req = null;          // the open request (GET /api/work/requests/{id})
     var types = [];          // work types
     var selected = [];       // selected Parcels, in click order: { parcelId, registryId }
+    var addTypes = null;     // the works for the Parcels about to be added (starts with the last ones chosen)
+    var openPicker = null;   // the works dropdown kept open across redraws ("add" or a parcelId)
     var shapes = {};         // parcelId -> geometry (the work's, and the selected ones once loaded)
     var shapeStatus = {};    // parcelId -> the Parcel's status in the work
+    var hovered = null;
     var busy = false;
     var $win = null;
-    var workLayer = Nadlan.createMapHighlight(map);  // the work's Parcels, in their status colour
-    var pickLayer = Nadlan.createMapHighlight(map);  // the selected ones, yellow, on top
+    var workLayer = Nadlan.createMapHighlight(map);   // the work's Parcels, in their status colour
+    var pickLayer = Nadlan.createMapHighlight(map);   // the selected ones, yellow
+    var hoverLayer = Nadlan.createMapHighlight(map);  // the one under the mouse in the window, on top
 
     function url(path) { return "/api/work/requests/" + req.workRequestId + (path || ""); }
 
@@ -114,6 +121,8 @@
         req = loaded[0];
         types = loaded[1];
         selected = [];
+        addTypes = null;
+        openPicker = null;
         if (!$win) { build(); }
         render();
         loadShapes(true);
@@ -125,7 +134,7 @@
       $win = $("<section class=\"map-card work-window\" role=\"dialog\" aria-label=\"Work\">" +
         "<header class=\"card-header\"><span class=\"card-title\">Work</span><span class=\"card-actions\">" +
           "<button type=\"button\" data-act=\"change\" title=\"Another work request\">Change</button>" +
-          "<a class=\"work-window-page\" target=\"_blank\" rel=\"noopener\" title=\"The request on the Work page (link, statuses, pictures, messages)\">Work page</a>" +
+          "<a class=\"work-window-page\" target=\"_blank\" rel=\"noopener\" title=\"The request on the Work page (statuses, pictures, messages)\">Work page</a>" +
           "<button type=\"button\" class=\"card-icon\" data-act=\"minimize\" title=\"Minimize to a small chip\">▁</button>" +
           "<button type=\"button\" class=\"card-icon\" data-act=\"close\" title=\"Close Work: clicks open parcel cards again\">×</button>" +
         "</span></header>" +
@@ -148,14 +157,27 @@
       return list;
     }
 
+    function parcelOfWork(parcelId) { return parcelsOfWork().filter(function (p) { return p.parcelId === parcelId; })[0] || null; }
+
     function isSelected(parcelId) { return selected.some(function (s) { return s.parcelId === parcelId; }); }
 
-    function checksHtml(name, checked, disabledIds) {
-      return types.filter(function (t) { return t.isActive || checked.indexOf(t.workTypeId) >= 0; }).map(function (t) {
-        var locked = disabledIds && disabledIds[t.workTypeId];
-        return "<label class=\"check\"" + (locked ? " title=\"" + esc(locked) + "\"" : "") + "><input type=\"checkbox\" data-" + name + "=\"" + t.workTypeId + "\"" +
-          (checked.indexOf(t.workTypeId) >= 0 ? " checked" : "") + (locked ? " disabled" : "") + "> " + esc(t.name) + "</label>";
-      }).join("");
+    function typeName(id) { var t = types.filter(function (x) { return x.workTypeId === id; })[0]; return t ? t.name : "#" + id; }
+
+    // A multi-select dropdown of the work types: the button names the chosen ones; the list opens under it.
+    // key: "add" or a parcelId; checked: ids; locked: { id: why } (shown ticked, can't be changed here).
+    function pickerHtml(key, checked, locked) {
+      var names = checked.map(typeName);
+      var isOpen = openPicker === key;
+      return "<div class=\"work-picker" + (isOpen ? " open" : "") + "\" data-picker=\"" + key + "\">" +
+        "<button type=\"button\" class=\"input work-picker-button\" aria-haspopup=\"listbox\" aria-expanded=\"" + isOpen + "\">" +
+          "<span class=\"work-picker-text" + (names.length ? "" : " muted") + "\"></span><span aria-hidden=\"true\">▾</span></button>" +
+        (isOpen ? "<div class=\"work-picker-list\" role=\"listbox\" aria-multiselectable=\"true\">" +
+          types.filter(function (t) { return t.isActive || checked.indexOf(t.workTypeId) >= 0; }).map(function (t) {
+            var why = locked && locked[t.workTypeId];
+            return "<label class=\"check\"" + (why ? " title=\"" + esc(why) + "\"" : "") + "><input type=\"checkbox\" data-type=\"" + t.workTypeId + "\"" +
+              (checked.indexOf(t.workTypeId) >= 0 ? " checked" : "") + (why ? " disabled" : "") + "> " + esc(t.name) + "</label>";
+          }).join("") + "</div>" : "") +
+      "</div>";
     }
 
     function render() {
@@ -164,6 +186,10 @@
       $win.find(".work-window-page").attr("href", "/work.html#request=" + req.workRequestId);
       var parcels = parcelsOfWork();
       var pending = selected.filter(function (s) { return !hasWork(s.parcelId); });
+      if (addTypes === null) {
+        var active = types.filter(function (t) { return t.isActive; }).map(function (t) { return t.workTypeId; });
+        addTypes = lastWorks().filter(function (id) { return active.indexOf(id) >= 0; });
+      }
 
       var html = "<div class=\"work-window-name\"></div><div class=\"muted work-window-who\"></div>" +
         "<div class=\"muted work-window-hint\">Click parcels on the map to select or deselect them.</div>";
@@ -173,9 +199,10 @@
         html += "<div class=\"card-section work-pending\"><div class=\"card-section-head\"><span>Add to this work (" + pending.length + ")</span>" +
           "<button type=\"button\" class=\"btn btn-small\" data-act=\"clear-pending\">Clear</button></div>" +
           "<ul class=\"work-pending-list\">" + pending.map(function (s) {
-            return "<li><span class=\"kaek\"></span><button type=\"button\" class=\"card-icon\" data-unpick=\"" + s.parcelId + "\" title=\"Deselect\">×</button></li>";
+            return "<li data-parcel=\"" + s.parcelId + "\"><button type=\"button\" class=\"kaek work-kaek\" data-act=\"goto\" title=\"Show it on the map\"></button>" +
+              "<button type=\"button\" class=\"card-icon\" data-unpick=\"" + s.parcelId + "\" title=\"Deselect\">×</button></li>";
           }).join("") + "</ul>" +
-          "<div class=\"work-checks\" role=\"group\" aria-label=\"Works for the parcels\">" + checksHtml("add-type", lastWorks()) + "</div>" +
+          "<div class=\"work-field-label\">Works</div>" + pickerHtml("add", addTypes, null) +
           "<button type=\"button\" class=\"btn btn-primary work-add-btn\" data-act=\"add\"" + (busy ? " disabled" : "") + ">Add " + pending.length +
             " parcel" + (pending.length === 1 ? "" : "s") + " to the work</button></div>";
       }
@@ -185,7 +212,6 @@
         (parcels.length ? "<ul class=\"work-parcels\">" + parcels.map(function (p) {
           var open = isSelected(p.parcelId);
           var removable = p.works.every(function (w) { return w.status === "REQUESTED"; });
-          var has = p.works.map(function (w) { return w.workTypeId; });
           var locked = {};
           p.works.forEach(function (w) { if (w.status !== "REQUESTED") { locked[w.workTypeId] = W.WORK[w.status].name + ": correct it on the Work page to change it"; } });
           return "<li class=\"work-parcel" + (open ? " open" : "") + "\" data-parcel=\"" + p.parcelId + "\">" +
@@ -193,23 +219,41 @@
               "<span class=\"kaek\"></span>" + W.parcelBadge(p.status) +
               "<span class=\"muted work-parcel-works\"></span></button>" +
             (open ? "<div class=\"work-parcel-body\">" +
-              "<div class=\"work-checks\" role=\"group\" aria-label=\"Works on this parcel\">" + checksHtml("work-type", has, locked) + "</div>" +
-              (p.works.some(function (w) { return w.status !== "REQUESTED"; })
-                ? "<div class=\"muted work-parcel-statuses\">" + p.works.map(function (w) { return esc(w.workTypeName) + " " + W.workBadge(w.status); }).join(" ") + "</div>" : "") +
+              pickerHtml(String(p.parcelId), p.works.map(function (w) { return w.workTypeId; }), locked) +
+              "<ul class=\"work-items-mini\">" + p.works.map(function (w) {
+                return "<li data-work=\"" + w.workItemId + "\"><div class=\"work-item-line\"><span class=\"work-item-name\"></span>" +
+                  (w.status !== "REQUESTED" ? W.workBadge(w.status) : "") +
+                  "<button type=\"button\" class=\"card-icon work-remark-btn" + (w.remarks ? " has-remark" : "") + "\" data-act=\"remark\" title=\"" +
+                    (w.remarks ? "Edit the remark (the contractor sees it)" : "Add a remark for the contractor") + "\" aria-label=\"Remark\">📝</button></div>" +
+                  (w.remarks ? "<div class=\"work-remark\"></div>" : "") + "</li>";
+              }).join("") + "</ul>" +
               (removable ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"remove-parcel\">Remove from the work</button>" : "") +
             "</div>" : "") +
           "</li>";
         }).join("") + "</ul>" : "<div class=\"muted\">None yet: click parcels on the map, choose the works, Add.</div>") + "</div>";
 
+      // Next step: the contractor's link.
+      html += "<div class=\"work-window-next\"><button type=\"button\" class=\"btn btn-primary\" data-act=\"link\"" + (parcels.length ? "" : " disabled") +
+        ">Prepare link for the contractor →</button></div>";
+
       $win.find(".work-window-body").html(html);
-      // What people typed (names, KAEKs) goes in as text.
+      // What people typed (names, KAEKs, remarks) goes in as text.
       $win.find(".work-window-name").text(req.name);
       $win.find(".work-window-who").text(req.contractor.displayName + (req.link.state !== "active" ? " · link " + req.link.state : ""));
-      $win.find(".work-pending-list li").each(function (i) { $(this).find(".kaek").text(pending[i].registryId || "#" + pending[i].parcelId); });
+      $win.find(".work-pending-list li").each(function (i) { $(this).find(".work-kaek").text(pending[i].registryId || "#" + pending[i].parcelId); });
+      $win.find(".work-picker").each(function () {
+        var key = String($(this).data("picker"));
+        var ids = key === "add" ? addTypes : (parcelOfWork(Number(key)) || { works: [] }).works.map(function (w) { return w.workTypeId; });
+        $(this).find(".work-picker-text").text(ids.length ? ids.map(typeName).join(", ") : "Choose works");
+      });
       $win.find(".work-parcel").each(function (i) {
         var p = parcels[i];
         $(this).find(".work-parcel-head .kaek").text(p.registryId || "#" + p.parcelId);
         $(this).find(".work-parcel-works").text(p.works.map(function (w) { return w.workTypeName; }).join(", "));
+        $(this).find(".work-items-mini li").each(function (j) {
+          $(this).find(".work-item-name").text(p.works[j].workTypeName);
+          $(this).find(".work-remark").text(p.works[j].remarks || "");
+        });
       });
       drawMap();
     }
@@ -217,11 +261,12 @@
     // ---- the map ----------------------------------------------------------------------------------------------------
 
     function drawMap() {
-      if (!req) { workLayer.set([]); pickLayer.set([]); return; }
+      if (!req) { workLayer.set([]); pickLayer.set([]); hoverLayer.set([]); return; }
       workLayer.set(Object.keys(shapeStatus).map(function (id) {
         return { id: Number(id), geometry: shapes[id], color: STATUS_COLORS[shapeStatus[id]] || "#64748b" };
       }));
       pickLayer.set(selected.map(function (s) { return { id: s.parcelId, geometry: shapes[s.parcelId], color: Nadlan.mapHighlightColors.selected }; }));
+      hoverLayer.set(hovered && shapes[hovered] ? [{ id: hovered, geometry: shapes[hovered], color: HOVER_COLOR }] : []);
     }
 
     function loadShapes(fit) {
@@ -229,17 +274,33 @@
         shapeStatus = {};
         list.forEach(function (s) { shapes[s.parcelId] = s.geometry; shapeStatus[s.parcelId] = s.status; });
         drawMap();
-        if (fit && list.length) {
-          var bounds = new google.maps.LatLngBounds();
-          list.forEach(function (s) { s.geometry.coordinates[0].forEach(function (c) { bounds.extend({ lat: c[1], lng: c[0] }); }); });
-          map.fitBounds(bounds, 60);
-        }
+        if (fit && list.length) { fitTo(list.map(function (s) { return s.geometry; })); }
       }, fail);
     }
 
     function shapeOf(parcelId) {
       if (shapes[parcelId]) { return; }
       Nadlan.api.get("/api/parcels/" + parcelId).then(function (d) { shapes[parcelId] = d.geometry; drawMap(); }, function () { /* outlined once loaded */ });
+    }
+
+    function boundsOf(geometries) {
+      var bounds = new google.maps.LatLngBounds();
+      geometries.forEach(function (g) { (g.coordinates[0] || []).forEach(function (c) { bounds.extend({ lat: c[1], lng: c[0] }); }); });
+      return bounds;
+    }
+
+    function fitTo(geometries) { map.fitBounds(boundsOf(geometries), 60); }
+
+    // Brings one Parcel into view: centred, and close enough to see it.
+    function goTo(parcelId) {
+      if (!shapes[parcelId]) { return; }
+      fitTo([shapes[parcelId]]);
+      google.maps.event.addListenerOnce(map, "idle", function () { if (map.getZoom() > 19) { map.setZoom(19); } });
+    }
+
+    function hover(parcelId) {
+      hovered = parcelId;
+      drawMap();
     }
 
     // A click on the map while Work is open: select / deselect.
@@ -272,9 +333,10 @@
     }
 
     function addPending() {
-      var ids = $win.find("[data-add-type]:checked").map(function () { return Number($(this).data("addType")); }).get();
-      if (!ids.length) { setStatus("Tick at least one work for the parcels.", true); return; }
+      var ids = addTypes.slice();
+      if (!ids.length) { setStatus("Choose at least one work for the parcels.", true); openPicker = "add"; render(); return; }
       rememberWorks(ids);
+      openPicker = null;
       var pending = selected.filter(function (s) { return !hasWork(s.parcelId); });
       busy = true;
       render();
@@ -295,21 +357,21 @@
 
     function toggleWork(parcelId, workTypeId, on) {
       if (on) {
-        return after(Nadlan.api.post(url("/parcels"), { parcelId: parcelId, workTypeIds: [workTypeId] }), "Work added.");
+        return after(Nadlan.api.post(url("/parcels"), { parcelId: parcelId, workTypeIds: [workTypeId] }), typeName(workTypeId) + " added.");
       }
       var row = req.items.filter(function (r) { return r.parcelId === parcelId && r.workTypeId === workTypeId; })[0];
       if (!row) { return null; }
       var last = req.items.filter(function (r) { return r.parcelId === parcelId; }).length === 1;
       if (!last) { return after(Nadlan.api.del(url("/works/" + row.workItemId)), row.workTypeName + " removed."); }
       return Nadlan.dialog.confirm("Remove the parcel", "It is the parcel's last work: the parcel leaves the work too.", "Remove").then(function (ok) {
-        if (ok) { return after(Nadlan.api.del(url("/works/" + row.workItemId)), "Parcel removed from the work."); }
+        if (ok) { openPicker = null; return after(Nadlan.api.del(url("/works/" + row.workItemId)), "Parcel removed from the work."); }
         render(); // put the tick back
         return null;
       });
     }
 
     function removeParcel(parcelId) {
-      var p = parcelsOfWork().filter(function (x) { return x.parcelId === parcelId; })[0];
+      var p = parcelOfWork(parcelId);
       Nadlan.dialog.confirm("Remove from the work", "Remove parcel " + esc(p.registryId || "") + " and its works from \"" + esc(req.name) + "\"?", "Remove").then(function (ok) {
         if (!ok) { return; }
         after(Nadlan.api.del(url("/parcels/" + parcelId)), "Parcel removed from the work.").then(function () {
@@ -318,6 +380,154 @@
         });
       });
     }
+
+    // A remark on one work (owner, 2026-11-02): several lines, shown to the contractor under that work.
+    function editRemark(workItemId) {
+      var w = req.items.filter(function (r) { return r.workItemId === workItemId; })[0];
+      if (!w) { return; }
+      var $form = $("<form class=\"form\"><div class=\"muted\"></div>" +
+        "<label>Remark<textarea class=\"input work-remark-input\" name=\"remarks\" rows=\"6\" maxlength=\"2000\" " +
+        "placeholder=\"e.g. Leave the olive trees. The gate key is with the neighbour.\"></textarea></label>" +
+        "<div class=\"muted\">The contractor sees it under this work on the phone.</div></form>");
+      $form.find(".muted").first().text(w.workTypeName + " on parcel " + (w.registryId || ""));
+      $form.find("[name=remarks]").val(w.remarks || "");
+      var buttons = [
+        { text: "Save", primary: true, click: function () { save($.trim($form.find("[name=remarks]").val() || "")); } },
+        { text: "Cancel", click: function () { d.close(); } }
+      ];
+      if (w.remarks) { buttons.splice(1, 0, { text: "Remove the remark", click: function () { save(""); } }); }
+      var d = Nadlan.dialog.open({ title: "Remark for the contractor", content: $form, width: Math.min(520, window.innerWidth - 24), buttons: buttons });
+      $form.find("[name=remarks]").trigger("focus");
+
+      function save(text) {
+        d.busy(true);
+        Nadlan.api.put(url("/works/" + workItemId + "/remarks"), { remarks: text || null }).then(function (detail) {
+          d.close();
+          req = detail;
+          render();
+          setStatus(text ? "Remark saved." : "Remark removed.");
+        }, function (err) { d.busy(false); d.showError(err.message); });
+      }
+    }
+
+    // ---- the contractor's link, over the map ------------------------------------------------------------------------
+
+    function openLink() {
+      var $box = $("<div class=\"work-link-dialog\"></div>");
+      var shownPassword = null; // shown once, right after it is set
+      var linkUrl = null;
+      var d = Nadlan.dialog.open({
+        title: "Link for " + req.contractor.displayName,
+        content: $box,
+        width: Math.min(560, window.innerWidth - 24),
+        buttons: [{ text: "Close", click: function () { d.close(); } }]
+      });
+
+      function draw() {
+        var l = req.link;
+        var parcels = parcelsOfWork().length;
+        $box.html(
+          "<div class=\"work-link-status\">" + W.linkBadge(l.state) +
+            "<span>" + (l.state === "expired" ? "Expired " : "Valid until ") + W.date(l.expiresUtc) + "</span>" +
+            "<button type=\"button\" class=\"btn btn-small\" data-act=\"extend\">Extend 1 year</button>" +
+            (l.lockedUntilUtc ? "<span class=\"warn\">Locked after wrong passwords until " + W.time(l.lockedUntilUtc) + "</span>" : "") +
+          "</div>" +
+          "<p class=\"muted\">No login needed: on the phone the contractor sees the " + parcels + " parcel" + (parcels === 1 ? "" : "s") +
+            " on a map, sends prices, starts and finishes the works.</p>" +
+
+          "<section class=\"work-link-step\"><h4><span class=\"work-step-no\">1</span> Password <span class=\"muted\">(optional)</span></h4>" +
+            (l.hasPassword
+              ? "<p>Set. The contractor types it once on the phone (remembered 30 days).</p>" +
+                "<div class=\"btn-row\"><button type=\"button\" class=\"btn btn-small\" data-act=\"password\">Change…</button>" +
+                "<button type=\"button\" class=\"btn btn-small\" data-act=\"generate\">Generate new</button>" +
+                "<button type=\"button\" class=\"btn btn-small\" data-act=\"remove-password\">Remove</button></div>"
+              : "<p class=\"muted\">None: anyone with the link can open it. A password makes passing the link on less likely.</p>" +
+                "<div class=\"btn-row\"><button type=\"button\" class=\"btn btn-small\" data-act=\"generate\">Generate (6 digits)</button>" +
+                "<button type=\"button\" class=\"btn btn-small\" data-act=\"password\">Type one…</button></div>") +
+            (shownPassword ? "<div class=\"work-password-once\"><span class=\"work-password\"></span>" +
+              "<button type=\"button\" class=\"btn btn-small\" data-act=\"copy-password\">Copy</button>" +
+              "<div class=\"muted\">Shown only now. Send it separately from the link (e.g. by phone).</div></div>" : "") +
+          "</section>" +
+
+          "<section class=\"work-link-step\"><h4><span class=\"work-step-no\">2</span> Send the link</h4>" +
+            (l.enabled
+              ? "<div class=\"work-link-row\"><input class=\"input work-link-url\" readonly aria-label=\"The link\">" +
+                "<button type=\"button\" class=\"btn btn-primary\" data-act=\"copy-link\">Copy link</button></div>" +
+                "<div class=\"muted\">Send it by WhatsApp, SMS or e-mail" + (l.hasPassword ? "; the password separately." : ".") + "</div>"
+              : "<p class=\"warn\">The link is disabled: it opens nothing. Enable it to send it.</p>") +
+          "</section>" +
+
+          "<section class=\"work-link-step work-link-off\"><h4><span class=\"work-step-no\">3</span> " + (l.enabled ? "Stop the link" : "Turn it on again") + "</h4>" +
+            (l.enabled
+              ? "<div class=\"muted\">Disabling stops it at once; enabling it again later gives the same link.</div>" +
+                "<button type=\"button\" class=\"btn btn-small\" data-act=\"disable\">Disable the link</button>"
+              : "<button type=\"button\" class=\"btn btn-small btn-primary\" data-act=\"enable\">Enable the link</button>") +
+          "</section>");
+        $box.find(".work-link-url").val(linkUrl || "Loading…");
+        $box.find(".work-password").text(shownPassword || "");
+      }
+
+      function act(promise, message) {
+        $box.find("button").prop("disabled", true);
+        return promise.then(function (res) {
+          req = res.request || res;
+          render();
+          draw();
+          if (message) { setStatus(message); }
+          return res;
+        }, function (err) { d.showError(err.message); draw(); });
+      }
+
+      function copy(text, what) {
+        W.copyText(what, text).then(function (ok) { if (ok) { setStatus(what + " copied."); } });
+      }
+
+      $box.on("click", "[data-act=extend]", function () { act(Nadlan.api.post(url("/link/extend")), "Link extended."); });
+      $box.on("click", "[data-act=disable]", function () { act(Nadlan.api.post(url("/link/disable")), "Link disabled: it opens nothing now."); });
+      $box.on("click", "[data-act=enable]", function () { act(Nadlan.api.post(url("/link/enable")), "Link enabled."); });
+      $box.on("click", "[data-act=generate]", function () {
+        act(Nadlan.api.post(url("/password"), { password: null, generate: true }), "Password set.").then(function (res) { if (res) { shownPassword = res.password; draw(); } });
+      });
+      $box.on("click", "[data-act=password]", function () {
+        var $form = $("<form class=\"form\"><label>Password for the link<input class=\"input\" name=\"password\" autocomplete=\"off\" maxlength=\"64\" " +
+          "placeholder=\"At least 4 characters\"></label></form>");
+        var pd = Nadlan.dialog.open({
+          title: req.link.hasPassword ? "Change the password" : "Type a password",
+          content: $form,
+          width: Math.min(420, window.innerWidth - 24),
+          buttons: [
+            { text: "Save", primary: true, click: function () {
+              pd.busy(true);
+              Nadlan.api.post(url("/password"), { password: $form.find("[name=password]").val() || "", generate: false }).then(function (res) {
+                pd.close();
+                req = res.request;
+                shownPassword = res.password;
+                render();
+                draw();
+                setStatus("Password set.");
+              }, function (err) { pd.busy(false); pd.showError(err.message); });
+            } },
+            { text: "Cancel", click: function () { pd.close(); } }
+          ]
+        });
+        $form.find("[name=password]").trigger("focus");
+      });
+      $box.on("click", "[data-act=remove-password]", function () {
+        shownPassword = null;
+        act(Nadlan.api.del(url("/password")), "Password removed.");
+      });
+      $box.on("click", "[data-act=copy-password]", function () { copy(shownPassword, "Password"); });
+      $box.on("click", "[data-act=copy-link]", function () { if (linkUrl) { copy(linkUrl, "Link"); } });
+      $box.on("focus click", ".work-link-url", function () { this.select(); });
+
+      draw();
+      Nadlan.api.get(url("/link")).then(function (res) {
+        linkUrl = window.location.origin + "/work-link.html#" + res.token;
+        $box.find(".work-link-url").val(linkUrl);
+      }, function (err) { d.showError(err.message); });
+    }
+
+    // ---- window controls ----------------------------------------------------------------------------------------------
 
     function minimize() {
       var rect = $win[0].getBoundingClientRect();
@@ -332,6 +542,7 @@
       $win.on("click", "[data-act=change]", choose);
       $win.on("click", "[data-act=minimize]", minimize);
       $win.on("click", "[data-act=maximize]", maximize);
+      $win.on("click", "[data-act=link]", openLink);
       $win.on("click", "[data-act=clear-pending]", function () {
         selected = selected.filter(function (s) { return hasWork(s.parcelId); });
         render();
@@ -339,24 +550,41 @@
       $win.on("click", "[data-unpick]", function () {
         var id = Number($(this).data("unpick"));
         selected = selected.filter(function (s) { return s.parcelId !== id; });
+        hover(null);
         render();
       });
       $win.on("click", "[data-act=add]", addPending);
+      // Hover a KAEK (or a parcel's row): that Parcel lights up on the map. Click a waiting one: the map goes to it.
+      $win.on("mouseenter", ".work-pending-list li, .work-parcel-head", function () { hover(Number($(this).closest("[data-parcel]").data("parcel"))); });
+      $win.on("mouseleave", ".work-pending-list li, .work-parcel-head", function () { hover(null); });
+      $win.on("click", "[data-act=goto]", function () { goTo(Number($(this).closest("[data-parcel]").data("parcel"))); });
       // A Parcel of the work: open / close it in the list and select / deselect it on the map, like a click there.
       $win.on("click", "[data-act=toggle]", function () {
         var id = Number($(this).closest(".work-parcel").data("parcel"));
-        var p = parcelsOfWork().filter(function (x) { return x.parcelId === id; })[0];
+        var p = parcelOfWork(id);
         clicked({ parcelId: id, registryId: p.registryId });
-        if (isSelected(id) && shapes[id]) {
-          var bounds = new google.maps.LatLngBounds();
-          shapes[id].coordinates[0].forEach(function (c) { bounds.extend({ lat: c[1], lng: c[0] }); });
-          map.panTo(bounds.getCenter());
+        if (isSelected(id)) { goTo(id); }
+      });
+      // The works dropdowns.
+      $win.on("click", ".work-picker-button", function () {
+        var key = String($(this).closest(".work-picker").data("picker"));
+        openPicker = openPicker === key ? null : key;
+        render();
+      });
+      $win.on("change", ".work-picker input[data-type]", function () {
+        var key = String($(this).closest(".work-picker").data("picker"));
+        var id = Number($(this).data("type"));
+        if (key === "add") {
+          addTypes = this.checked ? addTypes.concat([id]) : addTypes.filter(function (x) { return x !== id; });
+          render();
+        } else {
+          toggleWork(Number(key), id, this.checked);
         }
       });
-      $win.on("change", "[data-work-type]", function () {
-        var id = Number($(this).closest(".work-parcel").data("parcel"));
-        toggleWork(id, Number($(this).data("workType")), this.checked);
+      $(document).on("mousedown.workpicker", function (e) {
+        if (openPicker !== null && $win && !$(e.target).closest(".work-picker").length) { openPicker = null; render(); }
       });
+      $win.on("click", "[data-act=remark]", function () { editRemark(Number($(this).closest("[data-work]").data("work"))); });
       $win.on("click", "[data-act=remove-parcel]", function () { removeParcel(Number($(this).closest(".work-parcel").data("parcel"))); });
       // The chip drags anywhere (as the parcel cards' chip).
       $win.on("pointerdown", ".card-chip", function (e) {
@@ -384,10 +612,12 @@
     }
 
     function close() {
+      $(document).off("mousedown.workpicker");
       if ($win) { $win.remove(); $win = null; }
       req = null;
       selected = [];
       shapeStatus = {};
+      hovered = null;
       drawMap();
       setStatus("");
     }

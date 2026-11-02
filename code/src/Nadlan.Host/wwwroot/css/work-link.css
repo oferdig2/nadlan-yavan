@@ -134,3 +134,7 @@
 .wl-viewer-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 48px; height: 64px; border: none; background: rgba(255, 255, 255, 0.12); color: #fff; font-size: 34px; cursor: pointer; }
 .wl-viewer-nav.prev { left: 4px; }
 .wl-viewer-nav.next { right: 4px; }
+
+/* Staff's remark on a work (migration 022) */
+.wl-remark { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 10px; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wl-remark-label { font-size: 12px; font-weight: 600; color: #92400e; white-space: normal; }

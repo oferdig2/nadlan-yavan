@@ -470,7 +470,7 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
                 DELETE rp FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE p.code = 'MANAGE_WORK';
                 DELETE FROM permission WHERE code = 'MANAGE_WORK';
                 DELETE FROM contact_role WHERE code = 'CONTRACTOR';
-                DELETE FROM schema_version WHERE version = 21;
+                DELETE FROM schema_version WHERE version IN (21, 22);
                 INSERT INTO contact_role (code, name, sort_order) VALUES ('MADE_BY_ADMIN', 'Made by an Admin', 120);
                 INSERT INTO contact (display_name) VALUES ('Someone');
                 """);
@@ -495,14 +495,14 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
                 SELECT COUNT(*) FROM role_permission rp JOIN security_role r ON r.security_role_id = rp.security_role_id WHERE r.code = 'DATA_PERSON'
                 """);
 
-            Assert.Equal(new[] { "021_work_requests" }, await migrator.MigrateAsync());
+            Assert.Equal(new[] { "021_work_requests", "022_work_item_remarks" }, await migrator.MigrateAsync());
             var after = await TablesAsync();
 
             Assert.Equal(before.Keys.Concat(WorkTables).Order(), after.Keys.Order()); // the new tables, nothing dropped
             foreach (var (table, was) in before)
             {
                 Assert.True(was.Columns == after[table].Columns, $"{table}: columns changed");
-                var added = table switch { "permission" or "role_permission" or "contact_role" or "schema_version" => 1, _ => 0 };
+                var added = table switch { "permission" or "role_permission" or "contact_role" => 1, "schema_version" => 2, _ => 0 };
                 Assert.True(was.Rows + added == after[table].Rows, $"{table}: {was.Rows} rows before, {after[table].Rows} after");
             }
 

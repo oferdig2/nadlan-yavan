@@ -97,6 +97,9 @@ public sealed record WorkItemRow
     public DateTime? StartedUtc { get; init; }
     public DateTime? DoneUtc { get; init; }
     public DateTime? PaidUtc { get; init; }
+
+    /// <summary>Staff's remark on this work (migration 022), shown to the contractor too.</summary>
+    public string? Remarks { get; init; }
 }
 
 /// <summary>A line of the request's history (work_event).</summary>
@@ -149,6 +152,7 @@ public static class WorkActions
     public const string Done = "DONE";
     public const string Paid = "PAID";
     public const string Corrected = "CORRECTED";
+    public const string Remarked = "REMARKED";
 
     // piece 3: pictures and location
     public const string FileUploaded = "FILE_UPLOADED";

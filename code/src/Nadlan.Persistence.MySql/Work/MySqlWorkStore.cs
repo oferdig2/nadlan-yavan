@@ -217,7 +217,8 @@ public sealed partial class MySqlWorkStore : IWorkStore
                CASE WHEN p.plot_number IS NULL THEN NULL ELSE CONCAT(p.plot_number, COALESCE(p.plot_ext, '')) END AS plot,
                ga.name AS geographic_area, p.official_area_sqm, wrp.status AS parcel_status, wrp.sort_order AS parcel_sort_order,
                wi.work_type_id, wt.code AS work_type_code, wt.name AS work_type_name, wt.name_el AS work_type_name_el, wi.status,
-               wi.price, wi.currency_code, wi.est_start_date, wi.offered_utc, wi.approved_utc, wi.started_utc, wi.done_utc, wi.paid_utc
+               wi.price, wi.currency_code, wi.est_start_date, wi.offered_utc, wi.approved_utc, wi.started_utc, wi.done_utc, wi.paid_utc,
+               wi.remarks
         FROM work_item wi
         JOIN work_request_parcel wrp ON wrp.work_request_id = wi.work_request_id AND wrp.parcel_id = wi.parcel_id
         JOIN parcel p ON p.parcel_id = wi.parcel_id
@@ -429,6 +430,14 @@ public sealed partial class MySqlWorkStore : IWorkStore
             WHERE wrp.work_request_id = @workRequestId AND {visible}
             ORDER BY wrp.sort_order, wrp.parcel_id
             """, args, cancellationToken: ct))).ToList();
+    }
+
+    public async Task<bool> SetRemarksAsync(long workRequestId, long workItemId, string? remarks, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE work_item SET remarks = @remarks, updated_utc = UTC_TIMESTAMP(3) WHERE work_item_id = @workItemId AND work_request_id = @workRequestId",
+            new { workRequestId, workItemId, remarks }, cancellationToken: ct)) == 1;
     }
 
     // ---- history ------------------------------------------------------------------------------------------------

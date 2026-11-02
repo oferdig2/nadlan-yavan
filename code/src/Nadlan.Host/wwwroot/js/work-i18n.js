@@ -76,6 +76,7 @@
       messageSent: "Το μήνυμα στάλθηκε.",
       messageTooLong: "Το μήνυμα είναι πολύ μεγάλο (έως 4.000 χαρακτήρες).",
       close: "Κλείσιμο",
+      remark: "Σημείωση της GreekPlot",
       filters: { all: "Όλα", open: "Ανοιχτές προσφορές", approved: "Εγκεκριμένα", inwork: "Σε εξέλιξη", done: "Ολοκληρωμένα", paid: "Πληρωμένα" },
       work: { REQUESTED: "Χωρίς προσφορά", OFFERED: "Προσφορά στάλθηκε", APPROVED: "Εγκρίθηκε", IN_WORK: "Σε εξέλιξη", DONE: "Ολοκληρώθηκε", PAID: "Πληρώθηκε" },
       parcel: { OPEN_OFFERS: "Ανοιχτές προσφορές", APPROVED: "Εγκεκριμένο", IN_WORK: "Σε εξέλιξη", DONE: "Ολοκληρωμένο", PAID: "Πληρωμένο" }
@@ -150,6 +151,7 @@
       messageSent: "Message sent.",
       messageTooLong: "The message is too long (4,000 characters at most).",
       close: "Close",
+      remark: "Note from GreekPlot",
       filters: { all: "All", open: "Open offers", approved: "Approved", inwork: "In work", done: "Done", paid: "Paid" },
       work: { REQUESTED: "No offer yet", OFFERED: "Offer sent", APPROVED: "Approved", IN_WORK: "In work", DONE: "Done", PAID: "Paid" },
       parcel: { OPEN_OFFERS: "Open offers", APPROVED: "Approved", IN_WORK: "In work", DONE: "Done", PAID: "Paid" }

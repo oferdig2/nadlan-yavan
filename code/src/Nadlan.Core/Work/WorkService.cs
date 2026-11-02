@@ -317,6 +317,37 @@ public sealed class WorkService
         await _store.AddEventAsync(new NewWorkEvent(work.WorkRequestId, WorkActorKinds.Staff, me.UserId, action, summary, work.ParcelId, work.WorkItemId), ct);
     }
 
+    public const int MaxRemarksLength = 2000;
+
+    /// <summary>
+    /// Staff's remark on one work (owner, 2026-11-02): an instruction for the job, shown to the contractor under that work.
+    /// Empty clears it. Any status: a remark can be added or changed at any time.
+    /// </summary>
+    public async Task SetRemarksAsync(UserAccess me, long workRequestId, long workItemId, string? remarks, CancellationToken ct = default)
+    {
+        await GetAsync(me, workRequestId, ct);
+        var work = await RequireWorkAsync(me, workRequestId, workItemId, ct);
+        var text = string.IsNullOrWhiteSpace(remarks) ? null : remarks.Trim().Replace("\r\n", "\n");
+        if (text is { Length: > MaxRemarksLength })
+        {
+            throw new DomainValidationException("WORK_REMARKS_TOO_LONG", $"A remark can be at most {MaxRemarksLength} characters.");
+        }
+
+        if (text == work.Remarks)
+        {
+            return;
+        }
+
+        if (!await _store.SetRemarksAsync(workRequestId, workItemId, text, ct))
+        {
+            throw new EntityNotFoundException("Work", workItemId);
+        }
+
+        await _store.AddEventAsync(new NewWorkEvent(workRequestId, WorkActorKinds.Staff, me.UserId, WorkActions.Remarked,
+            $"Parcel {work.RegistryId}: {work.WorkTypeName} - " + (text is null ? "remark removed." : "remark: " + (text.Length > 200 ? text[..200] + "…" : text)),
+            work.ParcelId, workItemId), ct);
+    }
+
     internal static string Money(decimal? price) => price is decimal p ? p.ToString(p % 1 == 0 ? "#,0" : "#,0.00", CultureInfo.InvariantCulture) : "-";
 
     // ---- the conversation and the contractor's track (piece 3) --------------------------------------------------

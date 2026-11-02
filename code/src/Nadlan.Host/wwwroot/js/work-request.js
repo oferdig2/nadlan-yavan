@@ -290,7 +290,7 @@
           "<td>" + Nadlan.format.text(r.ot) + " / " + Nadlan.format.text(r.plot) + "</td>" +
           "<td>" + Nadlan.format.text(r.geographicArea) + "</td>" +
           "<td class=\"num\">" + (r.officialAreaSqm === null ? "—" : esc(Number(r.officialAreaSqm).toLocaleString("en-US", { maximumFractionDigits: 0 }))) + "</td>" +
-          "<td>" + esc(r.workTypeName) + "</td>" +
+          "<td>" + esc(r.workTypeName) + (r.remarks ? " <span class=\"work-has-remark\" title=\"" + esc(r.remarks) + "\">📝</span>" : "") + "</td>" +
           "<td>" + W.workBadge(r.status) + "</td>" +
           "<td class=\"num\">" + (r.price === null ? "—" : W.money(r.price, r.currencyCode)) + "</td>" +
           "<td>" + W.date(r.estStartDate) + "</td>" +
