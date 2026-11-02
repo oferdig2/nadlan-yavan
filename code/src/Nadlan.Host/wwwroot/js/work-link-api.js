@@ -27,6 +27,13 @@
   Nadlan.workLinkApi = {
     hasToken: function () { return token.length > 0; },
     get: function (path) { return request("GET", path); },
-    post: function (path, body) { return request("POST", path, body || {}); }
+    post: function (path, body) { return request("POST", path, body || {}); },
+    /** A raw body (the JPEG preview of a picture). */
+    postBlob: function (path, blob, contentType) {
+      return window.fetch("/api/work-link" + path, {
+        method: "POST", credentials: "same-origin", body: blob,
+        headers: { "Content-Type": contentType, "X-Work-Link": token, "X-Nadlan-Request": "1" }
+      });
+    }
   };
 })(window, jQuery);

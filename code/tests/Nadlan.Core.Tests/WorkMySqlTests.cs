@@ -89,7 +89,7 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
         var data = new UserAccess
         {
             UserId = await User("data", "DATA_PERSON"), DisplayName = "data", RoleCode = "DATA_PERSON",
-            Permissions = new HashSet<string> { Permissions.ManageWork, Permissions.AllAreas, Permissions.ViewAllParcels, Permissions.EditAllParcels },
+            Permissions = new HashSet<string> { Permissions.ManageWork, Permissions.AllAreas, Permissions.ViewAllParcels, Permissions.EditAllParcels, Permissions.ViewMarketingFiles },
         };
         // MANAGE_WORK, every Parcel - but only in area A
         var limited = new UserAccess

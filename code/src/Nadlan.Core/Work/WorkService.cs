@@ -319,6 +319,44 @@ public sealed class WorkService
 
     internal static string Money(decimal? price) => price is decimal p ? p.ToString(p % 1 == 0 ? "#,0" : "#,0.00", CultureInfo.InvariantCulture) : "-";
 
+    // ---- the conversation and the contractor's track (piece 3) --------------------------------------------------
+
+    /// <summary>A message to the contractor on one Parcel (shown to the contractor as from "GreekPlot").</summary>
+    public async Task SendMessageAsync(UserAccess me, long workRequestId, long parcelId, string? body, CancellationToken ct = default)
+    {
+        await GetAsync(me, workRequestId, ct);
+        var text = WorkLinkService.CleanMessage(body);
+        await _policy.RequireParcelViewAsync(me, parcelId, ct);
+        if (!await _store.HasParcelAsync(workRequestId, parcelId, ct))
+        {
+            throw new EntityNotFoundException("Parcel", parcelId);
+        }
+
+        await _store.AddMessageAsync(workRequestId, parcelId, WorkActorKinds.Staff, me.UserId, text, ct);
+    }
+
+    public async Task<IReadOnlyList<WorkMessage>> MessagesAsync(UserAccess me, long workRequestId, long parcelId, CancellationToken ct = default)
+    {
+        await GetAsync(me, workRequestId, ct);
+        await _policy.RequireParcelViewAsync(me, parcelId, ct);
+        return await _store.ListMessagesAsync(workRequestId, parcelId, ct);
+    }
+
+    public const int MaxTrailPoints = 5000;
+
+    /// <summary>The contractor's last position (any day) and the track between two moments (a day: at most 2 days apart).</summary>
+    public async Task<(WorkLocationPoint? Latest, IReadOnlyList<WorkLocationPoint> Trail)> LocationsAsync(UserAccess me, long workRequestId,
+        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
+    {
+        await GetAsync(me, workRequestId, ct);
+        if (toUtc <= fromUtc || toUtc - fromUtc > TimeSpan.FromDays(2))
+        {
+            throw new DomainValidationException("WORK_TRAIL_RANGE", "Choose one day.");
+        }
+
+        return (await _store.LastLocationAsync(workRequestId, ct), await _store.ListLocationsAsync(workRequestId, fromUtc, toUtc, MaxTrailPoints, ct));
+    }
+
     // ---- helpers ------------------------------------------------------------------------------------------------
 
     private async Task RequireContractorAsync(long contactId, CancellationToken ct)

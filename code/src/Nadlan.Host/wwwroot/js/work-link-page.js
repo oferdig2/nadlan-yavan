@@ -61,6 +61,7 @@
   function showOnly(which) {
     $("#wl-password").prop("hidden", which !== "password");
     $("#wl-app").prop("hidden", which !== "app");
+    $("#wl-consent").prop("hidden", which !== "consent");
     if (which !== "message") { $("#wl-message").text(""); }
   }
 
@@ -137,10 +138,8 @@
         // Owner: opens on "Approved" once something is approved - a default, not a lock.
         filter = allWorks().some(function (w) { return w.status === "APPROVED"; }) ? "approved" : "all";
       }
-      showOnly("app");
       $("#wl-request").text(view.name);
-      render();
-      startMap();
+      afterLoad();
     }, function (err) {
       if (!handleFatal(err)) { message(t("failed")); }
     });
@@ -164,6 +163,7 @@
     if (current && !parcelById(current)) { current = null; }
     var $sheet = $("#wl-sheet");
     $sheet.html(current ? parcelHtml(parcelById(current)) : listHtml());
+    fillDetail();
     if (mapApi) { mapApi.select(current); }
   }
 
@@ -202,7 +202,15 @@
         (p.sizeSqm !== null && p.sizeSqm !== undefined ? "<div><dt>" + esc(t("size")) + "</dt><dd>" + esc(sqm(p.sizeSqm)) + "</dd></div>" : "") +
       "</dl>" +
       "<h3>" + esc(t("works")) + "</h3>" +
+      "<div class=\"wl-warning\" role=\"status\" hidden></div>" +
       p.works.map(workHtml).join("") +
+      "<div class=\"wl-parcel-media\"></div>" +
+      "<h3>" + esc(t("messages")) + "</h3>" +
+      "<div class=\"wl-messages\" aria-live=\"polite\"></div>" +
+      "<form class=\"wl-message-form\" data-message-parcel=\"" + p.parcelId + "\">" +
+        "<textarea class=\"input\" name=\"body\" rows=\"3\" maxlength=\"4000\" placeholder=\"" + esc(t("messagePlaceholder")) + "\"></textarea>" +
+        "<button type=\"submit\" class=\"btn btn-primary wl-big\">" + esc(t("send")) + "</button>" +
+      "</form>" +
     "</div>";
   }
 
@@ -233,7 +241,7 @@
       body = "<div class=\"wl-note\">" + esc(t("approvedPrice", { price: money(w.price) })) + "</div>" +
         "<div class=\"wl-note\">" + esc(t("paidOn", { date: dayTime(w.paidUtc) })) + "</div>";
     }
-    return "<section class=\"wl-work\" data-status=\"" + esc(w.status) + "\">" + head + body + "</section>";
+    return "<section class=\"wl-work\" data-status=\"" + esc(w.status) + "\">" + head + body + picturesHtml(w) + "</section>";
   }
 
   // ---- actions ------------------------------------------------------------------------------------------------
@@ -241,6 +249,7 @@
   function openParcel(id, fromMap) {
     current = id;
     render();
+    loadMessages(id);
     $("#wl-sheet").scrollTop(0);
     if (mapApi && !fromMap) { mapApi.fit(id); }
   }
@@ -302,11 +311,262 @@
       });
       mapApi.setParcels(shapes());
       mapApi.fit();
+      if (Nadlan.workLocation.last()) { mapApi.setPosition(Nadlan.workLocation.last()); } // a fix that came before the map
       mapApi.select(current);
     }, function () {
       $("#wl-map").html("<div class=\"wl-map-off\">" + esc(t("mapUnavailable")) + "</div>");
       $(".wl-app").addClass("no-map");
     });
+  }
+
+  // ---- after the request loaded: the location question once, then the map ---------------------------------------
+
+  var consentAsked = false;
+
+  function afterLoad() {
+    var L = Nadlan.workLocation;
+    if (consentAsked || !L.supported()) { showApp(); return; }
+    consentAsked = true;
+    L.consent().then(function (answer) {
+      if (answer === "yes") { startTracking(); showApp(); } else if (answer === "no") { showApp(); } else { showOnly("consent"); applyTexts(); }
+    });
+  }
+
+  function showApp() {
+    showOnly("app");
+    render();
+    startMap();
+    updateLocationButtons();
+  }
+
+  function answerConsent(yes) {
+    Nadlan.workLocation.setConsent(yes ? "yes" : "no");
+    api.post("/consent", { shared: yes }).catch(function () { /* the history line only */ });
+    if (yes) { startTracking(); }
+    showApp();
+  }
+
+  // ---- location (piece 3) ---------------------------------------------------------------------------------------
+
+  var following = false;
+
+  function startTracking() {
+    Nadlan.workLocation.start(function (pos) {
+      if (mapApi) {
+        mapApi.setPosition(pos);
+        if (following) { mapApi.panTo(pos); }
+      }
+      updateWarning();
+    }, function (err) {
+      if (err && err.code === 1) { // blocked: stop asking, say how to allow it
+        Nadlan.workLocation.stop();
+        Nadlan.workLocation.setConsent("no");
+        updateLocationButtons();
+        toast(t("locationBlocked"), true);
+      }
+    });
+    updateLocationButtons();
+  }
+
+  function updateLocationButtons() {
+    var on = Nadlan.workLocation.active();
+    $("#wl-sharing").prop("hidden", !on);
+    $("[data-act=follow]").prop("hidden", !on).toggleClass("active", following).attr("aria-pressed", following ? "true" : "false");
+    $("[data-act=share]").prop("hidden", on || !Nadlan.workLocation.supported());
+    $(".wl-body").toggleClass("is-sharing", on);
+  }
+
+  // Inside a Parcel of the request; else the nearest within 100 m; else none.
+  function whereAmI() {
+    var pos = Nadlan.workLocation.last();
+    if (!pos) {
+      if (Nadlan.workLocation.active()) { toast(t("noFix"), true); } else { showOnly("consent"); applyTexts(); }
+      return;
+    }
+    var best = null;
+    view.parcels.forEach(function (p) {
+      var d = Nadlan.workMap.distanceM(p.geometry, pos.lat, pos.lng);
+      if (!best || d < best.d) { best = { p: p, d: d }; }
+    });
+    if (best && best.d === 0) {
+      toast(t("standingOn", { kaek: best.p.kaek || "" }));
+      openParcel(best.p.parcelId, false);
+    } else if (best && best.d <= 100) {
+      toast(t("nearest", { kaek: best.p.kaek || "", m: Math.round(best.d) }));
+      openParcel(best.p.parcelId, false);
+    } else {
+      toast(t("noneNear"), true);
+    }
+    if (mapApi) { mapApi.panTo(pos); }
+  }
+
+  // "You're not in the right place": a chosen Parcel and more than 100 m outside it. A warning, never a block (owner).
+  function updateWarning() {
+    var $w = $("#wl-sheet .wl-warning");
+    if (!$w.length) { return; }
+    var p = current && parcelById(current), pos = Nadlan.workLocation.last();
+    var d = p && pos ? Nadlan.workMap.distanceM(p.geometry, pos.lat, pos.lng) : 0;
+    var away = d > 100 && d !== Infinity;
+    $w.prop("hidden", !away).text(away ? t("notHere", { m: (Math.round(d / 10) * 10).toLocaleString(I.locale()), kaek: p.kaek || "" }) : "");
+  }
+
+  // ---- pictures of a work (piece 3) -----------------------------------------------------------------------------
+
+  var uploads = []; // { workItemId, name, pct, failed, job }
+
+  function picturesHtml(w) {
+    var mine = uploads.filter(function (u) { return u.workItemId === w.workItemId; });
+    if (!w.files.length && !w.pictures && !mine.length) { return ""; }
+    return "<div class=\"wl-pictures\" data-pictures=\"" + w.workItemId + "\">" +
+      "<div class=\"wl-pictures-title\">" + esc(t("pictures")) + "</div>" +
+      (w.files.length ? "<div class=\"wl-thumbs\">" + w.files.map(function (f, i) {
+        return "<button type=\"button\" class=\"wl-thumb\" data-view-work=\"" + w.workItemId + "\" data-index=\"" + i + "\" aria-label=\"" + esc(t("pictures")) + " " + (i + 1) + "\">" +
+          (f.thumbUrl ? "<img src=\"" + esc(f.thumbUrl) + "\" alt=\"\" loading=\"lazy\">" : "<span class=\"wl-thumb-kind\">" + (f.kind === "video" ? "▶" : "🖼") + "</span>") +
+          (f.kind === "video" && f.thumbUrl ? "<span class=\"wl-thumb-play\" aria-hidden=\"true\">▶</span>" : "") + "</button>";
+      }).join("") + "</div>" : "") +
+      mine.map(function (u) {
+        return "<div class=\"wl-upload" + (u.failed ? " is-failed" : "") + "\"><span class=\"wl-upload-name\"></span>" +
+          "<span class=\"wl-upload-state\">" + esc(u.failed ? t("uploadFailed") : t("uploading", { p: u.pct })) + "</span>" +
+          "<span class=\"wl-upload-bar\"><span style=\"width:" + (u.failed ? 100 : u.pct) + "%\"></span></span></div>";
+      }).join("") +
+      (w.pictures && view.uploads ? "<label class=\"btn wl-big wl-add-pictures\"><input type=\"file\" accept=\"image/*,video/*\" multiple data-upload=\"" +
+        w.workItemId + "\" hidden>" + esc(t("addPictures")) + "</label>" : "") +
+    "</div>";
+  }
+
+  // The file names go in as text (a phone's file name is whatever the phone made it).
+  function namesInto($box, workItemId) {
+    var mine = uploads.filter(function (u) { return u.workItemId === workItemId; });
+    $box.find(".wl-upload-name").each(function (i) { $(this).text(mine[i] ? mine[i].name : ""); });
+  }
+
+  function startUploads(workItemId, files) {
+    Array.prototype.forEach.call(files, function (file) {
+      var u = { workItemId: workItemId, name: file.name, pct: 0, failed: false };
+      uploads.push(u);
+      var pos = Nadlan.workLocation.active() ? Nadlan.workLocation.last() : null;
+      u.job = Nadlan.workUpload.upload(file, workItemId, pos, function (sent, total) {
+        var pct = total ? Math.floor(sent * 100 / total) : 0;
+        if (pct !== u.pct) { u.pct = pct; refreshPictures(workItemId); }
+      });
+      u.job.promise.then(function () {
+        uploads = uploads.filter(function (x) { return x !== u; });
+        toast(t("uploaded"));
+        loadRequest();
+      }, function () {
+        u.failed = true;
+        refreshPictures(workItemId);
+        toast(t("uploadFailed"), true);
+        setTimeout(function () { uploads = uploads.filter(function (x) { return x !== u; }); refreshPictures(workItemId); }, 8000);
+      });
+    });
+    refreshPictures(workItemId);
+  }
+
+  // Only that work's pictures box is drawn again: a typed price or message elsewhere stays as it is.
+  function refreshPictures(workItemId) {
+    var p = current && parcelById(current);
+    var w = p && p.works.filter(function (x) { return x.workItemId === workItemId; })[0];
+    var $box = $("#wl-sheet [data-pictures=" + workItemId + "]");
+    if (!w || !$box.length) { return; }
+    var $new = $(picturesHtml(w));
+    $box.replaceWith($new);
+    namesInto($new, workItemId);
+  }
+
+  // ---- the Parcel's own photos, and the viewer ------------------------------------------------------------------
+
+  var parcelMedia = null; // all the request's Parcels' customer photos, loaded once
+
+  function fillParcelMedia() {
+    var $box = $("#wl-sheet .wl-parcel-media");
+    if (!$box.length) { return; }
+    if (parcelMedia === null) {
+      parcelMedia = [];
+      api.get("/media").then(function (list) { parcelMedia = list; fillParcelMedia(); }, function () { /* none shown */ });
+      return;
+    }
+    var mine = parcelMedia.filter(function (m) { return m.parcelId === current; });
+    $box.html(mine.length ? "<h3>" + esc(t("parcelPhotos")) + "</h3><div class=\"wl-thumbs\">" + mine.map(function (m, i) {
+      return "<button type=\"button\" class=\"wl-thumb\" data-view-parcel=\"" + i + "\">" +
+        (m.thumbUrl ? "<img src=\"" + esc(m.thumbUrl) + "\" alt=\"\" loading=\"lazy\">" : "<span class=\"wl-thumb-kind\">" + (m.kind === "video" ? "▶" : "🖼") + "</span>") + "</button>";
+    }).join("") + "</div>" : "");
+  }
+
+  function openViewer(items, index) {
+    var i = index;
+    var $v = $("<div class=\"wl-viewer\" role=\"dialog\" aria-modal=\"true\">" +
+      "<button type=\"button\" class=\"wl-viewer-close\" aria-label=\"" + esc(t("close")) + "\">×</button>" +
+      "<div class=\"wl-viewer-stage\"></div>" +
+      (items.length > 1 ? "<button type=\"button\" class=\"wl-viewer-nav prev\" data-step-view=\"-1\" aria-label=\"‹\">‹</button>" +
+        "<button type=\"button\" class=\"wl-viewer-nav next\" data-step-view=\"1\" aria-label=\"›\">›</button>" : "") +
+      "</div>").appendTo(document.body);
+    function show() {
+      var it = items[i];
+      $v.find("video").each(function () { this.pause(); });
+      $v.find(".wl-viewer-stage").html(it.kind === "video"
+        ? "<video controls autoplay playsinline src=\"" + esc(it.url) + "\"></video>"
+        : "<img src=\"" + esc(it.url) + "\" alt=\"\">");
+    }
+    function close() { $v.find("video").each(function () { this.pause(); }); $v.remove(); $(document).off("keydown.wlviewer"); }
+    $v.on("click", ".wl-viewer-close", close);
+    $v.on("click", "[data-step-view]", function () { i = (i + Number($(this).data("stepView")) + items.length) % items.length; show(); });
+    $v.on("click", function (e) { if (e.target === $v.get(0)) { close(); } });
+    $(document).on("keydown.wlviewer", function (e) { if (e.key === "Escape") { close(); } });
+    show();
+  }
+
+  // ---- the conversation -----------------------------------------------------------------------------------------
+
+  var messages = {}; // parcelId -> the last list loaded
+
+  function fillMessages() {
+    var $box = $("#wl-sheet .wl-messages");
+    var list = messages[current];
+    if (!$box.length || !list) { return; }
+    $box.html(list.length ? list.map(function (m) {
+      return "<div class=\"wl-msg" + (m.mine ? " mine" : "") + "\"><div class=\"wl-msg-head\"></div><div class=\"wl-msg-body\"></div></div>";
+    }).join("") : "<div class=\"wl-empty\">" + esc(t("noMessages")) + "</div>");
+    // As text: whatever anyone typed is never HTML.
+    $box.find(".wl-msg").each(function (i) {
+      $(this).find(".wl-msg-head").text(list[i].author + " · " + dayTime(list[i].createdUtc));
+      $(this).find(".wl-msg-body").text(list[i].body);
+    });
+  }
+
+  function loadMessages(parcelId) {
+    api.get("/messages?parcelId=" + encodeURIComponent(parcelId)).then(function (list) {
+      messages[parcelId] = list;
+      if (current === parcelId) { fillMessages(); }
+    }, function (err) { handleFatal(err); });
+  }
+
+  function sendMessage(e) {
+    e.preventDefault();
+    var $form = $(this), parcelId = Number($form.data("messageParcel"));
+    var body = $.trim($form.find("[name=body]").val() || "");
+    if (!body) { return; }
+    var $btn = $form.find("button").prop("disabled", true);
+    api.post("/messages", { parcelId: parcelId, body: body }).then(function (list) {
+      $btn.prop("disabled", false);
+      $form.find("[name=body]").val("");
+      messages[parcelId] = list;
+      fillMessages();
+      toast(t("messageSent"));
+    }, function (err) {
+      $btn.prop("disabled", false);
+      if (!handleFatal(err)) { toast(err.code === "WORK_MESSAGE_TOO_LONG" ? t("messageTooLong") : t("failed"), true); }
+    });
+  }
+
+  // After the sheet is drawn: the parts that come from elsewhere (warning, photos, messages, upload names).
+  function fillDetail() {
+    if (!current) { return; }
+    updateWarning();
+    fillParcelMedia();
+    fillMessages();
+    var p = parcelById(current);
+    p.works.forEach(function (w) { namesInto($("#wl-sheet [data-pictures=" + w.workItemId + "]"), w.workItemId); });
   }
 
   // ---- start --------------------------------------------------------------------------------------------------
@@ -337,7 +597,27 @@
       .on("click", "[data-parcel]", function () { openParcel(Number($(this).data("parcel")), false); })
       .on("click", "[data-act=back]", function () { current = null; render(); if (mapApi) { mapApi.fit(); } })
       .on("submit", ".wl-offer", sendOffer)
-      .on("click", "[data-step]", step);
+      .on("click", "[data-step]", step)
+      .on("change", "[data-upload]", function () { if (this.files && this.files.length) { startUploads(Number($(this).data("upload")), this.files); } })
+      .on("click", "[data-view-work]", function () {
+        var p = parcelById(current), id = Number($(this).data("viewWork"));
+        var w = p.works.filter(function (x) { return x.workItemId === id; })[0];
+        openViewer(w.files, Number($(this).data("index")));
+      })
+      .on("click", "[data-view-parcel]", function () {
+        openViewer(parcelMedia.filter(function (m) { return m.parcelId === current; }), Number($(this).data("viewParcel")));
+      })
+      .on("submit", ".wl-message-form", sendMessage);
+    $("[data-act=consent-yes]").on("click", function () { answerConsent(true); });
+    $("[data-act=consent-no]").on("click", function () { answerConsent(false); });
+    $("[data-act=where]").on("click", whereAmI);
+    $("[data-act=follow]").on("click", function () {
+      following = !following;
+      updateLocationButtons();
+      var pos = Nadlan.workLocation.last();
+      if (following && pos && mapApi) { mapApi.panTo(pos); }
+    });
+    $("[data-act=share]").on("click", function () { showOnly("consent"); applyTexts(); });
     $("[data-act=map-size]").on("click", function () {
       bigMap = !bigMap;
       $(".wl-app").toggleClass("big-map", bigMap);

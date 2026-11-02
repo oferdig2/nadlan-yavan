@@ -170,6 +170,65 @@ public sealed class WorkLinkService
         await EventAsync(r.WorkRequestId, action, $"Parcel {work.RegistryId}: {work.WorkTypeName} {what}.", work, ct);
     }
 
+    // ---- the conversation, location (piece 3) -------------------------------------------------------------------
+
+    public const int MaxMessageLength = 4000;
+
+    /// <summary>A track point is kept only when its accuracy is this good or better (owner, 2026-11-01).</summary>
+    public const double MaxAccuracyM = 100;
+
+    /// <summary>The page sends at most every 30 s (or after 20 m); closer points than this are a fault or a flood: dropped.</summary>
+    public static readonly TimeSpan MinPointInterval = TimeSpan.FromSeconds(5);
+
+    public async Task SendMessageAsync(WorkRequest r, long parcelId, string? body, CancellationToken ct = default)
+    {
+        var text = CleanMessage(body);
+        if (!await _store.HasParcelAsync(r.WorkRequestId, parcelId, ct))
+        {
+            throw new WorkConflictException("WORK_NOT_FOUND", "This parcel isn't on your list (any more). Reload the page.");
+        }
+
+        await _store.AddMessageAsync(r.WorkRequestId, parcelId, WorkActorKinds.Contractor, null, text, ct);
+    }
+
+    internal static string CleanMessage(string? body)
+    {
+        var text = (body ?? "").Trim();
+        if (text.Length == 0)
+        {
+            throw new DomainValidationException("WORK_MESSAGE_EMPTY", "Write a message first.");
+        }
+
+        return text.Length <= MaxMessageLength ? text
+            : throw new DomainValidationException("WORK_MESSAGE_TOO_LONG", $"A message can be at most {MaxMessageLength} characters.");
+    }
+
+    /// <summary>
+    /// A point of the contractor's track (only while the page is open, after the contractor agreed). Returns false when it isn't kept:
+    /// worse than 100 m, not a place, or too soon after the last one.
+    /// </summary>
+    public async Task<bool> RecordLocationAsync(WorkRequest r, double latitude, double longitude, double? accuracyM, CancellationToken ct = default)
+    {
+        if (accuracyM is not double a || double.IsNaN(a) || a < 0 || a > MaxAccuracyM
+            || double.IsNaN(latitude) || double.IsNaN(longitude) || Math.Abs(latitude) > 90 || Math.Abs(longitude) > 180 || (latitude == 0 && longitude == 0))
+        {
+            return false;
+        }
+
+        if (await _store.LastLocationAsync(r.WorkRequestId, ct) is { } last && Now - last.RecordedUtc < MinPointInterval)
+        {
+            return false;
+        }
+
+        await _store.AddLocationAsync(r.WorkRequestId, Math.Round(latitude, 7), Math.Round(longitude, 7), (decimal)Math.Round(a, 1), ct);
+        return true;
+    }
+
+    /// <summary>The contractor's answer on the location screen (asked once per phone): kept in the history.</summary>
+    public Task ConsentAsync(WorkRequest r, bool shared, CancellationToken ct = default)
+        => EventAsync(r.WorkRequestId, shared ? WorkActions.LocationShared : WorkActions.LocationRefused,
+            shared ? "The contractor agreed to share their location while the page is open." : "The contractor chose not to share their location.", ct: ct);
+
     private async Task<WorkItemRow> RequireWorkAsync(WorkRequest r, long workItemId, CancellationToken ct)
         => await _store.GetItemAsync(r.WorkRequestId, workItemId, ct)
            ?? throw new WorkConflictException("WORK_NOT_FOUND", "This work isn't on your list (any more). Reload the page.");

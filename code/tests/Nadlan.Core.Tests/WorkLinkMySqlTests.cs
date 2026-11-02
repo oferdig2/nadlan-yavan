@@ -312,7 +312,7 @@ public partial class WorkMySqlTests
         options.Maps.GoogleApiKey = "browser-key";
         string Json(object o) => JsonSerializer.Serialize(o);
         var r = (await l.Store.GetRequestAsync(l.Id))!;
-        var json = Json(await WorkLinkEndpoints.ViewAsync(r, l.Store, options, CancellationToken.None));
+        var json = Json(await WorkLinkEndpoints.ViewAsync(r, l.Store, options, new TestUrls(), true, CancellationToken.None));
 
         foreach (var never in new[] { "987654", "SECRET-NOTE", "A customer", "data@", "admin", "6900000000", "LinkToken", "link_token", "password", r.LinkTokenHash })
         {
@@ -328,7 +328,7 @@ public partial class WorkMySqlTests
         Assert.Equal("browser-key", doc.RootElement.GetProperty("mapsKey").GetString());
 
         await l.Work.UpdateAsync(w.DataPerson, l.Id, r.Name, r.ContractorContactId, true);
-        var withSize = JsonDocument.Parse(Json(await WorkLinkEndpoints.ViewAsync((await l.Store.GetRequestAsync(l.Id))!, l.Store, options, CancellationToken.None)));
+        var withSize = JsonDocument.Parse(Json(await WorkLinkEndpoints.ViewAsync((await l.Store.GetRequestAsync(l.Id))!, l.Store, options, new TestUrls(), true, CancellationToken.None)));
         Assert.Equal(1250.5m, withSize.RootElement.GetProperty("parcels")[0].GetProperty("sizeSqm").GetDecimal());
     }
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Nadlan.Core.Files;
 using Nadlan.Core.Geo;
 using Nadlan.Core.GeographicAreas;
 using Nadlan.Core.Parcels;
@@ -32,6 +33,35 @@ internal static class WorkEndpoints
 
     public sealed record ApproveDto(long[]? WorkItemIds);
 
+    public sealed record WorkTypeDto(string? Code, string? Name, string? NameEl, bool IsActive, int SortOrder)
+    {
+        public WorkType ToType() => new() { Code = Code ?? "", Name = Name ?? "", NameEl = NameEl ?? "", IsActive = IsActive, SortOrder = SortOrder };
+    }
+
+    private const int MaxReportRows = 5000;
+
+    /// <summary>The report's query string (statuses repeat: ?statuses=OFFERED&amp;statuses=DONE).</summary>
+    public sealed record ReportQuery(string[]? Statuses, long? ContractorId, int? WorkTypeId, long? RequestId, int? AreaId, string? Kaek, string? Ot,
+        string? Plot, decimal? MinSqm, decimal? MaxSqm, string? DateOf, DateTime? FromUtc, DateTime? ToUtc, string? GroupBy)
+    {
+        public WorkReportFilter ToFilter() => new()
+        {
+            Statuses = Statuses?.Where(s => WorkStatuses.All.Contains(s)).ToList(),
+            ContractorContactId = ContractorId,
+            WorkTypeId = WorkTypeId,
+            WorkRequestId = RequestId,
+            GeographicAreaId = AreaId,
+            Kaek = Kaek,
+            Ot = Ot,
+            Plot = Plot,
+            MinSqm = MinSqm,
+            MaxSqm = MaxSqm,
+            DateOf = Enum.TryParse<WorkReportDate>(DateOf, true, out var d) ? d : WorkReportDate.Offered,
+            FromUtc = FromUtc?.ToUniversalTime(),
+            ToUtc = ToUtc?.ToUniversalTime(),
+        };
+    }
+
     public sealed record CorrectDto(string? Reason);
 
     public static void Map(IEndpointRouteBuilder app)
@@ -42,10 +72,67 @@ internal static class WorkEndpoints
                 ? await next(context)
                 : Results.Json(new { error = "WORK_FORBIDDEN", message = "Your role doesn't include work requests." }, statusCode: StatusCodes.Status403Forbidden));
 
+        // The work types list (piece 4): with how many works use each (a used type can't be deleted, its code stays).
         group.MapGet("/work-types", async (UserAccess me, IWorkStore store, CancellationToken ct) =>
         {
             WorkService.Require(me);
-            return Results.Ok(await store.ListWorkTypesAsync(ct));
+            var uses = await store.WorkTypeUseCountsAsync(ct);
+            return Results.Ok((await store.ListWorkTypesAsync(ct)).Select(t => new
+            {
+                t.WorkTypeId, t.Code, t.Name, t.NameEl, t.IsActive, t.SortOrder, uses = uses.GetValueOrDefault(t.WorkTypeId),
+            }));
+        });
+
+        group.MapPost("/work-types", async (WorkTypeDto dto, UserAccess me, WorkTypeService types, CancellationToken ct) =>
+            Results.Ok(new { workTypeId = await types.CreateAsync(me, dto.ToType(), ct) }));
+
+        group.MapPut("/work-types/{id:int}", async (int id, WorkTypeDto dto, UserAccess me, WorkTypeService types, CancellationToken ct) =>
+        {
+            await types.UpdateAsync(me, id, dto.ToType(), ct);
+            return Results.Ok(new { ok = true });
+        });
+
+        group.MapDelete("/work-types/{id:int}", async (int id, UserAccess me, WorkTypeService types, CancellationToken ct) =>
+        {
+            await types.DeleteAsync(me, id, ct);
+            return Results.Ok(new { ok = true });
+        });
+
+        // ---- the work report (piece 4) --------------------------------------------------------------------------
+
+        // What the filters offer: the contractors and requests there are, the work types, the areas.
+        group.MapGet("/report/options", async (UserAccess me, IWorkStore store, IGeographicAreaStore areas, CancellationToken ct) =>
+        {
+            var requests = await store.ListRequestsAsync(me.Scope, ct);
+            return Results.Ok(new
+            {
+                contractors = requests.GroupBy(r => r.ContractorContactId).Select(g => new { contactId = g.Key, displayName = g.First().ContractorName })
+                    .OrderBy(c => c.displayName),
+                requests = requests.Select(r => new { r.WorkRequestId, r.Name, contractor = r.ContractorName }),
+                workTypes = (await store.ListWorkTypesAsync(ct)).Select(t => new { t.WorkTypeId, t.Name, t.IsActive }),
+                areas = (await areas.ListAsync(ct)).Where(a => me.InAreas(a.GeographicAreaId)).Select(a => new { a.GeographicAreaId, a.Name }),
+            });
+        });
+
+        // One row per work across requests (only Parcels the user may see), and the € totals in SQL, per group and currency.
+        group.MapGet("/report", async ([AsParameters] ReportQuery q, UserAccess me, IWorkStore store, CancellationToken ct) =>
+        {
+            var filter = q.ToFilter();
+            var groupBy = Enum.TryParse<WorkReportGroup>(q.GroupBy, true, out var g) ? g : WorkReportGroup.None;
+            var rows = await store.ListReportAsync(filter, me.Scope, MaxReportRows + 1, ct);
+            return Results.Ok(new
+            {
+                totals = await store.ReportTotalsAsync(filter, me.Scope, WorkReportGroup.None, ct),
+                groups = groupBy == WorkReportGroup.None ? null : await store.ReportTotalsAsync(filter, me.Scope, groupBy, ct),
+                truncated = rows.Count > MaxReportRows,
+                rows = rows.Take(MaxReportRows).Select(w => new
+                {
+                    w.WorkItemId, w.WorkRequestId, w.RequestName, w.ContractorContactId, w.ContractorName, w.ParcelId, w.RegistryId, w.Ot, w.Plot,
+                    geographicAreaId = w.GeographicAreaId ?? 0, w.GeographicArea, w.OfficialAreaSqm, w.WorkTypeId, w.WorkTypeName, w.Status, w.Price,
+                    w.CurrencyCode, estStartDate = w.EstStartDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    w.OfferedUtc, w.ApprovedUtc, w.StartedUtc, w.DoneUtc, w.PaidUtc,
+                }),
+            });
         });
 
         group.MapGet("/contractors", async (UserAccess me, IWorkStore store, CancellationToken ct) =>
@@ -67,6 +154,9 @@ internal static class WorkEndpoints
                 works = new { requested = r.Requested, offered = r.Offered, approved = r.Approved, inWork = r.InWork, done = r.Done, paid = r.Paid },
                 link = WorkLinkStates.Of(r.LinkEnabled, r.LinkExpiresUtc, r.LockedUntilUtc, now),
                 r.HasPassword,
+                r.ApprovedEur,
+                r.PaidEur,
+                r.OtherCurrency,
                 r.CreatedUtc,
                 r.LastActivityUtc,
             }));
@@ -239,6 +329,91 @@ internal static class WorkEndpoints
             await work.RemoveWorkAsync(me, id, workItemId, ct);
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
+
+        // ---- a Parcel's conversation and work pictures (piece 3) ------------------------------------------------
+
+        group.MapGet("/requests/{id:long}/parcels/{parcelId:long}/messages", async (long id, long parcelId, UserAccess me, WorkService work,
+            CancellationToken ct) => Results.Ok(StaffMessages((await work.GetAsync(me, id, ct)).ContractorName, await work.MessagesAsync(me, id, parcelId, ct))));
+
+        group.MapPost("/requests/{id:long}/parcels/{parcelId:long}/messages", async (long id, long parcelId, MessageDto dto, UserAccess me,
+            WorkService work, CancellationToken ct) =>
+        {
+            await work.SendMessageAsync(me, id, parcelId, dto.Body, ct);
+            return Results.Ok(StaffMessages((await work.GetAsync(me, id, ct)).ContractorName, await work.MessagesAsync(me, id, parcelId, ct)));
+        });
+
+        // The work pictures of one Parcel, with what was read from each (taken, camera, place) and the phone's position.
+        group.MapGet("/requests/{id:long}/parcels/{parcelId:long}/files", async (long id, long parcelId, UserAccess me, AccessPolicy policy,
+            WorkService work, IWorkStore store, IFileUrlProvider urls, CancellationToken ct) =>
+        {
+            await work.GetAsync(me, id, ct);
+            await policy.RequireParcelViewAsync(me, parcelId, ct);
+            return Results.Ok((await store.ListWorkFilesAsync(id, parcelId, ct)).Select(f => StaffFile(f, urls)));
+        });
+
+        group.MapPost("/requests/{id:long}/files/{fileId:long}/copy-to-parcel", async (long id, long fileId, UserAccess me, WorkMediaService media,
+            IWorkStore store, IFileUrlProvider urls, CancellationToken ct) =>
+        {
+            await media.CopyToParcelAsync(me, id, fileId, ct);
+            return Results.Ok(StaffFile((await store.GetWorkFileAsync(id, fileId, ct))!, urls));
+        });
+
+        // ---- the contractor's location (piece 3) ----------------------------------------------------------------
+
+        // The last position (any day) and one day's trail; the page asks for its own local day (fromUtc .. toUtc).
+        group.MapGet("/requests/{id:long}/locations", async (long id, DateTime fromUtc, DateTime toUtc, UserAccess me, WorkService work,
+            CancellationToken ct) =>
+        {
+            var (latest, trail) = await work.LocationsAsync(me, id, fromUtc.ToUniversalTime(), toUtc.ToUniversalTime(), ct);
+            return Results.Ok(new
+            {
+                latest,
+                trail = trail.Select(p => new[] { p.Latitude, p.Longitude }),
+                truncated = trail.Count >= WorkService.MaxTrailPoints,
+            });
+        });
+    }
+
+    public sealed record MessageDto(string? Body);
+
+    private static object StaffMessages(string contractor, IReadOnlyList<WorkMessage> messages)
+        => messages.Select(m => new
+        {
+            m.WorkMessageId,
+            fromContractor = m.AuthorKind == WorkActorKinds.Contractor,
+            author = m.AuthorKind == WorkActorKinds.Contractor ? contractor : m.AuthorName ?? "GreekPlot",
+            m.Body,
+            m.CreatedUtc,
+        });
+
+    private static object StaffFile(WorkFile f, IFileUrlProvider urls)
+    {
+        var video = f.MimeType.StartsWith("video/", StringComparison.Ordinal);
+        return new
+        {
+            f.WorkFileId,
+            f.WorkItemId,
+            f.WorkTypeName,
+            kind = video ? "video" : "image",
+            name = f.OriginalName,
+            url = urls.GetUrl(f.StorageKey, f.OriginalName),
+            downloadUrl = urls.GetDownloadUrl(f.StorageKey, f.OriginalName),
+            thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null,
+            f.FileSize,
+            f.TakenLocal,
+            f.CameraMake,
+            f.CameraModel,
+            f.Latitude,
+            f.Longitude,
+            f.Width,
+            f.Height,
+            f.DurationS,
+            f.UploadLatitude,
+            f.UploadLongitude,
+            f.UploadAccuracyM,
+            f.UploadedUtc,
+            copied = f.CopiedToFileAttachmentId is not null,
+        };
     }
 
     /// <summary>Found Parcels for "+ Add parcel": numbers, area, size and whether this request has them already.</summary>
@@ -271,6 +446,8 @@ internal static class WorkEndpoints
     {
         var r = await work.GetAsync(me, id, ct);
         var items = await store.ListItemsAsync(id, me.Scope, ct);
+        var pictures = (await store.ListWorkFilesAsync(id, null, ct)).GroupBy(f => f.WorkItemId).ToDictionary(g => g.Key, g => g.Count());
+        var messages = (await store.ListMessagesAsync(id, null, ct)).GroupBy(m => m.ParcelId).ToDictionary(g => g.Key, g => g.Count());
         var now = DateTime.UtcNow;
         return new
         {
@@ -312,6 +489,8 @@ internal static class WorkEndpoints
                 w.StartedUtc,
                 w.DoneUtc,
                 w.PaidUtc,
+                pictures = pictures.GetValueOrDefault(w.WorkItemId),
+                messages = messages.GetValueOrDefault(w.ParcelId), // the Parcel's conversation
             }),
         };
     }

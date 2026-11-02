@@ -217,9 +217,32 @@
         "<button type=\"button\" class=\"btn\" data-act=\"approve-selected\"" + (pickedIds().length ? "" : " disabled") + ">Approve selected" +
           (pickedIds().length ? " (" + pickedIds().length + ")" : "") + "</button>" +
       "</div>" +
+      moneyHtml() +
       "<div class=\"work-chips\" role=\"group\" aria-label=\"Filter by status\">" + chips + "</div>" +
       "<div class=\"work-table-wrap\">" + tableHtml() + "</div>" +
     "</section>";
+  }
+
+  // The request in money (piece 4), per currency - two are never added: Offered (waiting for us), Approved (every approved
+  // work, whatever happened since), Done (done or paid), Paid, To pay (done, not paid). The same rule as the Report.
+  var MONEY = [
+    { name: "Offered", statuses: ["OFFERED"] },
+    { name: "Approved", statuses: ["APPROVED", "IN_WORK", "DONE", "PAID"] },
+    { name: "Done", statuses: ["DONE", "PAID"] },
+    { name: "Paid", statuses: ["PAID"] },
+    { name: "To pay", statuses: ["DONE"] }
+  ];
+
+  function moneyHtml() {
+    var currencies = {};
+    req.items.forEach(function (r) { if (r.price !== null) { currencies[r.currencyCode] = true; } });
+    var lines = Object.keys(currencies).sort().map(function (cur) {
+      return MONEY.map(function (m) {
+        var sum = req.items.reduce(function (n, r) { return n + (r.currencyCode === cur && r.price !== null && m.statuses.indexOf(r.status) >= 0 ? Number(r.price) : 0); }, 0);
+        return esc(m.name) + " <strong>" + W.money(Math.round(sum * 100) / 100, cur) + "</strong>";
+      }).join(" · ");
+    });
+    return lines.length ? "<div class=\"work-money\">" + lines.join("<br>") + "</div>" : "";
   }
 
   function tableHtml() {
@@ -281,6 +304,8 @@
             (r.status === "DONE" ? "<button type=\"button\" class=\"btn btn-primary btn-small\" data-act=\"paid\">Mark paid</button>" : "") +
             (r.status !== "REQUESTED" ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"correct\" title=\"One step back, with a reason\">Correct…</button>" : "") +
             (r.status === "REQUESTED" ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"remove-work\" title=\"Remove this work from the parcel\">Remove</button>" : "") +
+            (first ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"parcel-media\" data-parcel=\"" + r.parcelId + "\" title=\"The contractor's pictures of this parcel's works, and the conversation\">" +
+              "Pictures " + parcelPictures(r.parcelId) + " · Messages " + (r.messages || 0) + "</button>" : "") +
             (first && removable[r.parcelId] ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"remove-parcel\" data-parcel=\"" + r.parcelId +
               "\" title=\"Remove the parcel and all its works from the request\">Remove parcel</button>" : "") +
           "</td>" +
@@ -348,6 +373,7 @@
       });
     });
     $works.on("click", "[data-act=correct]", function () { openCorrect(rowOf(this)); });
+    $works.on("click", "[data-act=parcel-media]", function () { openParcelMedia(Number($(this).data("parcel"))); });
     $works.on("click", "[data-act=remove-parcel]", function () {
       var parcelId = Number($(this).data("parcel"));
       var row = req.items.filter(function (r) { return r.parcelId === parcelId; })[0];
@@ -564,6 +590,170 @@
     });
   }
 
+  // ---- the contractor's location (piece 3) --------------------------------------------------------------------
+
+  var personTimer = null;
+
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+  }
+
+  function ago(utc) {
+    var min = Math.max(0, Math.round((Date.now() - new Date(utc).getTime()) / 60000));
+    if (min < 1) { return "just now"; }
+    if (min < 60) { return min + " min ago"; }
+    if (min < 48 * 60) { return Math.round(min / 60) + " h ago"; }
+    return W.dateTime(utc);
+  }
+
+  // Every 30 s while the request is open and the tab is visible: the last position, and the chosen day's trail.
+  function startPersonTimer() {
+    if (personTimer) { window.clearInterval(personTimer); }
+    var id = req.workRequestId;
+    personTimer = window.setInterval(function () {
+      if (!req || req.workRequestId !== id || !$panel.find("#work-request-map").length) {
+        window.clearInterval(personTimer);
+        personTimer = null;
+        return;
+      }
+      if (document.visibilityState === "visible") { refreshPerson(); }
+    }, 30000);
+  }
+
+  function refreshPerson() {
+    if (!mapApi) { return; }
+    var day = $panel.find("[data-act=trail-day]").val() || today();
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+    var from = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])); // the user's own day, midnight to midnight
+    var to = new Date(from.getTime());
+    to.setDate(to.getDate() + 1);
+    Nadlan.api.get(url("/locations"), { fromUtc: from.toISOString(), toUtc: to.toISOString() }).then(function (res) {
+      var $seen = $panel.find(".work-seen");
+      if (res.latest) {
+        var label = req.contractor.displayName + " · " + ago(res.latest.recordedUtc);
+        mapApi.setPosition({ lat: res.latest.latitude, lng: res.latest.longitude, accuracy: Number(res.latest.accuracyM || 0) }, label);
+        $seen.text("Last seen " + ago(res.latest.recordedUtc) + (res.latest.accuracyM !== null ? " (±" + Math.round(res.latest.accuracyM) + " m)" : "") +
+          " · trail: " + res.trail.length + " point" + (res.trail.length === 1 ? "" : "s") + (res.truncated ? " (first 5,000)" : ""));
+      } else {
+        mapApi.setPosition(null);
+        $seen.text("The contractor hasn't shared a location yet.");
+      }
+      mapApi.setTrail(res.trail);
+    }, function () { /* the next round tries again */ });
+  }
+
+  // ---- a Parcel's pictures and conversation (piece 3) -------------------------------------------------------------
+
+  function parcelPictures(parcelId) {
+    return req.items.reduce(function (n, r) { return n + (r.parcelId === parcelId ? r.pictures || 0 : 0); }, 0);
+  }
+
+  function place(lat, lng) { return Number(lat).toFixed(6) + ", " + Number(lng).toFixed(6); }
+
+  function pictureCardHtml(f, i) {
+    var facts = [];
+    if (f.takenLocal) { facts.push("Taken " + Nadlan.takenDate(f.takenLocal, true)); }
+    facts.push("Uploaded " + W.dateTime(f.uploadedUtc));
+    if (f.cameraMake || f.cameraModel) { facts.push([f.cameraMake, f.cameraModel].filter(Boolean).join(" ")); }
+    if (f.width && f.height) { facts.push(f.width + " × " + f.height); }
+    if (f.durationS) { facts.push(Nadlan.mediaViewer.formatTime(f.durationS * 1000)); }
+    var where = f.latitude !== null && f.longitude !== null ? { lat: f.latitude, lng: f.longitude, what: "in the photo" }
+      : f.uploadLatitude !== null && f.uploadLongitude !== null ? { lat: f.uploadLatitude, lng: f.uploadLongitude, what: "the phone at upload" } : null;
+    return "<div class=\"work-pic\" data-index=\"" + i + "\">" +
+      "<button type=\"button\" class=\"work-pic-thumb\" data-act=\"view-pic\" title=\"View\">" +
+        (f.thumbUrl ? "<img src=\"" + esc(f.thumbUrl) + "\" alt=\"\" loading=\"lazy\">" : "<span>" + (f.kind === "video" ? "▶ Video" : "Photo") + "</span>") +
+        (f.kind === "video" && f.thumbUrl ? "<span class=\"work-pic-play\">▶</span>" : "") +
+      "</button>" +
+      "<div class=\"work-pic-name\"></div>" +
+      "<div class=\"muted work-pic-facts\">" + esc(facts.join(" · ")) + "</div>" +
+      (where ? "<div class=\"muted work-pic-facts\">Place (" + esc(where.what) + "): " + esc(place(where.lat, where.lng)) +
+        " <button type=\"button\" class=\"btn btn-small\" data-act=\"pic-on-map\" data-lat=\"" + where.lat + "\" data-lng=\"" + where.lng + "\">Show on map</button></div>" : "") +
+      "<div class=\"work-pic-actions\">" + (f.copied
+        ? "<span class=\"done-note\">In the parcel's files ✓</span>"
+        : "<button type=\"button\" class=\"btn btn-small btn-primary\" data-act=\"copy-to-parcel\" title=\"Copy into the parcel's files (Photo / Video, Marketing). The work keeps its own.\">Copy to parcel</button>") +
+      "</div>" +
+    "</div>";
+  }
+
+  function openParcelMedia(parcelId) {
+    var rows = req.items.filter(function (r) { return r.parcelId === parcelId; });
+    var kaek = rows.length ? rows[0].registryId || "" : "";
+    var $box = $("<div class=\"work-parcel-media\"><div class=\"work-pics muted\">Loading…</div><h4>Messages</h4>" +
+      "<div class=\"work-msgs\"></div>" +
+      "<form class=\"form work-msg-form\"><textarea class=\"input\" name=\"body\" rows=\"3\" maxlength=\"4000\" placeholder=\"A message to the contractor (shown as from GreekPlot)\"></textarea>" +
+      "<div><button type=\"submit\" class=\"btn btn-primary\">Send</button></div></form></div>");
+    var files = [];
+    var d = Nadlan.dialog.open({
+      title: "Parcel " + kaek + " - pictures and messages",
+      content: $box,
+      width: Math.min(820, window.innerWidth - 24),
+      buttons: [{ text: "Close", click: function () { d.close(); } }]
+    });
+
+    function drawFiles() {
+      var $pics = $box.find(".work-pics").removeClass("muted");
+      if (!files.length) { $pics.html("<div class=\"muted\">No pictures from the contractor yet.</div>"); return; }
+      $pics.html(rows.map(function (r) {
+        var mine = files.filter(function (f) { return f.workItemId === r.workItemId; });
+        return mine.length ? "<h4>" + esc(r.workTypeName) + " " + W.workBadge(r.status) + "</h4><div class=\"work-pic-grid\">" +
+          mine.map(function (f) { return pictureCardHtml(f, files.indexOf(f)); }).join("") + "</div>" : "";
+      }).join(""));
+      $pics.find(".work-pic").each(function () { $(this).find(".work-pic-name").text(files[Number($(this).data("index"))].name); });
+    }
+
+    function drawMessages(list) {
+      var $m = $box.find(".work-msgs");
+      $m.html(list.length ? list.map(function () {
+        return "<div class=\"work-msg\"><div class=\"muted work-msg-head\"></div><div class=\"work-msg-body\"></div></div>";
+      }).join("") : "<div class=\"muted\">No messages yet.</div>");
+      $m.find(".work-msg").each(function (i) {
+        $(this).toggleClass("from-contractor", list[i].fromContractor);
+        $(this).find(".work-msg-head").text(list[i].author + " · " + W.dateTime(list[i].createdUtc));
+        $(this).find(".work-msg-body").text(list[i].body);
+      });
+    }
+
+    Nadlan.api.get(url("/parcels/" + parcelId + "/files")).then(function (list) { files = list; drawFiles(); },
+      function (err) { $box.find(".work-pics").html("<div class=\"error\">" + esc(err.message) + "</div>"); });
+    Nadlan.api.get(url("/parcels/" + parcelId + "/messages")).then(drawMessages, function (err) { d.showError(err.message); });
+
+    $box.on("click", "[data-act=view-pic]", function () {
+      var i = Number($(this).closest(".work-pic").data("index"));
+      Nadlan.mediaViewer.open(files[i].kind, files[i].url, files[i].name, null, null, {
+        items: files.map(function (f) { return { kind: f.kind, url: f.url, name: f.name + " (" + f.workTypeName + ")", download: f.downloadUrl }; }),
+        index: i
+      });
+    });
+    $box.on("click", "[data-act=pic-on-map]", function () {
+      if (!mapApi) { W.setStatus("The map isn't available.", true); return; }
+      mapApi.showPin({ lat: Number($(this).data("lat")), lng: Number($(this).data("lng")) }, "Picture");
+      d.close();
+      $panel.find(".work-map-card").get(0).scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    $box.on("click", "[data-act=copy-to-parcel]", function () {
+      var $btn = $(this).prop("disabled", true);
+      var i = Number($btn.closest(".work-pic").data("index"));
+      Nadlan.api.post(url("/files/" + files[i].workFileId + "/copy-to-parcel")).then(function (copied) {
+        files[i] = copied;
+        drawFiles();
+        W.setStatus(copied.name + " copied to parcel " + kaek + "'s files.");
+      }, function (err) { $btn.prop("disabled", false); d.showError(err.message); });
+    });
+    $box.on("submit", ".work-msg-form", function (e) {
+      e.preventDefault();
+      var $form = $(this), body = $.trim($form.find("[name=body]").val() || "");
+      if (!body) { return; }
+      var $btn = $form.find("button").prop("disabled", true);
+      Nadlan.api.post(url("/parcels/" + parcelId + "/messages"), { body: body }).then(function (list) {
+        $btn.prop("disabled", false);
+        $form.find("[name=body]").val("");
+        drawMessages(list);
+        Nadlan.api.get(url()).then(function (detail) { req = detail; renderWorks(); }); // the message count on the row
+      }, function (err) { $btn.prop("disabled", false); d.showError(err.message); });
+    });
+  }
+
   // ---- the page -----------------------------------------------------------------------------------------------
 
   // ---- the request's map (piece 2) ----------------------------------------------------------------------------
@@ -573,6 +763,8 @@
       "<div class=\"meta-toolbar\"><h3>Map</h3>" +
         "<button type=\"button\" class=\"btn\" data-act=\"pick-on-map\" aria-pressed=\"false\">Pick a parcel on the map</button>" +
         "<span class=\"muted work-map-hint\"></span>" +
+        "<label class=\"work-day\">Contractor's trail on <input type=\"date\" class=\"input\" data-act=\"trail-day\"></label>" +
+        "<span class=\"muted work-seen\" aria-live=\"polite\"></span>" +
       "</div>" +
       "<div class=\"work-map\" id=\"work-request-map\"></div>" +
     "</section>";
@@ -610,6 +802,7 @@
           onMapClick: function (at) { if (picking) { pickAt(at); } }
         });
         refreshMap();
+        refreshPerson();
       });
     }).catch(function (err) {
       $panel.find(".work-map-card").addClass("no-map");
@@ -676,6 +869,8 @@
       $panel.on("click", "[data-act=back]", function (e) { e.preventDefault(); Nadlan.workPage.showList(); });
       $panel.on("click", "[data-act=copy-request]", openCopy);
       $panel.on("click", "[data-act=pick-on-map]", function () { setPicking(!picking); });
+      $panel.find("[data-act=trail-day]").val(today()).on("change", refreshPerson);
+      startPersonTimer();
       bindHistory();
       render();
       startMap();
