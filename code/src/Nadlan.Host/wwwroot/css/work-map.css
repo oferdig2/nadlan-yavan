@@ -1,0 +1,39 @@
+/* Work on the map (work-map-panel.js): the request chooser and the small window over the map. The window is a .map-card
+   in the popup layer (map.css), so it looks, minimizes and drags like the parcel cards. */
+.work-window { border-color: #7c3aed; }
+.work-window .card-title { color: #6d28d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.work-window-page { color: var(--accent); font-size: 13px; padding: 2px 4px; text-decoration: none; white-space: nowrap; }
+.work-window-page:hover { text-decoration: underline; }
+.work-window-body { padding: 6px 10px 10px; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - var(--header-h) - 120px); overflow-y: auto; }
+.work-window-name { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+.work-window-who { margin-top: -6px; }
+.work-window-hint { font-size: 12px; }
+.work-window .card-section { border-top: 1px solid var(--border); padding-top: 6px; }
+.work-window .card-section-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 4px; }
+.work-window .card-chip .work-chip-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Selected parcels not in the work yet */
+.work-pending { background: color-mix(in srgb, #facc15 10%, var(--surface)); border-radius: 6px; padding: 6px 8px !important; border-top: none !important; }
+.work-pending-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.work-pending-list li { display: inline-flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid #facc15; border-radius: 12px; padding: 0 2px 0 8px; font-size: 12px; }
+.work-pending-list .card-icon { width: 20px; height: 20px; }
+.work-checks { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 2px 0 6px; }
+.work-checks .check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.work-add-btn { width: 100%; }
+
+/* The work's parcels: collapsed rows, the selected ones open */
+.work-parcels { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.work-parcel { border: 1px solid var(--border); border-radius: 6px; }
+.work-parcel.open { border-color: #facc15; box-shadow: 0 0 0 1px #facc15; }
+.work-parcel-head { width: 100%; display: flex; align-items: center; gap: 6px; border: none; background: none; padding: 5px 8px; cursor: pointer; font: inherit; text-align: left; color: var(--text); }
+.work-parcel-head:hover { background: var(--bg); }
+.work-parcel-works { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; text-align: right; }
+.work-parcel-body { padding: 2px 8px 8px; }
+.work-parcel-statuses { font-size: 12px; margin-bottom: 6px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+
+/* The chooser dialog */
+.work-chooser-list { display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
+.work-chooser-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); padding: 6px 10px; cursor: pointer; font: inherit; color: var(--text); }
+.work-chooser-item:hover, .work-chooser-item:focus-visible { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.work-chooser-item .muted { font-size: 12px; }
