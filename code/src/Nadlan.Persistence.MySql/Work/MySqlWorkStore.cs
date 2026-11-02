@@ -351,14 +351,15 @@ public sealed partial class MySqlWorkStore : IWorkStore
         await using var conn = await _db.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         var id = await conn.ExecuteScalarAsync<long>(new CommandDefinition(InsertRequest, request, tx, cancellationToken: ct));
-        // Only the list: Parcels in their order and the works asked for. No prices, dates, messages, files or track.
+        // Only the list: Parcels in their order, the works asked for and staff's remarks on them (instructions for the job).
+        // No prices, dates, messages, files or track.
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO work_request_parcel (work_request_id, parcel_id, sort_order, status)
             SELECT @id, parcel_id, sort_order, 'OPEN_OFFERS' FROM work_request_parcel WHERE work_request_id = @sourceRequestId
             """, new { id, sourceRequestId }, tx, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO work_item (work_request_id, parcel_id, work_type_id)
-            SELECT @id, parcel_id, work_type_id FROM work_item WHERE work_request_id = @sourceRequestId
+            INSERT INTO work_item (work_request_id, parcel_id, work_type_id, remarks)
+            SELECT @id, parcel_id, work_type_id, remarks FROM work_item WHERE work_request_id = @sourceRequestId
             """, new { id, sourceRequestId }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return id;

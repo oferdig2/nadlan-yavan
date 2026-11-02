@@ -22,6 +22,11 @@ public partial class WorkMySqlTests
             l.Store, new Nadlan.Host.Configuration.NadlanOptions(), new TestUrls(), true, CancellationToken.None));
         Assert.Contains("Leave the olive trees.", json);
 
+        // Copy for another contractor keeps the remarks (instructions for the job), nothing else of the work's progress.
+        var copy = await l.Work.CopyAsync(w.DataPerson, l.Id, w.Contractor2, null);
+        Assert.Equal("Leave the olive trees.\nGate code 1234",
+            (await l.Store.ListItemsAsync(copy, null)).Single(x => x.ParcelId == w.PA1 && x.WorkTypeId == w.Clear).Remarks);
+
         Assert.Equal("WORK_REMARKS_TOO_LONG", (await Assert.ThrowsAsync<DomainValidationException>(() =>
             l.Work.SetRemarksAsync(w.DataPerson, l.Id, clear, new string('x', 2001)))).Code);
 

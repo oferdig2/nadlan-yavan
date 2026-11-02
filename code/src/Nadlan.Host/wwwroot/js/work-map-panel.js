@@ -33,6 +33,7 @@
     var shapeStatus = {};    // parcelId -> the Parcel's status in the work
     var hovered = null;
     var busy = false;
+    var gen = 0;             // bumped when the window closes or another request opens: late replies are dropped
     var $win = null;
     var workLayer = Nadlan.createMapHighlight(map);   // the work's Parcels, in their status colour
     var pickLayer = Nadlan.createMapHighlight(map);   // the selected ones, yellow
@@ -58,13 +59,14 @@
 
     function choose() {
       var $content = $("<div class=\"form work-chooser\"><input type=\"search\" class=\"input\" placeholder=\"Find by name or contractor\" aria-label=\"Find a request\">" +
-        "<div class=\"work-chooser-list\"><div class=\"muted\">Loading…</div></div></div>");
+        "<div class=\"work-chooser-list\"><div class=\"muted\">Loading…</div></div>" +
+        "<a class=\"work-chooser-page\" href=\"/work.html\" target=\"_blank\" rel=\"noopener\">The Work page: every request, the report, the work types ↗</a></div>");
       var d = Nadlan.dialog.open({
         title: "Work: choose a request",
         content: $content,
         width: Math.min(520, window.innerWidth - 24),
         buttons: [
-          { text: "+ New request", primary: true, click: function () { d.close(); createNew(); } },
+          { text: "+ New request", click: function () { d.close(); createNew(); } },
           { text: "Cancel", click: function () { d.close(); } }
         ]
       });
@@ -82,6 +84,13 @@
         });
       }
       $content.on("input", "input", draw);
+      // Enter in the search: the first request shown (never "+ New request").
+      $content.on("keydown", "input", function (e) {
+        if (e.key !== "Enter") { return; }
+        e.preventDefault();
+        var first = $content.find("[data-id]").first();
+        if (first.length) { d.close(); openRequest(Number(first.data("id"))); }
+      });
       $content.on("click", "[data-id]", function () { d.close(); openRequest(Number($(this).data("id"))); });
       Nadlan.api.get("/api/work/requests").then(function (rows) { list = rows; draw(); },
         function (err) { $content.find(".work-chooser-list").html("<div class=\"error\">" + esc(err.message) + "</div>"); });
@@ -117,15 +126,18 @@
     // ---- the window -------------------------------------------------------------------------------------------------
 
     function openRequest(id) {
+      var g = ++gen;
       Promise.all([Nadlan.api.get("/api/work/requests/" + id), Nadlan.api.get("/api/work/work-types")]).then(function (loaded) {
+        if (g !== gen) { return; }
         req = loaded[0];
         types = loaded[1];
         selected = [];
         addTypes = null;
         openPicker = null;
+        shapeStatus = {};
         if (!$win) { build(); }
         render();
-        loadShapes(true);
+        syncShapes(true);
         setStatus("Work \"" + req.name + "\": click parcels on the map to select them.");
       }, fail);
     }
@@ -174,8 +186,9 @@
         (isOpen ? "<div class=\"work-picker-list\" role=\"listbox\" aria-multiselectable=\"true\">" +
           types.filter(function (t) { return t.isActive || checked.indexOf(t.workTypeId) >= 0; }).map(function (t) {
             var why = locked && locked[t.workTypeId];
+            var off = why || (busy && key !== "add");
             return "<label class=\"check\"" + (why ? " title=\"" + esc(why) + "\"" : "") + "><input type=\"checkbox\" data-type=\"" + t.workTypeId + "\"" +
-              (checked.indexOf(t.workTypeId) >= 0 ? " checked" : "") + (why ? " disabled" : "") + "> " + esc(t.name) + "</label>";
+              (checked.indexOf(t.workTypeId) >= 0 ? " checked" : "") + (off ? " disabled" : "") + "> " + esc(t.name) + "</label>";
           }).join("") + "</div>" : "") +
       "</div>";
     }
@@ -260,19 +273,39 @@
 
     // ---- the map ----------------------------------------------------------------------------------------------------
 
+    // Three layers, each drawn only when it changes: the work's Parcels, the selected ones, the one under the mouse.
+    var drawn = { work: "", pick: "" };
     function drawMap() {
-      if (!req) { workLayer.set([]); pickLayer.set([]); hoverLayer.set([]); return; }
-      workLayer.set(Object.keys(shapeStatus).map(function (id) {
+      var work = req ? Object.keys(shapeStatus).filter(function (id) { return shapes[id]; }).map(function (id) {
         return { id: Number(id), geometry: shapes[id], color: STATUS_COLORS[shapeStatus[id]] || "#64748b" };
-      }));
-      pickLayer.set(selected.map(function (s) { return { id: s.parcelId, geometry: shapes[s.parcelId], color: Nadlan.mapHighlightColors.selected }; }));
-      hoverLayer.set(hovered && shapes[hovered] ? [{ id: hovered, geometry: shapes[hovered], color: HOVER_COLOR }] : []);
+      }) : [];
+      var pick = req ? selected.filter(function (s) { return shapes[s.parcelId]; }).map(function (s) {
+        return { id: s.parcelId, geometry: shapes[s.parcelId], color: Nadlan.mapHighlightColors.selected };
+      }) : [];
+      var workKey = work.map(function (x) { return x.id + x.color; }).join(), pickKey = pick.map(function (x) { return x.id; }).join();
+      if (workKey !== drawn.work) { workLayer.set(work); drawn.work = workKey; }
+      if (pickKey !== drawn.pick) { pickLayer.set(pick); drawn.pick = pickKey; }
+      drawHover();
     }
 
-    function loadShapes(fit) {
+    function drawHover() {
+      hoverLayer.set(req && hovered && shapes[hovered] ? [{ id: hovered, geometry: shapes[hovered], color: HOVER_COLOR }] : []);
+    }
+
+    // The Parcels' statuses come with the request; outlines are fetched only for Parcels the map doesn't have yet.
+    function syncShapes(fit) {
+      shapeStatus = {};
+      req.items.forEach(function (r) { shapeStatus[r.parcelId] = r.parcelStatus; });
+      var missing = Object.keys(shapeStatus).some(function (id) { return !shapes[id]; });
+      drawMap();
+      if (!missing) {
+        if (fit && Object.keys(shapeStatus).length) { fitTo(Object.keys(shapeStatus).map(function (id) { return shapes[id]; })); }
+        return;
+      }
+      var g = gen;
       Nadlan.api.get(url("/shapes")).then(function (list) {
-        shapeStatus = {};
-        list.forEach(function (s) { shapes[s.parcelId] = s.geometry; shapeStatus[s.parcelId] = s.status; });
+        if (g !== gen) { return; }
+        list.forEach(function (s) { shapes[s.parcelId] = s.geometry; });
         drawMap();
         if (fit && list.length) { fitTo(list.map(function (s) { return s.geometry; })); }
       }, fail);
@@ -280,7 +313,7 @@
 
     function shapeOf(parcelId) {
       if (shapes[parcelId]) { return; }
-      Nadlan.api.get("/api/parcels/" + parcelId).then(function (d) { shapes[parcelId] = d.geometry; drawMap(); }, function () { /* outlined once loaded */ });
+      Nadlan.api.get("/api/parcels/" + parcelId).then(function (d) { shapes[parcelId] = d.geometry; if (req) { drawMap(); } }, function () { /* outlined once loaded */ });
     }
 
     function boundsOf(geometries) {
@@ -295,12 +328,13 @@
     function goTo(parcelId) {
       if (!shapes[parcelId]) { return; }
       fitTo([shapes[parcelId]]);
-      google.maps.event.addListenerOnce(map, "idle", function () { if (map.getZoom() > 19) { map.setZoom(19); } });
+      var once = google.maps.event.addListenerOnce(map, "idle", function () { if (map.getZoom() > 19) { map.setZoom(19); } });
+      setTimeout(function () { google.maps.event.removeListener(once); }, 1500); // no move = no "idle": never keep it
     }
 
     function hover(parcelId) {
       hovered = parcelId;
-      drawMap();
+      drawHover();
     }
 
     // A click on the map while Work is open: select / deselect.
@@ -321,15 +355,22 @@
     // ---- actions ----------------------------------------------------------------------------------------------------
 
     function after(promise, message) {
+      var g = gen;
       busy = true;
       render();
       return promise.then(function (detail) {
+        if (g !== gen) { return false; }
         busy = false;
         req = detail.request || detail;
         render();
-        loadShapes(false);
+        syncShapes(false);
         if (message) { setStatus(message); }
-      }, fail);
+        return true;
+      }, function (err) {
+        if (g !== gen) { return false; }
+        fail(err);
+        return false;
+      });
     }
 
     function addPending() {
@@ -340,17 +381,19 @@
       var pending = selected.filter(function (s) { return !hasWork(s.parcelId); });
       busy = true;
       render();
-      var added = 0, failed = [];
+      var added = 0, failed = [], g = gen;
       // One by one: each is checked on the server (areas); one refused doesn't stop the others.
       pending.reduce(function (chain, s) {
         return chain.then(function () {
-          return Nadlan.api.post(url("/parcels"), { parcelId: s.parcelId, workTypeIds: ids }).then(function (res) { req = res.request; added++; },
+          if (g !== gen) { return null; }
+          return Nadlan.api.post(url("/parcels"), { parcelId: s.parcelId, workTypeIds: ids }).then(function (res) { if (g === gen) { req = res.request; added++; } },
             function (err) { failed.push((s.registryId || "#" + s.parcelId) + ": " + err.message); });
         });
       }, Promise.resolve()).then(function () {
+        if (g !== gen) { return; }
         busy = false;
         render();
-        loadShapes(false);
+        syncShapes(false);
         setStatus(failed.length ? "Added " + added + "; not added - " + failed.join("; ") : "Added " + added + " parcel" + (added === 1 ? "" : "s") + " to the work.", failed.length > 0);
       });
     }
@@ -374,10 +417,7 @@
       var p = parcelOfWork(parcelId);
       Nadlan.dialog.confirm("Remove from the work", "Remove parcel " + esc(p.registryId || "") + " and its works from \"" + esc(req.name) + "\"?", "Remove").then(function (ok) {
         if (!ok) { return; }
-        after(Nadlan.api.del(url("/parcels/" + parcelId)), "Parcel removed from the work.").then(function () {
-          delete shapeStatus[parcelId];
-          drawMap();
-        });
+        after(Nadlan.api.del(url("/parcels/" + parcelId)), "Parcel removed from the work.");
       });
     }
 
@@ -401,8 +441,10 @@
 
       function save(text) {
         d.busy(true);
+        var g = gen;
         Nadlan.api.put(url("/works/" + workItemId + "/remarks"), { remarks: text || null }).then(function (detail) {
           d.close();
+          if (g !== gen) { return; }
           req = detail;
           render();
           setStatus(text ? "Remark saved." : "Remark removed.");
@@ -437,7 +479,7 @@
 
           "<section class=\"work-link-step\"><h4><span class=\"work-step-no\">1</span> Password <span class=\"muted\">(optional)</span></h4>" +
             (l.hasPassword
-              ? "<p>Set. The contractor types it once on the phone (remembered 30 days).</p>" +
+              ? "<p>Set. The contractor types it once on the phone (remembered 30 days). A new one signs phones out: they type the new one.</p>" +
                 "<div class=\"btn-row\"><button type=\"button\" class=\"btn btn-small\" data-act=\"password\">Change…</button>" +
                 "<button type=\"button\" class=\"btn btn-small\" data-act=\"generate\">Generate new</button>" +
                 "<button type=\"button\" class=\"btn btn-small\" data-act=\"remove-password\">Remove</button></div>"
@@ -467,9 +509,11 @@
         $box.find(".work-password").text(shownPassword || "");
       }
 
+      var g = gen;
       function act(promise, message) {
         $box.find("button").prop("disabled", true);
         return promise.then(function (res) {
+          if (g !== gen) { d.close(); return null; }
           req = res.request || res;
           render();
           draw();
@@ -513,8 +557,11 @@
         $form.find("[name=password]").trigger("focus");
       });
       $box.on("click", "[data-act=remove-password]", function () {
-        shownPassword = null;
-        act(Nadlan.api.del(url("/password")), "Password removed.");
+        Nadlan.dialog.confirm("Remove the password", "The link will open without a password.", "Remove").then(function (ok) {
+          if (!ok) { return; }
+          shownPassword = null;
+          act(Nadlan.api.del(url("/password")), "Password removed.");
+        });
       });
       $box.on("click", "[data-act=copy-password]", function () { copy(shownPassword, "Password"); });
       $box.on("click", "[data-act=copy-link]", function () { if (linkUrl) { copy(linkUrl, "Link"); } });
@@ -577,12 +624,18 @@
         if (key === "add") {
           addTypes = this.checked ? addTypes.concat([id]) : addTypes.filter(function (x) { return x !== id; });
           render();
+        } else if (busy) {
+          this.checked = !this.checked; // a save is running: one change at a time
         } else {
           toggleWork(Number(key), id, this.checked);
         }
       });
-      $(document).on("mousedown.workpicker", function (e) {
-        if (openPicker !== null && $win && !$(e.target).closest(".work-picker").length) { openPicker = null; render(); }
+      // Closed after the click is handled (not on mousedown): the button clicked (Add, 📝, ×) still gets its click.
+      $(document).on("click.workpicker", function (e) {
+        if (openPicker === null || !$win || $(e.target).closest(".work-picker").length) { return; }
+        openPicker = null;
+        $win.find(".work-picker").removeClass("open").find(".work-picker-list").remove();
+        $win.find(".work-picker-button").attr("aria-expanded", "false");
       });
       $win.on("click", "[data-act=remark]", function () { editRemark(Number($(this).closest("[data-work]").data("work"))); });
       $win.on("click", "[data-act=remove-parcel]", function () { removeParcel(Number($(this).closest(".work-parcel").data("parcel"))); });
@@ -612,7 +665,9 @@
     }
 
     function close() {
-      $(document).off("mousedown.workpicker");
+      gen++;
+      busy = false;
+      $(document).off("click.workpicker");
       if ($win) { $win.remove(); $win = null; }
       req = null;
       selected = [];
