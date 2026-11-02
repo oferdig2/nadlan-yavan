@@ -13,11 +13,20 @@
     return m ? Number(m[1]) : null;
   }
 
+  // #request=12 a request, #report the work report, #types the work types list; nothing = the requests list.
   function route() {
     var id = requestIdFromHash();
+    var tab = id ? "requests" : window.location.hash === "#report" ? "report" : window.location.hash === "#types" ? "types" : "requests";
+    $("[data-tab]").removeClass("active").filter("[data-tab=" + tab + "]").addClass("active");
     W.setStatus("");
     if (id) {
       Nadlan.workRequest.open($panel, id);
+    } else if (tab === "report") {
+      $panel.off();
+      Nadlan.workReport.open($panel);
+    } else if (tab === "types") {
+      $panel.off();
+      Nadlan.workTypes.open($panel);
     } else {
       showList();
     }
@@ -56,7 +65,8 @@
 
       $wrap.html(
         "<table class=\"meta-table work-requests\"><thead><tr>" +
-          "<th>Name</th><th>Contractor</th><th class=\"num\">Parcels</th><th>Works</th><th>Link</th><th>Created</th><th>Last activity</th>" +
+          "<th>Name</th><th>Contractor</th><th class=\"num\">Parcels</th><th>Works</th><th class=\"num\">Approved €</th><th class=\"num\">Paid €</th>" +
+          "<th>Link</th><th>Created</th><th>Last activity</th>" +
         "</tr></thead><tbody>" +
         shown.map(function (r) {
           return "<tr data-id=\"" + r.workRequestId + "\" tabindex=\"0\">" +
@@ -64,6 +74,8 @@
             "<td>" + esc(r.contractor.displayName) + "</td>" +
             "<td class=\"num\">" + r.parcels + "</td>" +
             "<td>" + worksSummary(r.works) + "</td>" +
+            "<td class=\"num\">" + (r.approvedEur ? W.money(r.approvedEur, "EUR") : "—") + (r.otherCurrency ? " <span class=\"muted\" title=\"Some prices are in another currency: see the Report\">+</span>" : "") + "</td>" +
+            "<td class=\"num\">" + (r.paidEur ? W.money(r.paidEur, "EUR") : "—") + "</td>" +
             "<td>" + W.linkBadge(r.link) + (r.hasPassword ? " <span class=\"muted\" title=\"The link asks for a password\">🔒</span>" : "") + "</td>" +
             "<td>" + W.date(r.createdUtc) + "</td>" +
             "<td>" + W.dateTime(r.lastActivityUtc) + "</td>" +
@@ -127,8 +139,9 @@
 
   $(function () {
     $panel = $("#work-panel");
-    $("[data-tab=requests]").on("click", function () {
-      if (window.location.hash) { window.location.hash = ""; } else { route(); }
+    $("[data-tab]").on("click", function () {
+      var hash = { requests: "", report: "#report", types: "#types" }[$(this).data("tab")];
+      if ((window.location.hash || "") !== hash) { window.location.hash = hash; } else { route(); }
     });
 
     Nadlan.session.ready.then(function () {

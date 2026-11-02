@@ -217,9 +217,32 @@
         "<button type=\"button\" class=\"btn\" data-act=\"approve-selected\"" + (pickedIds().length ? "" : " disabled") + ">Approve selected" +
           (pickedIds().length ? " (" + pickedIds().length + ")" : "") + "</button>" +
       "</div>" +
+      moneyHtml() +
       "<div class=\"work-chips\" role=\"group\" aria-label=\"Filter by status\">" + chips + "</div>" +
       "<div class=\"work-table-wrap\">" + tableHtml() + "</div>" +
     "</section>";
+  }
+
+  // The request in money (piece 4), per currency - two are never added: Offered (waiting for us), Approved (every approved
+  // work, whatever happened since), Done (done or paid), Paid, To pay (done, not paid). The same rule as the Report.
+  var MONEY = [
+    { name: "Offered", statuses: ["OFFERED"] },
+    { name: "Approved", statuses: ["APPROVED", "IN_WORK", "DONE", "PAID"] },
+    { name: "Done", statuses: ["DONE", "PAID"] },
+    { name: "Paid", statuses: ["PAID"] },
+    { name: "To pay", statuses: ["DONE"] }
+  ];
+
+  function moneyHtml() {
+    var currencies = {};
+    req.items.forEach(function (r) { if (r.price !== null) { currencies[r.currencyCode] = true; } });
+    var lines = Object.keys(currencies).sort().map(function (cur) {
+      return MONEY.map(function (m) {
+        var sum = req.items.reduce(function (n, r) { return n + (r.currencyCode === cur && r.price !== null && m.statuses.indexOf(r.status) >= 0 ? Number(r.price) : 0); }, 0);
+        return esc(m.name) + " <strong>" + W.money(Math.round(sum * 100) / 100, cur) + "</strong>";
+      }).join(" · ");
+    });
+    return lines.length ? "<div class=\"work-money\">" + lines.join("<br>") + "</div>" : "";
   }
 
   function tableHtml() {

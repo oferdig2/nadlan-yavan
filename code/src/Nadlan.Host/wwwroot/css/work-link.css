@@ -88,8 +88,11 @@
 .wl-consent { max-width: 460px; margin: 0 auto; padding: 28px 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; max-height: 100%; }
 .wl-consent h1 { margin: 0; font-size: 22px; }
 .wl-consent p { margin: 0 0 6px; line-height: 1.45; }
-.wl-map-tools { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-.wl-map-tools .btn { min-height: 40px; font-size: 14px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
+/* Never wider than the map, whatever the language: long labels wrap instead of running off the screen (review 2026-11-01). */
+.wl-map-tools { position: absolute; top: 8px; right: max(8px, env(safe-area-inset-right)); z-index: 2; display: flex; flex-direction: column; gap: 6px;
+  align-items: flex-end; width: max-content; max-width: min(220px, calc(100% - 16px)); }
+.wl-map-tools .btn { min-height: 40px; max-width: 100%; font-size: 14px; white-space: normal; text-align: center; line-height: 1.2;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
 .wl-map-tools .btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .wl-sharing { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: #1e3a8a; color: #fff; font-size: 13px; text-align: center;
   padding: 6px 12px calc(6px + env(safe-area-inset-bottom)); }

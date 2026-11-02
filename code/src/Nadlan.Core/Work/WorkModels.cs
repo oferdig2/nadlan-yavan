@@ -61,6 +61,11 @@ public sealed record WorkRequestSummary
     public int InWork { get; init; }
     public int Done { get; init; }
     public int Paid { get; init; }
+
+    /// <summary>Euros of every approved work (approved or later), and of the paid ones. Other currencies are never added in.</summary>
+    public decimal ApprovedEur { get; init; }
+    public decimal PaidEur { get; init; }
+    public bool OtherCurrency { get; init; }
     public DateTime CreatedUtc { get; init; }
     public DateTime? LastActivityUtc { get; init; }
 }

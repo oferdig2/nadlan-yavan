@@ -139,6 +139,27 @@ public interface IWorkStore
     Task<IReadOnlyList<WorkParcelMedia>> ListParcelMediaAsync(long workRequestId, string category, IReadOnlyCollection<string> mimeTypes,
         CancellationToken ct = default);
 
+    // ---- the work types list and the report (piece 4) ------------------------------------------------------------
+
+    Task<int> CreateWorkTypeAsync(WorkType type, CancellationToken ct = default);
+
+    Task UpdateWorkTypeAsync(int workTypeId, WorkType type, CancellationToken ct = default);
+
+    /// <summary>How many works use the type.</summary>
+    Task<int> WorkTypeUsesAsync(int workTypeId, CancellationToken ct = default);
+
+    /// <summary>Works per type (types never used are left out).</summary>
+    Task<IReadOnlyDictionary<int, int>> WorkTypeUseCountsAsync(CancellationToken ct = default);
+
+    /// <summary>Deletes the type only while no work uses it. True if deleted.</summary>
+    Task<bool> DeleteUnusedWorkTypeAsync(int workTypeId, CancellationToken ct = default);
+
+    /// <summary>The works matching the filter on Parcels the scope may see, newest request first; at most <paramref name="limit"/>.</summary>
+    Task<IReadOnlyList<WorkReportRow>> ListReportAsync(WorkReportFilter filter, AccessScope scope, int limit, CancellationToken ct = default);
+
+    /// <summary>The money of the matching works, per group and currency, worked out in the database.</summary>
+    Task<IReadOnlyList<WorkTotals>> ReportTotalsAsync(WorkReportFilter filter, AccessScope scope, WorkReportGroup group, CancellationToken ct = default);
+
     Task AddEventAsync(NewWorkEvent workEvent, CancellationToken ct = default);
 
     /// <summary>The request's history, newest first.</summary>

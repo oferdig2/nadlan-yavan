@@ -17,6 +17,7 @@ public static class WorkModule
         services.AddSingleton<WorkService>();
         services.AddSingleton<WorkLinkService>();
         services.AddSingleton<WorkMediaService>();
+        services.AddSingleton<WorkTypeService>();
         services.AddHostedService<WorkSweeper>(); // daily: the 90-day track limit, abandoned picture uploads
         return services;
     }

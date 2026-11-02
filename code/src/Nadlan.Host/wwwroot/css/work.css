@@ -90,3 +90,21 @@
 .work-msg.from-contractor { align-self: flex-start; background: var(--bg); }
 .work-msg-head { font-size: 12px; }
 .work-msg-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Piece 4: the request's money line, the report (filters, totals, groups), the work types list */
+.work-money { font-size: 13px; margin: 0 0 10px; color: var(--muted); }
+.work-money strong { color: var(--text); }
+.work-report-filters { gap: 10px; }
+.work-report-row { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.work-report-row > label { flex: 1 1 160px; min-width: 0; }
+.work-report-row > label.narrow { flex: 0 1 96px; }
+.work-totals { display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: flex-end; margin-bottom: 12px; }
+.work-totals-cur { font-weight: 700; color: var(--muted); align-self: center; }
+.work-total-name { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.work-total-sum { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.work-total-count { font-size: 12px; }
+.work-report-table, .work-groups { min-width: 1100px; }
+.work-groups td { white-space: nowrap; }
+.work-group-rows > td { padding: 0 0 8px 16px; background: var(--bg); }
+.work-report-results .warn { margin-bottom: 8px; }
+.work-types { min-width: 640px; }

@@ -143,6 +143,7 @@ public sealed partial class MySqlWorkStore : IWorkStore
                    COALESCE(pc.parcels, 0) AS parcels,
                    COALESCE(w.requested, 0) AS requested, COALESCE(w.offered, 0) AS offered, COALESCE(w.approved, 0) AS approved,
                    COALESCE(w.in_work, 0) AS in_work, COALESCE(w.done, 0) AS done, COALESCE(w.paid, 0) AS paid,
+                   COALESCE(w.approved_eur, 0) AS approved_eur, COALESCE(w.paid_eur, 0) AS paid_eur, COALESCE(w.other_currency, 0) > 0 AS other_currency,
                    (SELECT MAX(e.created_utc) FROM work_event e WHERE e.work_request_id = r.work_request_id) AS last_activity_utc
             FROM work_request r
             JOIN contact c ON c.contact_id = r.contractor_contact_id
@@ -153,7 +154,10 @@ public sealed partial class MySqlWorkStore : IWorkStore
             LEFT JOIN (SELECT wi.work_request_id,
                               CAST(SUM(wi.status = 'REQUESTED') AS SIGNED) AS requested, CAST(SUM(wi.status = 'OFFERED') AS SIGNED) AS offered,
                               CAST(SUM(wi.status = 'APPROVED') AS SIGNED) AS approved, CAST(SUM(wi.status = 'IN_WORK') AS SIGNED) AS in_work,
-                              CAST(SUM(wi.status = 'DONE') AS SIGNED) AS done, CAST(SUM(wi.status = 'PAID') AS SIGNED) AS paid
+                              CAST(SUM(wi.status = 'DONE') AS SIGNED) AS done, CAST(SUM(wi.status = 'PAID') AS SIGNED) AS paid,
+                              SUM(CASE WHEN wi.status IN ('APPROVED', 'IN_WORK', 'DONE', 'PAID') AND wi.currency_code = 'EUR' THEN wi.price END) AS approved_eur,
+                              SUM(CASE WHEN wi.status = 'PAID' AND wi.currency_code = 'EUR' THEN wi.price END) AS paid_eur,
+                              SUM(wi.currency_code <> 'EUR' AND wi.price IS NOT NULL) AS other_currency
                        FROM work_item wi JOIN parcel p ON p.parcel_id = wi.parcel_id
                        WHERE {visible}
                        GROUP BY wi.work_request_id) w ON w.work_request_id = r.work_request_id
