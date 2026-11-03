@@ -6,6 +6,12 @@ namespace Nadlan.Core.Work;
 /// The work module's tables (migration 021). Every read or write of a request's Parcels and works names the request:
 /// an id from a page is never used without it. Lists of a request's works only include Parcels the scope may see.
 /// </summary>
+/// <summary>One parcel's share of a batch: its entries as JSON items (no brackets), to add to the end of its path.</summary>
+public sealed record WorkTrackAppend(long ParcelId, DateTime FirstUtc, DateTime LastUtc, int Count, string Items);
+
+/// <summary>A path written again (old entries trimmed): null from the rewrite = delete the path.</summary>
+public sealed record WorkTrackRewrite(string Path, DateTime FirstUtc, DateTime LastUtc, int Count);
+
 public interface IWorkStore
 {
     Task<IReadOnlyList<WorkType>> ListWorkTypesAsync(CancellationToken ct = default);
@@ -125,14 +131,19 @@ public interface IWorkStore
     /// <summary>The Parcel is in the request.</summary>
     Task<bool> HasParcelAsync(long workRequestId, long parcelId, CancellationToken ct = default);
 
-    Task AddLocationAsync(long workRequestId, double latitude, double longitude, decimal? accuracyM, CancellationToken ct = default);
+    /// <summary>Adds a batch to the end of each parcel's path, in one transaction; false when this batch id was added before (sent again).</summary>
+    Task<bool> AppendTrackAsync(long workRequestId, string batchId, IReadOnlyList<WorkTrackAppend> parts, CancellationToken ct = default);
 
-    Task<WorkLocationPoint?> LastLocationAsync(long workRequestId, CancellationToken ct = default);
+    /// <summary>The request's paths (one per parcel), or one parcel's.</summary>
+    Task<IReadOnlyList<WorkTrackPath>> ListTracksAsync(long workRequestId, long? parcelId, CancellationToken ct = default);
 
-    /// <summary>The track between two moments, oldest first, at most <paramref name="limit"/> points.</summary>
-    Task<IReadOnlyList<WorkLocationPoint>> ListLocationsAsync(long workRequestId, DateTime fromUtc, DateTime toUtc, int limit, CancellationToken ct = default);
+    /// <summary>Paths that still have entries before the cutoff (and later ones): at most <paramref name="limit"/>.</summary>
+    Task<IReadOnlyList<(long WorkRequestId, long ParcelId)>> ListTracksStartingBeforeAsync(DateTime beforeUtc, int limit, CancellationToken ct = default);
 
-    /// <summary>Deletes track points recorded before the cutoff (every request); returns how many.</summary>
+    /// <summary>Reads a path and writes what <paramref name="rewrite"/> makes of it, locked against a batch arriving meanwhile.</summary>
+    Task RewriteTrackAsync(long workRequestId, long parcelId, Func<string, WorkTrackRewrite?> rewrite, CancellationToken ct = default);
+
+    /// <summary>Deletes paths whose last entry is before the cutoff, and the batch receipts older than it (every request); returns how many paths.</summary>
     Task<int> PurgeLocationsAsync(DateTime recordedBeforeUtc, CancellationToken ct = default);
 
     /// <summary>The request's Parcels' customer-facing media: Ready Parcel files of the category and types given.</summary>
@@ -159,6 +170,9 @@ public interface IWorkStore
 
     /// <summary>The money of the matching works, per group and currency, worked out in the database.</summary>
     Task<IReadOnlyList<WorkTotals>> ReportTotalsAsync(WorkReportFilter filter, AccessScope scope, WorkReportGroup group, CancellationToken ct = default);
+
+    /// <summary>Staff's remark on one work of the request (null clears it). False if no such work in the request.</summary>
+    Task<bool> SetRemarksAsync(long workRequestId, long workItemId, string? remarks, CancellationToken ct = default);
 
     Task AddEventAsync(NewWorkEvent workEvent, CancellationToken ct = default);
 

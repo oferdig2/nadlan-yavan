@@ -28,6 +28,13 @@
     hasToken: function () { return token.length > 0; },
     get: function (path) { return request("GET", path); },
     post: function (path, body) { return request("POST", path, body || {}); },
+    /** For a page that is going away (keepalive: the browser finishes it). Resolves with the fetch Response. */
+    postKeepalive: function (path, body) {
+      return window.fetch("/api/work-link" + path, {
+        method: "POST", credentials: "same-origin", keepalive: true, body: JSON.stringify(body || {}),
+        headers: { "Content-Type": "application/json", "X-Work-Link": token, "X-Nadlan-Request": "1" }
+      });
+    },
     /** A raw body (the JPEG preview of a picture). */
     postBlob: function (path, blob, contentType) {
       return window.fetch("/api/work-link" + path, {

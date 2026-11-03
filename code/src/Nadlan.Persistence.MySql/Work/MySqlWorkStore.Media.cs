@@ -132,31 +132,72 @@ public sealed partial class MySqlWorkStore
 
     // ---- the contractor's track ---------------------------------------------------------------------------------
 
-    public async Task AddLocationAsync(long workRequestId, double latitude, double longitude, decimal? accuracyM, CancellationToken ct = default)
+    public async Task<bool> AppendTrackAsync(long workRequestId, string batchId, IReadOnlyList<WorkTrackAppend> parts, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        await conn.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO work_location (work_request_id, latitude, longitude, accuracy_m) VALUES (@workRequestId, @latitude, @longitude, @accuracyM)",
-            new { workRequestId, latitude, longitude, accuracyM }, cancellationToken: ct));
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        // The same batch again (the phone got no answer the first time): added once.
+        if (await conn.ExecuteAsync(new CommandDefinition(
+            "INSERT IGNORE INTO work_track_batch (work_request_id, batch_id) VALUES (@workRequestId, @batchId)", new { workRequestId, batchId }, tx, cancellationToken: ct)) == 0)
+        {
+            return false;
+        }
+
+        foreach (var part in parts)
+        {
+            // The parcel's one path: made by its first batch, every later one added to its end (the JSON array stays whole).
+            await conn.ExecuteAsync(new CommandDefinition("""
+                INSERT INTO work_track (work_request_id, parcel_id, path, first_utc, last_utc, entry_count)
+                VALUES (@workRequestId, @parcelId, CONCAT('[', @items, ']'), @firstUtc, @lastUtc, @count)
+                ON DUPLICATE KEY UPDATE path = CONCAT(LEFT(path, CHAR_LENGTH(path) - 1), ',', @items, ']'),
+                  first_utc = LEAST(first_utc, @firstUtc), last_utc = GREATEST(last_utc, @lastUtc), entry_count = entry_count + @count,
+                  updated_utc = UTC_TIMESTAMP(3)
+                """, new { workRequestId, part.ParcelId, items = part.Items, part.FirstUtc, part.LastUtc, part.Count }, tx, cancellationToken: ct));
+        }
+
+        await tx.CommitAsync(ct);
+        return true;
     }
 
-    public async Task<WorkLocationPoint?> LastLocationAsync(long workRequestId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<WorkTrackPath>> ListTracksAsync(long workRequestId, long? parcelId, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        return await conn.QueryFirstOrDefaultAsync<WorkLocationPoint>(new CommandDefinition("""
-            SELECT latitude, longitude, accuracy_m, recorded_utc FROM work_location
-            WHERE work_request_id = @workRequestId ORDER BY recorded_utc DESC, work_location_id DESC LIMIT 1
-            """, new { workRequestId }, cancellationToken: ct));
+        return (await conn.QueryAsync<WorkTrackPath>(new CommandDefinition("""
+            SELECT parcel_id, first_utc, last_utc, path FROM work_track
+            WHERE work_request_id = @workRequestId AND (@parcelId IS NULL OR parcel_id = @parcelId) ORDER BY last_utc DESC
+            """, new { workRequestId, parcelId }, cancellationToken: ct))).ToList();
     }
 
-    public async Task<IReadOnlyList<WorkLocationPoint>> ListLocationsAsync(long workRequestId, DateTime fromUtc, DateTime toUtc, int limit, CancellationToken ct = default)
+    public async Task<IReadOnlyList<(long WorkRequestId, long ParcelId)>> ListTracksStartingBeforeAsync(DateTime beforeUtc, int limit,
+        CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        return (await conn.QueryAsync<WorkLocationPoint>(new CommandDefinition("""
-            SELECT latitude, longitude, accuracy_m, recorded_utc FROM work_location
-            WHERE work_request_id = @workRequestId AND recorded_utc >= @fromUtc AND recorded_utc < @toUtc
-            ORDER BY recorded_utc, work_location_id LIMIT @limit
-            """, new { workRequestId, fromUtc, toUtc, limit }, cancellationToken: ct))).ToList();
+        return (await conn.QueryAsync<(long, long)>(new CommandDefinition("""
+            SELECT work_request_id, parcel_id FROM work_track WHERE first_utc < @beforeUtc AND last_utc >= @beforeUtc ORDER BY first_utc LIMIT @limit
+            """, new { beforeUtc, limit }, cancellationToken: ct))).ToList();
+    }
+
+    public async Task RewriteTrackAsync(long workRequestId, long parcelId, Func<string, WorkTrackRewrite?> rewrite, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var path = await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT path FROM work_track WHERE work_request_id = @workRequestId AND parcel_id = @parcelId FOR UPDATE",
+            new { workRequestId, parcelId }, tx, cancellationToken: ct));
+        if (path is null)
+        {
+            return;
+        }
+
+        var next = rewrite(path);
+        await conn.ExecuteAsync(new CommandDefinition(next is null
+            ? "DELETE FROM work_track WHERE work_request_id = @workRequestId AND parcel_id = @parcelId"
+            : """
+              UPDATE work_track SET path = @Path, first_utc = @FirstUtc, last_utc = @LastUtc, entry_count = @Count, updated_utc = UTC_TIMESTAMP(3)
+              WHERE work_request_id = @workRequestId AND parcel_id = @parcelId
+              """,
+            new { workRequestId, parcelId, next?.Path, next?.FirstUtc, next?.LastUtc, next?.Count }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
     }
 
     public async Task<int> PurgeLocationsAsync(DateTime recordedBeforeUtc, CancellationToken ct = default)
@@ -168,10 +209,12 @@ public sealed partial class MySqlWorkStore
         do
         {
             n = await conn.ExecuteAsync(new CommandDefinition(
-                "DELETE FROM work_location WHERE recorded_utc < @recordedBeforeUtc ORDER BY recorded_utc LIMIT 5000", new { recordedBeforeUtc }, cancellationToken: ct));
+                "DELETE FROM work_track WHERE last_utc < @recordedBeforeUtc ORDER BY last_utc LIMIT 500", new { recordedBeforeUtc }, cancellationToken: ct));
             total += n;
         }
-        while (n == 5000);
+        while (n == 500);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM work_track_batch WHERE received_utc < @recordedBeforeUtc", new { recordedBeforeUtc }, cancellationToken: ct));
         return total;
     }
 

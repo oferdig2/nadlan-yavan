@@ -76,6 +76,7 @@
     parcelOverlay = Nadlan.createParcelMapOverlay(map, {
       onClick: function (p, domEvent) {
         if (mapDrop && mapDrop.isPicking()) { mapDrop.picked(p); return; } // Map drop: this click assigns a file
+        if (workPanel && workPanel.isOpen()) { workPanel.clicked(p); return; } // Work open: a click selects / deselects
         if (!quickEntryOn()) { popups.showParcel(p); return; }
         // While a row is open every click adds or removes (no lost row on a plain click, and it works by touch).
         var rowClick = Nadlan.parcelQuickEntry.inRow() || (domEvent && (domEvent.ctrlKey || domEvent.metaKey));
@@ -287,7 +288,8 @@
       state.mode = mode;
       popups.setView(mode);
       $("[data-view]").removeClass("active").filter("[data-view=" + mode + "]").addClass("active");
-      $(".quick-entry-setting").toggleClass("off-view", mode !== "parcels"); // Parcels view only
+      $(".quick-entry-setting, [data-tool=work]").toggleClass("off-view", mode !== "parcels"); // Parcels view only
+      if (mode !== "parcels" && workPanel) { workPanel.close(); }
       if (mode !== "parcels") { Nadlan.parcelQuickEntry.close(); }
       parcelOverlay.setVisible(mode === "parcels");
       assetOverlay.setVisible(mode === "assets");
@@ -611,6 +613,13 @@
       });
       var reloadTimer = null;
       var reloadSoon = function () { clearTimeout(reloadTimer); reloadTimer = setTimeout(function () { reload(); }, 800); };
+    }
+
+    // Work (MANAGE_WORK, Parcels view): a request's parcels collected on the map, their works chosen in a small window.
+    var workPanel = null;
+    if (Nadlan.session.can("MANAGE_WORK") && Nadlan.workMapPanel) {
+      workPanel = Nadlan.workMapPanel.init({ map: map, setStatus: setStatus });
+      $("[data-tool=work]").on("click", function () { workPanel.open(); });
     }
 
     filters.setMode("parcels");

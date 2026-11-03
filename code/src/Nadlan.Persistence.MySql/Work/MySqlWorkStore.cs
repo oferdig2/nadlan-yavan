@@ -217,7 +217,8 @@ public sealed partial class MySqlWorkStore : IWorkStore
                CASE WHEN p.plot_number IS NULL THEN NULL ELSE CONCAT(p.plot_number, COALESCE(p.plot_ext, '')) END AS plot,
                ga.name AS geographic_area, p.official_area_sqm, wrp.status AS parcel_status, wrp.sort_order AS parcel_sort_order,
                wi.work_type_id, wt.code AS work_type_code, wt.name AS work_type_name, wt.name_el AS work_type_name_el, wi.status,
-               wi.price, wi.currency_code, wi.est_start_date, wi.offered_utc, wi.approved_utc, wi.started_utc, wi.done_utc, wi.paid_utc
+               wi.price, wi.currency_code, wi.est_start_date, wi.offered_utc, wi.approved_utc, wi.started_utc, wi.done_utc, wi.paid_utc,
+               wi.remarks
         FROM work_item wi
         JOIN work_request_parcel wrp ON wrp.work_request_id = wi.work_request_id AND wrp.parcel_id = wi.parcel_id
         JOIN parcel p ON p.parcel_id = wi.parcel_id
@@ -350,14 +351,15 @@ public sealed partial class MySqlWorkStore : IWorkStore
         await using var conn = await _db.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         var id = await conn.ExecuteScalarAsync<long>(new CommandDefinition(InsertRequest, request, tx, cancellationToken: ct));
-        // Only the list: Parcels in their order and the works asked for. No prices, dates, messages, files or track.
+        // Only the list: Parcels in their order, the works asked for and staff's remarks on them (instructions for the job).
+        // No prices, dates, messages, files or track.
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO work_request_parcel (work_request_id, parcel_id, sort_order, status)
             SELECT @id, parcel_id, sort_order, 'OPEN_OFFERS' FROM work_request_parcel WHERE work_request_id = @sourceRequestId
             """, new { id, sourceRequestId }, tx, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO work_item (work_request_id, parcel_id, work_type_id)
-            SELECT @id, parcel_id, work_type_id FROM work_item WHERE work_request_id = @sourceRequestId
+            INSERT INTO work_item (work_request_id, parcel_id, work_type_id, remarks)
+            SELECT @id, parcel_id, work_type_id, remarks FROM work_item WHERE work_request_id = @sourceRequestId
             """, new { id, sourceRequestId }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return id;
@@ -429,6 +431,14 @@ public sealed partial class MySqlWorkStore : IWorkStore
             WHERE wrp.work_request_id = @workRequestId AND {visible}
             ORDER BY wrp.sort_order, wrp.parcel_id
             """, args, cancellationToken: ct))).ToList();
+    }
+
+    public async Task<bool> SetRemarksAsync(long workRequestId, long workItemId, string? remarks, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE work_item SET remarks = @remarks, updated_utc = UTC_TIMESTAMP(3) WHERE work_item_id = @workItemId AND work_request_id = @workRequestId",
+            new { workRequestId, workItemId, remarks }, cancellationToken: ct)) == 1;
     }
 
     // ---- history ------------------------------------------------------------------------------------------------

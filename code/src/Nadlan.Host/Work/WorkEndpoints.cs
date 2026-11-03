@@ -64,6 +64,8 @@ internal static class WorkEndpoints
 
     public sealed record CorrectDto(string? Reason);
 
+    public sealed record RemarksDto(string? Remarks);
+
     public static void Map(IEndpointRouteBuilder app)
     {
         // One guard for the whole staff group, so a new endpoint can't forget it (the service checks again).
@@ -288,6 +290,14 @@ internal static class WorkEndpoints
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
 
+        // A remark on one work (staff; the contractor sees it under that work). Empty clears it.
+        group.MapPut("/requests/{id:long}/works/{workItemId:long}/remarks", async (long id, long workItemId, RemarksDto dto, UserAccess me,
+            WorkService work, IWorkStore store, CancellationToken ct) =>
+        {
+            await work.SetRemarksAsync(me, id, workItemId, dto.Remarks, ct);
+            return Results.Ok(await DetailAsync(id, me, work, store, ct));
+        });
+
         group.MapPost("/requests/{id:long}/works/{workItemId:long}/correct", async (long id, long workItemId, CorrectDto dto, UserAccess me,
             WorkService work, IWorkStore store, CancellationToken ct) =>
         {
@@ -360,17 +370,20 @@ internal static class WorkEndpoints
 
         // ---- the contractor's location (piece 3) ----------------------------------------------------------------
 
-        // The last position (any day) and one day's trail; the page asks for its own local day (fromUtc .. toUtc).
-        group.MapGet("/requests/{id:long}/locations", async (long id, DateTime fromUtc, DateTime toUtc, UserAccess me, WorkService work,
-            CancellationToken ct) =>
-        {
-            var (latest, trail) = await work.LocationsAsync(me, id, fromUtc.ToUniversalTime(), toUtc.ToUniversalTime(), ct);
-            return Results.Ok(new
+        // Admins only (owner, 2026-11-03): per parcel the times of work, inside and outside, and where he was last.
+        group.MapGet("/requests/{id:long}/track", async (long id, UserAccess me, WorkService work, CancellationToken ct) =>
+            Results.Ok((await work.TracksAsync(me, id, null, ct)).Select(p => new
             {
-                latest,
-                trail = trail.Select(p => new[] { p.Latitude, p.Longitude }),
-                truncated = trail.Count >= WorkService.MaxTrailPoints,
-            });
+                p.ParcelId,
+                summary = WorkTrack.Summarize(p.Entries),
+                latest = p.Entries.LastOrDefault(e => e.Lat is not null),
+            })));
+
+        // One parcel's whole path, for the map.
+        group.MapGet("/requests/{id:long}/track/{parcelId:long}", async (long id, long parcelId, UserAccess me, WorkService work, CancellationToken ct) =>
+        {
+            var path = (await work.TracksAsync(me, id, parcelId, ct)).Select(p => p.Entries).FirstOrDefault() ?? Array.Empty<WorkTrackEntry>();
+            return Results.Ok(new { summary = WorkTrack.Summarize(path), path });
         });
     }
 
@@ -489,6 +502,7 @@ internal static class WorkEndpoints
                 w.StartedUtc,
                 w.DoneUtc,
                 w.PaidUtc,
+                w.Remarks,
                 pictures = pictures.GetValueOrDefault(w.WorkItemId),
                 messages = messages.GetValueOrDefault(w.ParcelId), // the Parcel's conversation
             }),
