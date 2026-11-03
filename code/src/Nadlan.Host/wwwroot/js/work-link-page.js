@@ -141,6 +141,7 @@
         filter = allWorks().some(function (w) { return w.status === "APPROVED"; }) ? "approved" : "all";
       }
       $("#wl-request").text(view.name);
+      Nadlan.workTrack.init(); // sends what an earlier visit left unsent
       afterLoad();
     }, function (err) {
       if (!handleFatal(err)) { message(t("failed")); }
@@ -252,7 +253,7 @@
 
   function openParcel(id, fromMap) {
     current = id;
-    if (workOn) { workParcel = id; } // working: the parcel chosen now is the one worked on
+    if (workOn && id !== workParcel) { switchWorkParcel(id); } // working: the parcel chosen now is the one worked on
     render();
     loadMessages(id);
     $("#wl-sheet").scrollTop(0);
@@ -387,11 +388,36 @@
 
   // Outside = farther from the parcel than the phone's own uncertainty (at least 5 m, at most 25 m): GPS jitter at the
   // border doesn't set it off.
+  function whereFrom(p, pos) {
+    var d = p && pos ? Nadlan.workMap.distanceM(p.geometry, pos.lat, pos.lng) : 0;
+    return { d: d, outside: !!(p && pos && d !== Infinity && d > Math.min(25, Math.max(5, pos.accuracy || 0))) };
+  }
+
+  // Farther than this from the parcel: the track ends and "Work on parcel" turns Off (owner, 2026-11-03).
+  var FAR_M = 1000;
+  var wasOutside = false;
+
+  // The track (Admins see it): out / in once each time, a point otherwise (the recorder's 5 s / 2 m rules); 1 km = the end.
+  function recordWork(p, pos, w) {
+    if (!pos) { return true; }
+    if (w.d !== Infinity && w.d > FAR_M) {
+      Nadlan.workTrack.event("far", p.parcelId, pos, true);
+      setWorkOn(false);
+      toast(t("farStopped", { kaek: p.kaek || "" }), true);
+      return false;
+    }
+    if (w.outside !== wasOutside) { Nadlan.workTrack.event(w.outside ? "out" : "in", p.parcelId, pos, w.outside); }
+    else { Nadlan.workTrack.point(p.parcelId, pos, w.outside); }
+    wasOutside = w.outside;
+    return true;
+  }
+
   function checkWork() {
     var pos = Nadlan.workLocation.last();
     var p = workOn && workParcel && parcelById(workParcel);
-    var d = p && pos ? Nadlan.workMap.distanceM(p.geometry, pos.lat, pos.lng) : 0;
-    var outside = !!(p && pos && d !== Infinity && d > Math.min(25, Math.max(5, pos.accuracy || 0)));
+    var w = whereFrom(p, pos);
+    if (p && !recordWork(p, pos, w)) { return; }
+    var d = w.d, outside = w.outside;
     if (mapApi) { mapApi.setAlert(outside); }
     if (outside && !beepTimer) { beep(); beepTimer = setInterval(beep, BEEP_EVERY_MS); }
     if (!outside && beepTimer) { clearInterval(beepTimer); beepTimer = null; }
@@ -410,9 +436,33 @@
     checkWork();
   }
 
+  // Start on a parcel: only within 1 km of it.
+  function startWork(id) {
+    var p = parcelById(id), pos = Nadlan.workLocation.last(), w = whereFrom(p, pos);
+    if (pos && w.d !== Infinity && w.d > FAR_M) {
+      toast(t("tooFarToStart", { kaek: p.kaek || "", km: (Math.round(w.d / 100) / 10).toLocaleString(I.locale()) }), true);
+      return false;
+    }
+    workParcel = id;
+    wasOutside = w.outside;
+    Nadlan.workTrack.event("start", id, pos, w.outside);
+    return true;
+  }
+
+  function stopWork() {
+    var p = parcelById(workParcel), pos = Nadlan.workLocation.last();
+    Nadlan.workTrack.event("stop", workParcel, pos, whereFrom(p, pos).outside);
+  }
+
+  // Another parcel chosen while working: Stop on the old one, Start on the new one (or Off, when it is too far).
+  function switchWorkParcel(id) {
+    stopWork();
+    if (!startWork(id)) { setWorkOn(false); }
+  }
+
   // The button: on = the open parcel, else the one stood in (or the nearest within 100 m), else say to choose one.
   function toggleWorkOn() {
-    if (workOn) { setWorkOn(false); return; }
+    if (workOn) { stopWork(); setWorkOn(false); return; }
     if (!Nadlan.workLocation.active()) { toast(t("needLocation"), true); showOnly("consent"); applyTexts(); return; }
     if (!audio && (window.AudioContext || window.webkitAudioContext)) {
       try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
@@ -425,7 +475,7 @@
       if (here) { target = here.parcelId; openParcel(target, false); }
     }
     if (!target) { toast(t("chooseParcelToWork"), true); return; }
-    workParcel = target;
+    if (!startWork(target)) { return; }
     setWorkOn(true);
     if (pos && mapApi) { mapApi.panTo(pos); }
   }

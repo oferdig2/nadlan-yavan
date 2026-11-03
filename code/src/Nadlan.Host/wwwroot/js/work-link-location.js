@@ -1,21 +1,17 @@
 // The contractor's location (piece 3, owner 2026-11-01): only after the contractor agreed on this phone, only while the
 // page is open and visible (a web page can't track in the background). Each fix goes to the page (the blue dot, "Where
-// am I", the 100 m warning); to the server at most every 30 s, or sooner after 20 m - points worse than 100 m never.
+// am I", the 100 m warning, "Work on parcel"). Nothing goes to the server from here: the track is recorded only while
+// "Work on parcel" is On (work-link-track.js, owner 2026-11-03).
 //   Nadlan.workLocation.consent()           -> "yes" | "no" | null (not asked yet on this phone, for this link)
 //   Nadlan.workLocation.setConsent(answer)
 //   Nadlan.workLocation.start(onFix, onError), stop(), last() -> { lat, lng, accuracy, time } | null
+//   Nadlan.workLocation.storageKey() -> Promise of this link's key prefix on this phone (null without hashing)
 (function (window, document) {
   "use strict";
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
-  var api = Nadlan.workLinkApi;
-
-  var SEND_EVERY_MS = 30 * 1000;
-  var SEND_AFTER_M = 20;
-  var MAX_ACCURACY_M = 100;
-
   var watchId = null, wanted = false, handlers = null;
-  var last = null, sent = null, keyPromise = null;
+  var last = null, keyPromise = null;
 
   // The answer is kept per link on this phone: named after the token's hash, never the token itself.
   function storageKey() {
@@ -43,24 +39,10 @@
     });
   }
 
-  function metres(a, b) {
-    var kx = 111320 * Math.cos(a.lat * Math.PI / 180);
-    var dx = (b.lng - a.lng) * kx, dy = (b.lat - a.lat) * 110574;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  function maybeSend(p) {
-    if (p.accuracy > MAX_ACCURACY_M) { return; }
-    if (sent && p.time - sent.time < SEND_EVERY_MS && metres(sent, p) < SEND_AFTER_M) { return; }
-    sent = p;
-    api.post("/location", { latitude: p.lat, longitude: p.lng, accuracyM: Math.round(p.accuracy * 10) / 10 }).catch(function () { /* next one */ });
-  }
-
   function watch() {
     if (watchId !== null || !navigator.geolocation) { return; }
     watchId = navigator.geolocation.watchPosition(function (pos) {
       last = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy || 9999, time: Date.now() };
-      maybeSend(last);
       if (handlers) { handlers.onFix(last); }
     }, function (err) {
       if (handlers && handlers.onError) { handlers.onError(err); }
@@ -81,6 +63,7 @@
   Nadlan.workLocation = {
     supported: function () { return !!navigator.geolocation; },
     consent: consent,
+    storageKey: storageKey,
     setConsent: setConsent,
     start: function (onFix, onError) {
       handlers = { onFix: onFix, onError: onError };

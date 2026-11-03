@@ -109,48 +109,77 @@ public partial class WorkMySqlTests
     // ---- location -------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task Location_points_are_kept_only_when_good_enough_and_the_purge_keeps_90_days()
+    public async Task The_track_goes_into_one_path_per_parcel_once_per_batch_and_only_Admins_see_it()
     {
         if (ScratchMySql.ServerConnectionString is null) { return; }
 
         var w = await SeedAsync();
         var l = await LinkAsync(w);
         var r = await l.Links.ResolveAsync(l.Token);
+        var now = WorkTrack.ToMs(l.Clock.Now);
+        var t0 = now - 600_000; // ten minutes ago
+        WorkTrackEntry E(int s, string? e, double? lat, int @out = 0, long? p = null, double acc = 5)
+            => new(t0 + s * 1000L, e, lat, lat is null ? null : 23.15, lat is null ? null : acc, @out, p ?? w.PA1);
 
-        Assert.False(await l.Links.RecordLocationAsync(r, 38.57, 23.15, 150));   // worse than 100 m
-        Assert.False(await l.Links.RecordLocationAsync(r, 38.57, 23.15, null));  // accuracy unknown
-        Assert.False(await l.Links.RecordLocationAsync(r, 0, 0, 5));             // "no place"
-        Assert.False(await l.Links.RecordLocationAsync(r, 95, 23.15, 5));        // not on earth
-        Assert.True(await l.Links.RecordLocationAsync(r, 38.5701234567, 23.15, 12.34));
-        Assert.False(await l.Links.RecordLocationAsync(r, 38.5702, 23.15, 5));   // 0 s later: dropped
-        l.Clock.Now = l.Clock.Now.AddSeconds(30);
-        Assert.True(await l.Links.RecordLocationAsync(r, 38.5703, 23.15, 100));  // exactly 100 m is fine
+        var batch1 = new WorkTrackEntry?[]
+        {
+            E(0, "start", 38.57), E(5, null, 38.5701), E(10, null, 38.5702, acc: 150), // worse than 100 m: dropped
+            E(12, "out", 38.5710, 1), E(15, "bogus", 38.57), E(20, null, 38.5711, 1, p: w.PB), // unknown event; a parcel not in this request
+            E(60, "in", 38.5703), null,
+        };
+        Assert.Equal((true, 4), await l.Links.RecordTrackAsync(r, "batch-0001", now, batch1));
+        Assert.Equal((false, 4), await l.Links.RecordTrackAsync(r, "batch-0001", now, batch1)); // sent again: added once
+        // The next minute: Stop on one parcel, Start on the other; an event without a good place keeps its time.
+        Assert.Equal((true, 3), await l.Links.RecordTrackAsync(r, "batch-0002", now, new WorkTrackEntry?[]
+            { E(120, "stop", null), E(130, "start", 38.58, p: w.PA2, acc: 500), E(140, null, 38.5801, p: w.PA2) }));
+        // A phone whose clock is an hour behind: its times are moved to ours.
+        Assert.Equal((true, 1), await l.Links.RecordTrackAsync(r, "batch-0003", now - 3_600_000, new WorkTrackEntry?[] { E(150 - 3600, "far", 38.59, p: w.PA2) }));
 
-        var from = DateTime.UtcNow.AddHours(-1);
-        var (latest, trail) = await l.Work.LocationsAsync(w.DataPerson, l.Id, from, DateTime.UtcNow.AddHours(1));
-        Assert.Equal(2, trail.Count);
-        Assert.Equal(38.5701235, trail[0].Latitude, 7);
-        Assert.Equal(12.3m, trail[0].AccuracyM);
-        Assert.Equal(38.5703, latest!.Latitude, 7);
-        await Assert.ThrowsAsync<DomainValidationException>(() => l.Work.LocationsAsync(w.DataPerson, l.Id, from, from.AddDays(3)));
+        await Assert.ThrowsAsync<DomainValidationException>(() => l.Links.RecordTrackAsync(r, "x", now, batch1));
+        await Assert.ThrowsAsync<DomainValidationException>(() => l.Links.RecordTrackAsync(r, "batch-0004", now,
+            Enumerable.Repeat<WorkTrackEntry?>(E(1, null, 38.57), WorkLinkService.MaxTrackBatchEntries + 1).ToArray()));
 
-        // 91 and 89 days old: the daily job removes the first only.
+        await Assert.ThrowsAsync<ForbiddenException>(() => l.Work.TracksAsync(w.DataPerson, l.Id, null));
+        var tracks = await l.Work.TracksAsync(w.Admin, l.Id, null);
+        var a = tracks.Single(x => x.ParcelId == w.PA1).Entries;
+        Assert.Equal(new string?[] { "start", null, "out", "in", "stop" }, a.Select(e => e.E).ToArray());
+        Assert.Null(a[4].Lat);
+        Assert.All(a, e => Assert.Null(e.P)); // the path is the parcel's own
+        var sum = WorkTrack.Summarize(a);
+        Assert.Equal((120L, 72L, 48L, 1), (sum.WorkSeconds, sum.InsideSeconds, sum.OutsideSeconds, sum.TimesOutside)); // out 12 s .. in 60 s
+        Assert.Equal("stop", Assert.Single(sum.Sessions).EndedBy);
+        var b = tracks.Single(x => x.ParcelId == w.PA2).Entries;
+        Assert.Equal(new string?[] { "start", null, "far" }, b.Select(e => e.E).ToArray());
+        Assert.Null(b[0].Lat); // 500 m: the Start without its place
+        Assert.Equal(t0 + 150_000, b[2].T);
+        Assert.Equal(20, WorkTrack.Summarize(b).WorkSeconds);
+
+        // Untouched for 91 days: the daily job removes that path only.
         await using (var c = await _db!.OpenAsync())
         {
-            await c.ExecuteAsync("""
-                INSERT INTO work_location (work_request_id, latitude, longitude, accuracy_m, recorded_utc) VALUES
-                (@id, 38.1, 23.1, 5, UTC_TIMESTAMP(3) - INTERVAL 91 DAY), (@id, 38.2, 23.2, 5, UTC_TIMESTAMP(3) - INTERVAL 89 DAY)
-                """, new { id = l.Id });
+            await c.ExecuteAsync("UPDATE work_track SET last_utc = UTC_TIMESTAMP(3) - INTERVAL 91 DAY WHERE work_request_id = @id AND parcel_id = @p",
+                new { id = l.Id, p = w.PA2 });
         }
 
         var (media, _) = Media(new FixedClock(DateTime.UtcNow));
         var (purged, _) = await media.SweepAsync();
         Assert.True(purged >= 1);
-        await using (var c = await _db!.OpenAsync())
-        {
-            Assert.Equal(new[] { 38.2, 38.5701235, 38.5703 }, (await c.QueryAsync<double>(
-                "SELECT latitude FROM work_location WHERE work_request_id = @id ORDER BY recorded_utc", new { id = l.Id })).ToArray());
-        }
+        Assert.Equal(new[] { w.PA1 }, (await l.Work.TracksAsync(w.Admin, l.Id, null)).Select(x => x.ParcelId).ToArray());
+    }
+
+    [Fact]
+    public void The_summary_ends_a_session_at_its_last_entry_when_the_page_was_closed_and_counts_each_time_outside()
+    {
+        WorkTrackEntry E(int min, string? e) => new(min * 60_000L, e, 38.57, 23.15, 5, 0);
+        var s = WorkTrack.Summarize(new[] { E(0, "start"), E(10, "out"), E(15, "in"), E(20, "out"), E(22, null), E(30, "start"), E(40, "out"), E(50, null) });
+        Assert.Equal(new[] { "lost", "open" }, s.Sessions.Select(x => x.EndedBy));
+        Assert.Equal((22 + 20) * 60, s.WorkSeconds);
+        Assert.Equal((5 + 2 + 10) * 60, s.OutsideSeconds);
+        Assert.Equal(3, s.TimesOutside);
+
+        // Started from outside: outside until "in".
+        var o = WorkTrack.Summarize(new[] { E(0, "start") with { Out = 1 }, E(4, "in"), E(10, "stop") });
+        Assert.Equal((600L, 240L, 1), (o.WorkSeconds, o.OutsideSeconds, o.TimesOutside));
     }
 
     [Fact]

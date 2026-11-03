@@ -592,14 +592,13 @@
     });
   }
 
-  // ---- the contractor's location (piece 3) --------------------------------------------------------------------
+  // ---- the contractor's track: Admins only (owner, 2026-11-03) ------------------------------------------------------
+  // Recorded on the phone while "Work on parcel" is On: per parcel one path with Start / Stop / out / in / 1 km away.
 
   var personTimer = null;
+  var trackList = [], shownTrack = null; // the paths' summaries; the parcel whose path is on the map
 
-  function today() {
-    var d = new Date();
-    return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
-  }
+  function isAdmin() { var u = Nadlan.session.user(); return !!(u && u.isAdmin); }
 
   function ago(utc) {
     var min = Math.max(0, Math.round((Date.now() - new Date(utc).getTime()) / 60000));
@@ -608,8 +607,101 @@
     if (min < 48 * 60) { return Math.round(min / 60) + " h ago"; }
     return W.dateTime(utc);
   }
+  function two(n) { return ("0" + n).slice(-2); }
 
-  // Every 30 s while the request is open and the tab is visible: the last position, and the chosen day's trail.
+  function iso(ms) { return new Date(ms).toISOString(); }
+
+  function hms(ms) { var d = new Date(ms); return two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()); }
+
+  function duration(sec) {
+    if ((sec || 0) < 60) { return (sec || 0) + " s"; }
+    var m = Math.round((sec || 0) / 60);
+    return m < 60 ? m + " min" : Math.floor(m / 60) + " h " + two(m % 60) + " min";
+  }
+
+  // The end: the time only when it is the same day as the start.
+  function until(endUtc, startUtc) {
+    var e = new Date(endUtc), s = new Date(startUtc);
+    return e.toDateString() === s.toDateString() ? two(e.getHours()) + ":" + two(e.getMinutes()) : W.dateTime(endUtc);
+  }
+
+  var EVENTS = { start: "Start", stop: "Stop", out: "Out of the parcel", "in": "Back in the parcel", far: "1 km away - the track ended" };
+  var ENDED = { stop: "Stop", far: "1 km away", lost: "the page was closed", open: "no Stop yet" };
+
+  function trackKaek(parcelId) {
+    var row = req.items.filter(function (r) { return r.parcelId === parcelId; })[0];
+    return row ? Nadlan.format.registryId(row.registryId, row.registryIdIsProvisional) : esc("Parcel " + parcelId);
+  }
+
+  function sessionsHtml(sessions) {
+    return "<ol class=\"work-track-sessions\">" + sessions.map(function (x) {
+      return "<li>" + esc(W.dateTime(x.startUtc)) + " - " + esc(until(x.endUtc, x.startUtc)) + " · worked " + duration(x.workSeconds) +
+        (x.timesOutside ? " · outside " + x.timesOutside + "× (" + duration(x.outsideSeconds) + ")" : " · never outside") +
+        " · ended: " + esc(ENDED[x.endedBy] || x.endedBy) + "</li>";
+    }).join("") + "</ol>";
+  }
+
+  function trackHtml() {
+    var head = "<div class=\"meta-toolbar\"><h3>Contractor's track</h3>" +
+      "<span class=\"muted\">Admins only · recorded while the contractor has \"Work on parcel\" On</span></div>";
+    if (!trackList.length) { return "<section class=\"work-card\">" + head + "<div class=\"muted\">Nothing recorded yet.</div></section>"; }
+    return "<section class=\"work-card\">" + head +
+      "<table class=\"meta-table work-track-table\"><thead><tr><th>KAEK</th><th>Worked</th><th>Inside</th><th>Outside</th><th>Last</th><th></th></tr></thead><tbody>" +
+      trackList.map(function (t) {
+        var s = t.summary, on = shownTrack === t.parcelId;
+        return "<tr" + (on ? " class=\"is-highlighted\"" : "") + "><td>" + trackKaek(t.parcelId) + "</td>" +
+          "<td>" + duration(s.workSeconds) + "</td><td>" + duration(s.insideSeconds) + "</td>" +
+          "<td>" + (s.timesOutside ? s.timesOutside + "× · " + duration(s.outsideSeconds) : "-") + "</td>" +
+          "<td>" + esc(W.dateTime(s.lastUtc)) + "</td>" +
+          "<td><button type=\"button\" class=\"btn btn-small\" data-act=\"show-track\" data-parcel=\"" + t.parcelId + "\" aria-pressed=\"" + on + "\">" +
+            (on ? "Hide" : "On the map") + "</button></td></tr>" +
+          (on ? "<tr class=\"work-track-detail\"><td colspan=\"6\">" + sessionsHtml(s.sessions) + "</td></tr>" : "");
+      }).join("") + "</tbody></table></section>";
+  }
+
+  // The list (and the last place he was seen); the path on the map is refreshed too.
+  function refreshPerson() {
+    var $t = $panel.find(".wr-track");
+    if (!isAdmin()) { $t.prop("hidden", true).empty(); return; }
+    Nadlan.api.get(url("/track")).then(function (list) {
+      trackList = list;
+      $t.prop("hidden", false).html(trackHtml());
+      var latest = null;
+      list.forEach(function (t) { if (t.latest && (!latest || t.latest.t > latest.t)) { latest = t.latest; } });
+      var $seen = $panel.find(".work-seen");
+      if (latest) {
+        if (mapApi) { mapApi.setPosition({ lat: latest.lat, lng: latest.lng, accuracy: latest.acc || 0 }, req.contractor.displayName + " · " + ago(iso(latest.t))); }
+        $seen.text("Last seen " + ago(iso(latest.t)) + (latest.acc ? " (±" + Math.round(latest.acc) + " m)" : ""));
+      } else {
+        if (mapApi) { mapApi.setPosition(null); }
+        $seen.text("");
+      }
+      if (shownTrack !== null) { loadPath(shownTrack, false); }
+    }, function (err) { $t.prop("hidden", false).html("<div class=\"error\">" + esc(err.message) + "</div>"); });
+  }
+
+  function loadPath(parcelId, fit) {
+    if (!mapApi) { return; }
+    Nadlan.api.get(url("/track/" + parcelId)).then(function (res) {
+      if (shownTrack !== parcelId) { return; }
+      var $time = $panel.find(".work-track-time");
+      mapApi.setTrack(res.path, {
+        fit: fit,
+        label: function (e) { return (EVENTS[e.e] || e.e) + " · " + W.dateTime(iso(e.t)) + ":" + two(new Date(e.t).getSeconds()); },
+        onHover: function (e) { $time.text(e ? hms(e.t) + (e.out ? " · outside" : " · inside") + (e.e ? " · " + (EVENTS[e.e] || e.e) : "") : ""); }
+      });
+    });
+  }
+
+  function showTrack(parcelId) {
+    shownTrack = shownTrack === parcelId ? null : parcelId;
+    $panel.find(".wr-track").html(trackHtml());
+    $panel.find(".work-track-time").text("");
+    if (shownTrack === null) { if (mapApi) { mapApi.setTrack(null); } return; }
+    loadPath(shownTrack, true);
+  }
+
+  // Every 30 s while the request is open and the tab is visible: the contractor's track (Admins).
   function startPersonTimer() {
     if (personTimer) { window.clearInterval(personTimer); }
     var id = req.workRequestId;
@@ -622,29 +714,6 @@
       if (document.visibilityState === "visible") { refreshPerson(); }
     }, 30000);
   }
-
-  function refreshPerson() {
-    if (!mapApi) { return; }
-    var day = $panel.find("[data-act=trail-day]").val() || today();
-    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
-    var from = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])); // the user's own day, midnight to midnight
-    var to = new Date(from.getTime());
-    to.setDate(to.getDate() + 1);
-    Nadlan.api.get(url("/locations"), { fromUtc: from.toISOString(), toUtc: to.toISOString() }).then(function (res) {
-      var $seen = $panel.find(".work-seen");
-      if (res.latest) {
-        var label = req.contractor.displayName + " · " + ago(res.latest.recordedUtc);
-        mapApi.setPosition({ lat: res.latest.latitude, lng: res.latest.longitude, accuracy: Number(res.latest.accuracyM || 0) }, label);
-        $seen.text("Last seen " + ago(res.latest.recordedUtc) + (res.latest.accuracyM !== null ? " (±" + Math.round(res.latest.accuracyM) + " m)" : "") +
-          " · trail: " + res.trail.length + " point" + (res.trail.length === 1 ? "" : "s") + (res.truncated ? " (first 5,000)" : ""));
-      } else {
-        mapApi.setPosition(null);
-        $seen.text("The contractor hasn't shared a location yet.");
-      }
-      mapApi.setTrail(res.trail);
-    }, function () { /* the next round tries again */ });
-  }
-
   // ---- a Parcel's pictures and conversation (piece 3) -------------------------------------------------------------
 
   function parcelPictures(parcelId) {
@@ -765,8 +834,8 @@
       "<div class=\"meta-toolbar\"><h3>Map</h3>" +
         "<button type=\"button\" class=\"btn\" data-act=\"pick-on-map\" aria-pressed=\"false\">Pick a parcel on the map</button>" +
         "<span class=\"muted work-map-hint\"></span>" +
-        "<label class=\"work-day\">Contractor's trail on <input type=\"date\" class=\"input\" data-act=\"trail-day\"></label>" +
-        "<span class=\"muted work-seen\" aria-live=\"polite\"></span>" +
+        "<span class=\"muted work-seen\"></span>" +
+        "<span class=\"work-track-time\" aria-live=\"polite\"></span>" +
       "</div>" +
       "<div class=\"work-map\" id=\"work-request-map\"></div>" +
     "</section>";
@@ -805,6 +874,7 @@
         });
         refreshMap();
         refreshPerson();
+        if (shownTrack !== null) { loadPath(shownTrack, true); }
       });
     }).catch(function (err) {
       $panel.find(".work-map-card").addClass("no-map");
@@ -916,7 +986,7 @@
         "<h2 class=\"work-title\"></h2>" +
         "<div class=\"work-top wr-top\"></div>" +
         "<div class=\"work-split\">" +
-          "<div class=\"work-split-left wr-works\"></div>" +
+          "<div class=\"work-split-left\"><div class=\"wr-works\"></div><div class=\"wr-track\" hidden></div></div>" +
           "<div class=\"work-split-handle\" role=\"separator\" aria-orientation=\"vertical\" aria-label=\"Drag to resize the list and the map\" tabindex=\"0\"></div>" +
           "<div class=\"work-split-right\">" + mapHtml() + "</div>" +
         "</div>" +
@@ -925,7 +995,7 @@
       $panel.on("click", "[data-act=back]", function (e) { e.preventDefault(); Nadlan.workPage.showList(); });
       $panel.on("click", "[data-act=copy-request]", openCopy);
       $panel.on("click", "[data-act=pick-on-map]", function () { setPicking(!picking); });
-      $panel.find("[data-act=trail-day]").val(today()).on("change", refreshPerson);
+      $panel.on("click", "[data-act=show-track]", function () { showTrack(Number($(this).data("parcel"))); });
       startPersonTimer();
       bindHistory();
       render();

@@ -45,15 +45,6 @@ public sealed record WorkMessage
     public DateTime CreatedUtc { get; init; }
 }
 
-/// <summary>A point of the contractor's track.</summary>
-public sealed record WorkLocationPoint
-{
-    public double Latitude { get; init; }
-    public double Longitude { get; init; }
-    public decimal? AccuracyM { get; init; }
-    public DateTime RecordedUtc { get; init; }
-}
-
 /// <summary>A customer-facing photo / video of a Parcel of the request (Marketing, a type a browser shows).</summary>
 public sealed record WorkParcelMedia
 {

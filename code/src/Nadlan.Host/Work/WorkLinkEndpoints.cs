@@ -216,8 +216,12 @@ internal static class WorkLinkEndpoints
             return Results.Ok(new { ok = true });
         });
 
-        group.MapPost("/location", async (LocationDto dto, HttpContext http, WorkLinkService links, CancellationToken ct) =>
-            Results.Ok(new { stored = await links.RecordLocationAsync(Entered(http), dto.Latitude, dto.Longitude, dto.AccuracyM, ct) }));
+        // The track while "Work on parcel" is On: a batch about every minute (owner, 2026-11-03).
+        group.MapPost("/track", async (TrackDto dto, HttpContext http, WorkLinkService links, CancellationToken ct) =>
+        {
+            var (stored, kept) = await links.RecordTrackAsync(Entered(http), dto.BatchId, dto.SentAt, dto.Entries, ct);
+            return Results.Ok(new { stored, kept });
+        });
     }
 
     public sealed record StartFileDto(long WorkItemId, string? FileName, string? MimeType, long FileSize, double? Latitude, double? Longitude, decimal? AccuracyM);
@@ -232,7 +236,8 @@ internal static class WorkLinkEndpoints
 
     public sealed record ConsentDto(bool Shared);
 
-    public sealed record LocationDto(double Latitude, double Longitude, double? AccuracyM);
+    /// <summary>sentAt: the phone's clock when sent (ms since 1970) - tells how far off its clock is.</summary>
+    public sealed record TrackDto(string? BatchId, long SentAt, WorkTrackEntry?[]? Entries);
 
     /// <summary>The conversation as the contractor sees it: "GreekPlot" for staff, the contractor's own name for theirs.</summary>
     internal static object MessagesView(WorkRequest r, IReadOnlyList<WorkMessage> messages) => messages.Select(m => new

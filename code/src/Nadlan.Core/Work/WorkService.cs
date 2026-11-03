@@ -373,19 +373,20 @@ public sealed class WorkService
         return await _store.ListMessagesAsync(workRequestId, parcelId, ct);
     }
 
-    public const int MaxTrailPoints = 5000;
-
-    /// <summary>The contractor's last position (any day) and the track between two moments (a day: at most 2 days apart).</summary>
-    public async Task<(WorkLocationPoint? Latest, IReadOnlyList<WorkLocationPoint> Trail)> LocationsAsync(UserAccess me, long workRequestId,
-        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
+    /// <summary>
+    /// The contractor's paths on the request's parcels (all, or one parcel's), each read in time order - Admins only (owner,
+    /// 2026-11-03): where he was is not for every staff member.
+    /// </summary>
+    public async Task<IReadOnlyList<(long ParcelId, IReadOnlyList<WorkTrackEntry> Entries)>> TracksAsync(UserAccess me, long workRequestId, long? parcelId,
+        CancellationToken ct = default)
     {
         await GetAsync(me, workRequestId, ct);
-        if (toUtc <= fromUtc || toUtc - fromUtc > TimeSpan.FromDays(2))
+        if (!me.IsAdmin)
         {
-            throw new DomainValidationException("WORK_TRAIL_RANGE", "Choose one day.");
+            throw new ForbiddenException("WORK_TRACK_ADMINS_ONLY", "Only an Admin sees the contractor's track.");
         }
 
-        return (await _store.LastLocationAsync(workRequestId, ct), await _store.ListLocationsAsync(workRequestId, fromUtc, toUtc, MaxTrailPoints, ct));
+        return (await _store.ListTracksAsync(workRequestId, parcelId, ct)).Select(p => (p.ParcelId, WorkTrack.Parse(p.Path))).ToList();
     }
 
     // ---- helpers ------------------------------------------------------------------------------------------------

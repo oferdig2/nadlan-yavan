@@ -3,7 +3,7 @@
 // satellite only - no 3D, no tilt.
 //   Nadlan.workMap.load(apiKey)       -> Promise (Google Maps loaded once; rejects without a key)
 //   Nadlan.workMap.create(el, opts)   -> { setParcels(list), select(parcelId), fit(parcelId?), map,
-//                                         setPosition(pos, label), panTo(pos), setTrail(points), showPin(pos, label) }
+//                                         setPosition(pos, label), panTo(pos), setTrack(path, opts), showPin(pos, label) }
 //   Nadlan.workMap.contains / distanceM(geometry, lat, lng) - "Where am I" and "not in the right place"
 //     opts: { center: {lat,lng}, zoom, onParcelClick(parcelId), onMapClick(latLng) }
 //     list: [{ parcelId, status, geometry (GeoJSON Polygon), label }]
@@ -113,7 +113,7 @@
 
     // ---- piece 3: a person on the map (the contractor's own blue dot, or staff's view of him), a trail, a pin ----
 
-    var dot = null, ring = null, trail = null, pin = null;
+    var dot = null, ring = null, pin = null;
 
     /** The position as a blue dot with its accuracy circle; null removes it. label: a tooltip (e.g. "3 min ago"). */
     function setPosition(pos, label) {
@@ -159,12 +159,78 @@
       }
     }
 
-    /** A day's track: [[lat, lng], ...] as a line; empty removes it. */
-    function setTrail(points) {
-      if (trail) { trail.setMap(null); trail = null; }
-      if (!points || points.length < 2) { return; }
-      trail = new g.Polyline({ map: map, path: points.map(function (p) { return { lat: p[0], lng: p[1] }; }),
-        strokeColor: "#1a73e8", strokeOpacity: 0.85, strokeWeight: 3, clickable: false, zIndex: 2 });
+    // ---- the contractor's path on a parcel (Admins, owner 2026-11-03) ----
+
+    var trackLines = [], trackMarks = [];
+    var EVENT_COLORS = { start: "#16a34a", stop: "#475569", out: "#dc2626", "in": "#1a73e8", far: "#111827" };
+
+    function metres(a, b) {
+      var kx = 111320 * Math.cos(a.lat * Math.PI / 180);
+      var dx = (b.lng - a.lng) * kx, dy = (b.lat - a.lat) * 110574;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    /**
+     * A parcel's path ([{ t, e, lat, lng, acc, out }], oldest first): blue inside, red outside, broken at each Start; a dot
+     * at each event. opts: { label(entry) - an event dot's tooltip, onHover(entry | null) - the point nearest the pointer
+     * on the line, fit }. Empty removes it.
+     */
+    function setTrack(path, opts) {
+      opts = opts || {};
+      trackLines.forEach(function (l) { l.setMap(null); });
+      trackMarks.forEach(function (m) { m.setMap(null); });
+      trackLines = [];
+      trackMarks = [];
+      if (!path || !path.length) { return; }
+      var bounds = new g.LatLngBounds(), any = false;
+      var seg = null, segEntries = null, segOut = false;
+
+      function line() {
+        if (seg && seg.length > 1) {
+          var entries = segEntries;
+          var l = new g.Polyline({ map: map, path: seg, strokeColor: segOut ? "#dc2626" : "#1a73e8", strokeOpacity: 0.9, strokeWeight: 3,
+            clickable: !!opts.onHover, zIndex: 2 });
+          if (opts.onHover) {
+            l.addListener("mousemove", function (ev) {
+              var at = { lat: ev.latLng.lat(), lng: ev.latLng.lng() }, best = null, bestD = Infinity;
+              entries.forEach(function (e) { var d = metres(at, e); if (d < bestD) { bestD = d; best = e; } });
+              opts.onHover(best);
+            });
+            l.addListener("mouseout", function () { opts.onHover(null); });
+          }
+          trackLines.push(l);
+        }
+        seg = segEntries = null;
+      }
+
+      path.forEach(function (e) {
+        if (e.e === "start") { line(); }
+        if (e.lat === undefined || e.lat === null) { return; } // an event without a good place: only its time (in the list)
+        var at = { lat: e.lat, lng: e.lng }, out = !!e.out;
+        bounds.extend(at);
+        any = true;
+        if (seg && out !== segOut) {
+          // the colour changes here: the new line starts where the old one ends
+          var lastAt = seg[seg.length - 1], lastE = segEntries[segEntries.length - 1];
+          line();
+          seg = [lastAt];
+          segEntries = [lastE];
+        }
+        if (!seg) { seg = []; segEntries = []; }
+        segOut = out;
+        seg.push(at);
+        segEntries.push(e);
+        if (e.e && EVENT_COLORS[e.e]) {
+          trackMarks.push(new g.Marker({ map: map, position: at, zIndex: 5, title: opts.label ? opts.label(e) : e.e,
+            icon: { path: g.SymbolPath.CIRCLE, scale: 6, fillColor: EVENT_COLORS[e.e], fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 2 } }));
+        }
+        if (e.e === "stop" || e.e === "far") { line(); }
+      });
+      line();
+      if (opts.fit && any) {
+        map.fitBounds(bounds, 40);
+        g.event.addListenerOnce(map, "idle", function () { if (map.getZoom() > 19) { map.setZoom(19); } });
+      }
     }
 
     /** One pin (e.g. where a picture was taken), centred; null removes it. */
@@ -176,7 +242,7 @@
       if (map.getZoom() < 17) { map.setZoom(17); }
     }
 
-    return { map: map, setParcels: setParcels, select: select, fit: fit, setPosition: setPosition, panTo: panTo, setTrail: setTrail, showPin: showPin,
+    return { map: map, setParcels: setParcels, select: select, fit: fit, setPosition: setPosition, panTo: panTo, setTrack: setTrack, showPin: showPin,
       setAlert: setAlert };
   }
 

@@ -198,11 +198,11 @@ public class MySqlAgentTableTests : IClassFixture<ScratchMySql>
                 DELETE FROM schema_version WHERE version = 19;
                 ALTER TABLE resource_access DROP COLUMN source;
                 DELETE FROM schema_version WHERE version = 20;
-                DROP TABLE work_event, work_location, work_file, work_message, work_item, work_request_parcel, work_request, work_type;
+                DROP TABLE work_track_batch, work_track, work_event, work_location, work_file, work_message, work_item, work_request_parcel, work_request, work_type;
                 DELETE rp FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE p.code = 'MANAGE_WORK';
                 DELETE FROM permission WHERE code = 'MANAGE_WORK';
                 DELETE FROM contact_role WHERE code = 'CONTRACTOR';
-                DELETE FROM schema_version WHERE version IN (21, 22);
+                DELETE FROM schema_version WHERE version IN (21, 22, 23);
                 INSERT INTO security_role (code, name, is_system, sort_order) VALUES ('CUSTOM', 'Made by an Admin', 0, 99);
                 INSERT INTO role_permission (security_role_id, permission_id)
                 SELECT r.security_role_id, p.permission_id FROM security_role r JOIN permission p ON p.code = 'VIEW_PRICE' WHERE r.code = 'CUSTOM';

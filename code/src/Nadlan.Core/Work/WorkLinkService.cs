@@ -177,8 +177,16 @@ public sealed class WorkLinkService
     /// <summary>A track point is kept only when its accuracy is this good or better (owner, 2026-11-01).</summary>
     public const double MaxAccuracyM = 100;
 
-    /// <summary>The page sends at most every 30 s (or after 20 m); closer points than this are a fault or a flood: dropped.</summary>
-    public static readonly TimeSpan MinPointInterval = TimeSpan.FromSeconds(5);
+    /// <summary>A batch is about a minute (~12 entries); more is a phone that was offline a long time: it sends in slices.</summary>
+    public const int MaxTrackBatchEntries = 1000;
+
+    /// <summary>Entries older than this when they arrive are dropped (a phone offline for a week).</summary>
+    public static readonly TimeSpan MaxTrackAge = TimeSpan.FromDays(7);
+
+    /// <summary>The phone's clock this far off ours: its times are moved by the difference.</summary>
+    public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(2);
+
+    private static readonly System.Text.RegularExpressions.Regex BatchIdPattern = new("^[A-Za-z0-9-]{8,40}$");
 
     public async Task SendMessageAsync(WorkRequest r, long parcelId, string? body, CancellationToken ct = default)
     {
@@ -204,24 +212,74 @@ public sealed class WorkLinkService
     }
 
     /// <summary>
-    /// A point of the contractor's track (only while the page is open, after the contractor agreed). Returns false when it isn't kept:
-    /// worse than 100 m, not a place, or too soon after the last one.
+    /// A batch of the contractor's track (owner, 2026-11-03): recorded on the phone while "Work on parcel" is On, sent about
+    /// every minute; each entry goes to the end of its parcel's path. Dropped: an entry of a parcel not in this request, an
+    /// unknown event, one older than a week; a plain point that isn't a place or is worse than 100 m (an event keeps its
+    /// time without the place). The phone's clock is trusted unless it is more than 2 minutes off ours.
+    /// Stored = false: this batch id came before (sent again) - nothing changes.
     /// </summary>
-    public async Task<bool> RecordLocationAsync(WorkRequest r, double latitude, double longitude, double? accuracyM, CancellationToken ct = default)
+    public async Task<(bool Stored, int Kept)> RecordTrackAsync(WorkRequest r, string? batchId, long sentAtMs, IReadOnlyList<WorkTrackEntry?>? entries,
+        CancellationToken ct = default)
     {
-        if (accuracyM is not double a || double.IsNaN(a) || a < 0 || a > MaxAccuracyM
-            || double.IsNaN(latitude) || double.IsNaN(longitude) || Math.Abs(latitude) > 90 || Math.Abs(longitude) > 180 || (latitude == 0 && longitude == 0))
+        if (batchId is null || !BatchIdPattern.IsMatch(batchId))
         {
-            return false;
+            throw new DomainValidationException("WORK_TRACK_BATCH", "A batch needs an id of 8-40 letters, digits or dashes.");
         }
 
-        if (await _store.LastLocationAsync(r.WorkRequestId, ct) is { } last && Now - last.RecordedUtc < MinPointInterval)
+        if (entries is { Count: > MaxTrackBatchEntries })
         {
-            return false;
+            throw new DomainValidationException("WORK_TRACK_TOO_BIG", $"At most {MaxTrackBatchEntries} entries at once.");
         }
 
-        await _store.AddLocationAsync(r.WorkRequestId, Math.Round(latitude, 7), Math.Round(longitude, 7), (decimal)Math.Round(a, 1), ct);
-        return true;
+        var nowMs = WorkTrack.ToMs(Now);
+        var shift = sentAtMs > 0 && Math.Abs(nowMs - sentAtMs) > MaxClockSkew.TotalMilliseconds ? nowMs - sentAtMs : 0;
+        var oldest = nowMs - (long)MaxTrackAge.TotalMilliseconds;
+        var inRequest = new Dictionary<long, bool>();
+        var kept = new List<WorkTrackEntry>();
+        foreach (var e in entries ?? Array.Empty<WorkTrackEntry?>())
+        {
+            if (e?.P is not long parcel || (e.E is not null && !WorkTrackEvents.All.Contains(e.E)))
+            {
+                continue;
+            }
+
+            var t = e.T + shift;
+            if (t < oldest || t > nowMs + 60_000)
+            {
+                continue;
+            }
+
+            if (!inRequest.TryGetValue(parcel, out var ok))
+            {
+                inRequest[parcel] = ok = await _store.HasParcelAsync(r.WorkRequestId, parcel, ct);
+            }
+
+            if (!ok)
+            {
+                continue;
+            }
+
+            var placed = e.Lat is double lat && e.Lng is double lng && e.Acc is double acc
+                && double.IsFinite(lat) && double.IsFinite(lng) && Math.Abs(lat) <= 90 && Math.Abs(lng) <= 180 && !(lat == 0 && lng == 0)
+                && double.IsFinite(acc) && acc >= 0 && acc <= MaxAccuracyM;
+            if (!placed && e.E is null)
+            {
+                continue;
+            }
+
+            kept.Add(new WorkTrackEntry(t, e.E, placed ? Math.Round(e.Lat!.Value, 7) : null, placed ? Math.Round(e.Lng!.Value, 7) : null,
+                placed ? Math.Round(e.Acc!.Value, 1) : null, e.Out is > 0 ? 1 : 0, parcel));
+        }
+
+        if (kept.Count == 0)
+        {
+            return (false, 0);
+        }
+
+        // Each parcel's entries in the order they were recorded.
+        var parts = kept.GroupBy(e => e.P!.Value).Select(g => new WorkTrackAppend(g.Key, WorkTrack.ToUtc(g.Min(e => e.T)), WorkTrack.ToUtc(g.Max(e => e.T)),
+            g.Count(), WorkTrack.SerializeItems(g))).ToList();
+        return (await _store.AppendTrackAsync(r.WorkRequestId, batchId, parts, ct), kept.Count);
     }
 
     /// <summary>The contractor's answer on the location screen (asked once per phone): kept in the history.</summary>

@@ -266,7 +266,7 @@ public sealed class WorkMediaService
 
     // ---- the daily job ------------------------------------------------------------------------------------------
 
-    /// <summary>Deletes track points older than 90 days, and work uploads abandoned for a day. Returns both counts.</summary>
+    /// <summary>Deletes track paths untouched for 90 days, and work uploads abandoned for a day. Returns both counts.</summary>
     public async Task<(int Locations, int Uploads)> SweepAsync(CancellationToken ct = default)
     {
         var locations = await _store.PurgeLocationsAsync(Now - KeepLocationsFor, ct);
