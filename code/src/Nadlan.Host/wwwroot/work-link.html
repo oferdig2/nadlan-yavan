@@ -45,9 +45,10 @@
         <div class="wl-map" id="wl-map"></div>
         <div class="wl-map-tools">
           <button type="button" class="btn" data-act="where" data-t="whereAmI"></button>
-          <button type="button" class="btn" data-act="follow" aria-pressed="false" data-t="follow" hidden></button>
+          <button type="button" class="btn wl-work-on" data-act="work-on" aria-pressed="false"><span data-t="workOn"></span> <span class="wl-work-on-state"></span></button>
           <button type="button" class="btn" data-act="share" data-t="shareLocation" hidden></button>
         </div>
+        <div class="wl-work-status" role="status" aria-live="polite" hidden></div>
         <button type="button" class="btn wl-map-size" data-act="map-size"></button>
       </div>
       <div class="wl-sheet" id="wl-sheet"></div>

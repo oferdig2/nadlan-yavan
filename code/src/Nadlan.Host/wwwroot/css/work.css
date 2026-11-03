@@ -1,5 +1,5 @@
 /* Work page (work.html): work requests for contractors. Header and tables as on the Admin page (admin.css). */
-.work-main { padding: 16px; max-width: 1440px; margin: 0 auto; }
+.work-main { padding: 16px; margin: 0 auto; } /* the whole width (owner, 2026-11-03) */
 .work-status { font-size: 13px; color: var(--muted); margin-left: auto; max-width: 50vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-status.error { color: var(--error); }
 .work-body .work-status ~ .user-menu { margin-left: 0; }
@@ -63,13 +63,34 @@
 /* The request's map (piece 2): the Parcels coloured by status; "Pick a parcel on the map" adds one. */
 .work-map-card { margin-bottom: 12px; }
 .work-map { height: 380px; border-radius: 6px; overflow: hidden; background: #dfe6ee; }
+/* The request: the list (left) and the map (right) side by side; the handle between them resizes both. The map stays
+   in view while the list scrolls. */
+.work-split { --split: 50%; display: flex; align-items: flex-start; gap: 0; margin-bottom: 12px; }
+.work-split-left { flex: 0 0 calc(var(--split) - 6px); min-width: 0; }
+.work-split-left .work-card { margin-bottom: 0; }
+.work-split-right { flex: 1 1 0; min-width: 0; position: sticky; top: 8px; }
+.work-split-right .work-map-card { margin-bottom: 0; }
+.work-split-right .work-map { height: calc(100vh - 140px); min-height: 320px; }
+.work-split-handle { flex: 0 0 12px; align-self: stretch; cursor: col-resize; position: relative; touch-action: none; }
+.work-split-handle::before { content: ""; position: absolute; top: 0; bottom: 0; left: 5px; width: 2px; border-radius: 1px; background: var(--border); }
+.work-split-handle:hover::before, .work-split-handle:focus-visible::before, .work-split.dragging .work-split-handle::before { background: var(--accent); width: 4px; left: 4px; }
+.work-split.dragging { user-select: none; cursor: col-resize; }
+.work-kaek-btn { border: none; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-align: left; }
+.work-kaek-btn:hover .kaek { text-decoration: underline; }
+@media (max-width: 900px) {
+  .work-split { flex-direction: column; }
+  .work-split-left { flex-basis: auto; width: 100%; }
+  .work-split-handle { display: none; }
+  .work-split-right { position: static; width: 100%; margin-top: 12px; }
+  .work-split-right .work-map { height: 320px; }
+}
 .work-map-card.no-map .work-map { height: auto; background: none; }
 .work-map-card.is-picking .work-map { outline: 3px solid var(--accent); outline-offset: -3px; cursor: crosshair; }
 .work-map-card [data-act=pick-on-map].active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .meta-table th.pick, .meta-table td.pick { width: 28px; text-align: center; padding-left: 6px; padding-right: 2px; }
 .work-items tr.is-highlighted td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .work-items .row-buttons .btn { margin-left: 4px; }
-@media (max-width: 900px) { .work-map { height: 300px; } }
+
 
 /* Piece 3: the contractor's trail on the map, a Parcel's pictures and messages */
 .work-day { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }

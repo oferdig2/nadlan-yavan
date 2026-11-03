@@ -97,6 +97,8 @@
       $(this).toggleClass("active", on).attr("aria-pressed", on ? "true" : "false");
     });
     $("[data-act=map-size]").text(bigMap ? t("smallerMap") : t("biggerMap"));
+    $(".wl-work-on-state").text(t(workOn ? "workOnOn" : "workOnOff"));
+    if (typeof checkWork === "function" && view) { checkWork(); }
   }
 
   // ---- the password -------------------------------------------------------------------------------------------
@@ -250,6 +252,7 @@
 
   function openParcel(id, fromMap) {
     current = id;
+    if (workOn) { workParcel = id; } // working: the parcel chosen now is the one worked on
     render();
     loadMessages(id);
     $("#wl-sheet").scrollTop(0);
@@ -350,15 +353,91 @@
 
   // ---- location (piece 3) ---------------------------------------------------------------------------------------
 
-  var following = false;
+  // "Work on parcel" (owner, 2026-11-03): the contractor works on one parcel; the map follows them, and while they are
+  // outside it their dot turns red and blinks, with a beep every 5 s.
+  var workOn = false;
+  var workParcel = null;   // the parcel being worked on
+  var beepTimer = null;
+  var audio = null;        // made on the tap that turns it on (browsers allow sound only after a tap)
+  var BEEP_EVERY_MS = 5000;
+
+  function beep() {
+    if (!audio) { return; }
+    try {
+      var osc = audio.createOscillator(), gain = audio.createGain();
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.25, audio.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(audio.destination);
+      osc.start();
+      osc.stop(audio.currentTime + 0.35);
+    } catch (e) { /* no sound: the red dot still shows it */ }
+  }
+
+  // Inside a Parcel of the request; else the nearest within 100 m; else null.
+  function parcelHere(pos) {
+    var best = null;
+    view.parcels.forEach(function (p) {
+      var d = Nadlan.workMap.distanceM(p.geometry, pos.lat, pos.lng);
+      if (!best || d < best.d) { best = { p: p, d: d }; }
+    });
+    return best && best.d <= 100 ? best.p : null;
+  }
+
+  // Outside = farther from the parcel than the phone's own uncertainty (at least 5 m, at most 25 m): GPS jitter at the
+  // border doesn't set it off.
+  function checkWork() {
+    var pos = Nadlan.workLocation.last();
+    var p = workOn && workParcel && parcelById(workParcel);
+    var d = p && pos ? Nadlan.workMap.distanceM(p.geometry, pos.lat, pos.lng) : 0;
+    var outside = !!(p && pos && d !== Infinity && d > Math.min(25, Math.max(5, pos.accuracy || 0)));
+    if (mapApi) { mapApi.setAlert(outside); }
+    if (outside && !beepTimer) { beep(); beepTimer = setInterval(beep, BEEP_EVERY_MS); }
+    if (!outside && beepTimer) { clearInterval(beepTimer); beepTimer = null; }
+    var $s = $(".wl-work-status");
+    $s.prop("hidden", !workOn).toggleClass("is-out", outside);
+    if (workOn && p) {
+      $s.text(outside ? t("outsideParcel", { kaek: p.kaek || "", m: (Math.round(d / 5) * 5).toLocaleString(I.locale()) }) : t("workingOn", { kaek: p.kaek || "" }));
+    }
+  }
+
+  function setWorkOn(on) {
+    workOn = on;
+    if (!on) { workParcel = null; }
+    $("[data-act=work-on]").toggleClass("active", on).attr("aria-pressed", on ? "true" : "false");
+    $(".wl-work-on-state").text(t(on ? "workOnOn" : "workOnOff"));
+    checkWork();
+  }
+
+  // The button: on = the open parcel, else the one stood in (or the nearest within 100 m), else say to choose one.
+  function toggleWorkOn() {
+    if (workOn) { setWorkOn(false); return; }
+    if (!Nadlan.workLocation.active()) { toast(t("needLocation"), true); showOnly("consent"); applyTexts(); return; }
+    if (!audio && (window.AudioContext || window.webkitAudioContext)) {
+      try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
+    }
+    if (audio && audio.state === "suspended") { audio.resume(); }
+    var target = current;
+    var pos = Nadlan.workLocation.last();
+    if (!target && pos) {
+      var here = parcelHere(pos);
+      if (here) { target = here.parcelId; openParcel(target, false); }
+    }
+    if (!target) { toast(t("chooseParcelToWork"), true); return; }
+    workParcel = target;
+    setWorkOn(true);
+    if (pos && mapApi) { mapApi.panTo(pos); }
+  }
 
   function startTracking() {
     Nadlan.workLocation.start(function (pos) {
       if (mapApi) {
         mapApi.setPosition(pos);
-        if (following) { mapApi.panTo(pos); }
+        if (workOn) { mapApi.panTo(pos); }
       }
       updateWarning();
+      checkWork();
     }, function (err) {
       if (err && err.code === 1) { // blocked: stop asking, say how to allow it
         Nadlan.workLocation.stop();
@@ -373,7 +452,6 @@
   function updateLocationButtons() {
     var on = Nadlan.workLocation.active();
     $("#wl-sharing").prop("hidden", !on);
-    $("[data-act=follow]").prop("hidden", !on).toggleClass("active", following).attr("aria-pressed", following ? "true" : "false");
     $("[data-act=share]").prop("hidden", on || !Nadlan.workLocation.supported());
     $(".wl-body").toggleClass("is-sharing", on);
   }
@@ -613,12 +691,7 @@
     $("[data-act=consent-yes]").on("click", function () { answerConsent(true); });
     $("[data-act=consent-no]").on("click", function () { answerConsent(false); });
     $("[data-act=where]").on("click", whereAmI);
-    $("[data-act=follow]").on("click", function () {
-      following = !following;
-      updateLocationButtons();
-      var pos = Nadlan.workLocation.last();
-      if (following && pos && mapApi) { mapApi.panTo(pos); }
-    });
+    $("[data-act=work-on]").on("click", toggleWorkOn);
     $("[data-act=share]").on("click", function () { showOnly("consent"); applyTexts(); });
     $("[data-act=map-size]").on("click", function () {
       bigMap = !bigMap;

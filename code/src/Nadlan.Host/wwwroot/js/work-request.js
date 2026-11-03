@@ -286,7 +286,8 @@
         firstShown[r.parcelId] = true;
         return "<tr data-work=\"" + r.workItemId + "\" data-parcel-row=\"" + r.parcelId + "\"" + (r.parcelId === highlighted ? " class=\"is-highlighted\"" : "") + ">" +
           "<td class=\"pick\">" + (r.status === "OFFERED" ? "<input type=\"checkbox\" data-act=\"pick\" aria-label=\"Select to approve\"" + (picked[r.workItemId] ? " checked" : "") + ">" : "") + "</td>" +
-          "<td>" + Nadlan.format.registryId(r.registryId, r.registryIdIsProvisional) + "</td>" +
+          "<td><button type=\"button\" class=\"work-kaek-btn\" data-act=\"focus-parcel\" data-parcel=\"" + r.parcelId + "\" title=\"Show it on the map\">" +
+            Nadlan.format.registryId(r.registryId, r.registryIdIsProvisional) + "</button></td>" +
           "<td>" + Nadlan.format.text(r.ot) + " / " + Nadlan.format.text(r.plot) + "</td>" +
           "<td>" + Nadlan.format.text(r.geographicArea) + "</td>" +
           "<td class=\"num\">" + (r.officialAreaSqm === null ? "—" : esc(Number(r.officialAreaSqm).toLocaleString("en-US", { maximumFractionDigits: 0 }))) + "</td>" +
@@ -373,6 +374,7 @@
       });
     });
     $works.on("click", "[data-act=correct]", function () { openCorrect(rowOf(this)); });
+    $works.on("click", "[data-act=focus-parcel]", function () { focusParcel(Number($(this).data("parcel"))); });
     $works.on("click", "[data-act=parcel-media]", function () { openParcelMedia(Number($(this).data("parcel"))); });
     $works.on("click", "[data-act=remove-parcel]", function () {
       var parcelId = Number($(this).data("parcel"));
@@ -818,6 +820,56 @@
     });
   }
 
+  // A KAEK clicked in the list: the map goes to that parcel and outlines it; its rows light up.
+  function focusParcel(parcelId) {
+    if (!mapApi) { W.setStatus("The map isn't available.", true); return; }
+    highlighted = parcelId;
+    mapApi.select(parcelId);
+    mapApi.fit(parcelId);
+    renderWorks();
+  }
+
+  // The list and the map share the width; the handle between them moves the line (kept for next time).
+  var SPLIT_KEY = "nadlan.work.split";
+  function startSplit() {
+    var $split = $panel.find(".work-split");
+    var saved = null;
+    try { saved = Number(window.localStorage.getItem(SPLIT_KEY)); } catch (e) { /* fine */ }
+    function set(pct) {
+      pct = Math.round(Math.max(25, Math.min(75, pct)));
+      $split.css("--split", pct + "%");
+      return pct;
+    }
+    if (saved) { set(saved); }
+    var $handle = $split.find(".work-split-handle");
+    $handle.on("pointerdown", function (e) {
+      var rect = $split[0].getBoundingClientRect();
+      var el = this;
+      el.setPointerCapture(e.pointerId);
+      $split.addClass("dragging");
+      var pct = null;
+      function move(ev) { pct = set((ev.clientX - rect.left) / rect.width * 100); }
+      function up(ev) {
+        el.releasePointerCapture(ev.pointerId);
+        el.removeEventListener("pointermove", move);
+        el.removeEventListener("pointerup", up);
+        $split.removeClass("dragging");
+        if (pct !== null) { try { window.localStorage.setItem(SPLIT_KEY, String(Math.round(pct))); } catch (e2) { /* fine */ } }
+      }
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+      e.preventDefault();
+    });
+    // The keyboard too: ← and → move it by 5%.
+    $handle.on("keydown", function (e) {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") { return; }
+      var now = parseFloat($split[0].style.getPropertyValue("--split")) || 50;
+      var pct = set(now + (e.key === "ArrowLeft" ? -5 : 5));
+      try { window.localStorage.setItem(SPLIT_KEY, String(pct)); } catch (e2) { /* fine */ }
+      e.preventDefault();
+    });
+  }
+
   // A Parcel clicked on the map: its rows light up in the table (and the filter shows them).
   function showParcel(parcelId) {
     highlighted = parcelId;
@@ -863,9 +915,13 @@
         "<div class=\"work-back\"><a href=\"#\" data-act=\"back\">← All requests</a></div>" +
         "<h2 class=\"work-title\"></h2>" +
         "<div class=\"work-top wr-top\"></div>" +
-        mapHtml() +
-        "<div class=\"wr-works\"></div>" +
+        "<div class=\"work-split\">" +
+          "<div class=\"work-split-left wr-works\"></div>" +
+          "<div class=\"work-split-handle\" role=\"separator\" aria-orientation=\"vertical\" aria-label=\"Drag to resize the list and the map\" tabindex=\"0\"></div>" +
+          "<div class=\"work-split-right\">" + mapHtml() + "</div>" +
+        "</div>" +
         historyHtml());
+      startSplit();
       $panel.on("click", "[data-act=back]", function (e) { e.preventDefault(); Nadlan.workPage.showList(); });
       $panel.on("click", "[data-act=copy-request]", openCopy);
       $panel.on("click", "[data-act=pick-on-map]", function () { setPicking(!picking); });

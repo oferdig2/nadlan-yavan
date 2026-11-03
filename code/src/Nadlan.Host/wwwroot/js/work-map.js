@@ -136,6 +136,29 @@
 
     function panTo(pos) { map.panTo({ lat: pos.lat, lng: pos.lng }); }
 
+    // "Work on parcel" and outside it: the dot turns red and blinks; off = blue again.
+    var alertTimer = null;
+    function dotIcon(color, opacity) {
+      return { path: g.SymbolPath.CIRCLE, scale: 8, fillColor: color, fillOpacity: opacity, strokeColor: "#ffffff", strokeWeight: 3 };
+    }
+    function setAlert(on) {
+      if (!!alertTimer === !!on) { return; }
+      if (on) {
+        var lit = true;
+        alertTimer = setInterval(function () {
+          lit = !lit;
+          if (dot) { dot.setIcon(dotIcon("#dc2626", lit ? 1 : 0.15)); }
+        }, 450);
+        if (dot) { dot.setIcon(dotIcon("#dc2626", 1)); }
+        if (ring) { ring.setOptions({ strokeColor: "#dc2626", fillColor: "#dc2626" }); }
+      } else {
+        clearInterval(alertTimer);
+        alertTimer = null;
+        if (dot) { dot.setIcon(dotIcon("#1a73e8", 1)); }
+        if (ring) { ring.setOptions({ strokeColor: "#1a73e8", fillColor: "#1a73e8" }); }
+      }
+    }
+
     /** A day's track: [[lat, lng], ...] as a line; empty removes it. */
     function setTrail(points) {
       if (trail) { trail.setMap(null); trail = null; }
@@ -153,7 +176,8 @@
       if (map.getZoom() < 17) { map.setZoom(17); }
     }
 
-    return { map: map, setParcels: setParcels, select: select, fit: fit, setPosition: setPosition, panTo: panTo, setTrail: setTrail, showPin: showPin };
+    return { map: map, setParcels: setParcels, select: select, fit: fit, setPosition: setPosition, panTo: panTo, setTrail: setTrail, showPin: showPin,
+      setAlert: setAlert };
   }
 
   // ---- geometry on GeoJSON polygons (no map needed) ---------------------------------------------------------------
