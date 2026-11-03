@@ -140,19 +140,8 @@ CREATE TABLE work_file (
   CONSTRAINT ck_work_file_status CHECK (upload_status IN ('Pending', 'Ready'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- The contractor's track while his page is open (piece 3). Kept 90 days, then deleted by the module's daily job.
-CREATE TABLE work_location (
-  work_location_id BIGINT NOT NULL AUTO_INCREMENT,
-  work_request_id BIGINT NOT NULL,
-  latitude DECIMAL(10,7) NOT NULL,
-  longitude DECIMAL(10,7) NOT NULL,
-  accuracy_m DECIMAL(8,1) NULL,
-  recorded_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
-  PRIMARY KEY (work_location_id),
-  KEY ix_work_location_request (work_request_id, recorded_utc),
-  KEY ix_work_location_recorded (recorded_utc),
-  CONSTRAINT fk_work_location_request FOREIGN KEY (work_request_id) REFERENCES work_request (work_request_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- The contractor's track is migration 023 (work_track). The first design's work_location (one row per point) was
+-- never deployed and was taken out of this script before 021 reached production (owner, 2026-11-03).
 
 -- The request's history. Its own table on purpose: the module doesn't write into the shared activity log (isolation).
 -- No foreign keys to the Parcel or work: the history keeps a line about a Parcel or work that was removed since.

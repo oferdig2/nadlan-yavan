@@ -450,7 +450,7 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
     // ---- migration 021 --------------------------------------------------------------------------------------------
 
     private static readonly string[] WorkTables =
-        { "work_type", "work_request", "work_request_parcel", "work_item", "work_message", "work_file", "work_location", "work_track", "work_track_batch", "work_event" };
+        { "work_type", "work_request", "work_request_parcel", "work_item", "work_message", "work_file", "work_track", "work_track_batch", "work_event" };
 
     [Fact]
     public async Task Migration_021_on_a_copy_of_schema_20_only_adds()
@@ -466,7 +466,7 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
 
             // Back to version 20 - what production has - with some data there, then 021 again.
             await c.ExecuteAsync("""
-                DROP TABLE work_track_batch, work_track, work_event, work_location, work_file, work_message, work_item, work_request_parcel, work_request, work_type;
+                DROP TABLE work_track_batch, work_track, work_event, work_file, work_message, work_item, work_request_parcel, work_request, work_type;
                 DELETE rp FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE p.code = 'MANAGE_WORK';
                 DELETE FROM permission WHERE code = 'MANAGE_WORK';
                 DELETE FROM contact_role WHERE code = 'CONTRACTOR';

@@ -3,7 +3,8 @@
 -- every 5 s at most, none within 2 m of the last one. The phone keeps what isn't sent yet and sends it about every
 -- minute as a batch; each batch is added to the end of the parcel's one path - the same path day after day, so the
 -- times of work, inside and outside the parcel all come from it.
--- work_location (one row per point, migration 021) is no longer written or read; it stays (migrations never drop).
+-- The first design's work_location (one row per point) was taken out of 021 before production; a database that made it
+-- earlier keeps an unused empty table.
 
 CREATE TABLE work_track (
   work_track_id BIGINT NOT NULL AUTO_INCREMENT,
