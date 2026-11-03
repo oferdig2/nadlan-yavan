@@ -9,6 +9,9 @@ namespace Nadlan.Core.Work;
 /// <summary>One parcel's share of a batch: its entries as JSON items (no brackets), to add to the end of its path.</summary>
 public sealed record WorkTrackAppend(long ParcelId, DateTime FirstUtc, DateTime LastUtc, int Count, string Items);
 
+/// <summary>A path written again (old entries trimmed): null from the rewrite = delete the path.</summary>
+public sealed record WorkTrackRewrite(string Path, DateTime FirstUtc, DateTime LastUtc, int Count);
+
 public interface IWorkStore
 {
     Task<IReadOnlyList<WorkType>> ListWorkTypesAsync(CancellationToken ct = default);
@@ -133,6 +136,12 @@ public interface IWorkStore
 
     /// <summary>The request's paths (one per parcel), or one parcel's.</summary>
     Task<IReadOnlyList<WorkTrackPath>> ListTracksAsync(long workRequestId, long? parcelId, CancellationToken ct = default);
+
+    /// <summary>Paths that still have entries before the cutoff (and later ones): at most <paramref name="limit"/>.</summary>
+    Task<IReadOnlyList<(long WorkRequestId, long ParcelId)>> ListTracksStartingBeforeAsync(DateTime beforeUtc, int limit, CancellationToken ct = default);
+
+    /// <summary>Reads a path and writes what <paramref name="rewrite"/> makes of it, locked against a batch arriving meanwhile.</summary>
+    Task RewriteTrackAsync(long workRequestId, long parcelId, Func<string, WorkTrackRewrite?> rewrite, CancellationToken ct = default);
 
     /// <summary>Deletes paths whose last entry is before the cutoff, and the batch receipts older than it (every request); returns how many paths.</summary>
     Task<int> PurgeLocationsAsync(DateTime recordedBeforeUtc, CancellationToken ct = default);

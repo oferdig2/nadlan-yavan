@@ -74,6 +74,14 @@ public static class WorkTrack
         }
     }
 
+    /// <summary>The path without its entries before the cutoff; null when nothing is left.</summary>
+    public static WorkTrackRewrite? Trim(string path, DateTime cutoffUtc)
+    {
+        var from = ToMs(cutoffUtc);
+        var left = Parse(path).Where(e => e.T >= from).ToList();
+        return left.Count == 0 ? null : new WorkTrackRewrite("[" + SerializeItems(left) + "]", ToUtc(left[0].T), ToUtc(left[^1].T), left.Count);
+    }
+
     public static DateTime ToUtc(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
 
     public static long ToMs(DateTime utc) => new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();

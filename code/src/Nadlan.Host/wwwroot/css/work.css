@@ -138,3 +138,8 @@
 .work-track-time { font-variant-numeric: tabular-nums; font-weight: 600; }
 .work-track-table { width: 100%; }
 .work-track-table tr.is-highlighted td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* In the list's half the works table scrolls sideways; its buttons column stays at the right edge (review 2026-11-03) */
+.work-split-left .work-items td.row-buttons, .work-split-left .work-items thead th:last-child {
+  position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -6px 0 6px -6px rgba(0, 0, 0, 0.25); }
+.work-split-left .work-items tr.is-highlighted td.row-buttons { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }

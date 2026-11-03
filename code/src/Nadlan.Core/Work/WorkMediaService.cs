@@ -266,10 +266,24 @@ public sealed class WorkMediaService
 
     // ---- the daily job ------------------------------------------------------------------------------------------
 
-    /// <summary>Deletes track paths untouched for 90 days, and work uploads abandoned for a day. Returns both counts.</summary>
+    /// <summary>Deletes track entries older than 90 days (whole paths, or the start of a path still in use), and work uploads abandoned for a day. Returns both counts.</summary>
     public async Task<(int Locations, int Uploads)> SweepAsync(CancellationToken ct = default)
     {
-        var locations = await _store.PurgeLocationsAsync(Now - KeepLocationsFor, ct);
+        var cutoff = Now - KeepLocationsFor;
+        var locations = await _store.PurgeLocationsAsync(cutoff, ct);
+        // A parcel worked on for months: its entries older than 90 days go too - the consent screen promises 90 days.
+        IReadOnlyList<(long WorkRequestId, long ParcelId)> old;
+        do
+        {
+            old = await _store.ListTracksStartingBeforeAsync(cutoff, 200, ct);
+            foreach (var (request, parcel) in old)
+            {
+                await _store.RewriteTrackAsync(request, parcel, path => WorkTrack.Trim(path, cutoff), ct);
+            }
+
+            locations += old.Count;
+        }
+        while (old.Count == 200);
         var uploads = 0;
         if (_storage.IsConfigured)
         {

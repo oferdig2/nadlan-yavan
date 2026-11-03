@@ -154,17 +154,34 @@ public partial class WorkMySqlTests
         Assert.Equal(t0 + 150_000, b[2].T);
         Assert.Equal(20, WorkTrack.Summarize(b).WorkSeconds);
 
-        // Untouched for 91 days: the daily job removes that path only.
+        // Untouched for 91 days: the daily job removes that path. Still in use but begun 100 days ago: only its old entries go
+        // (the consent screen promises 90 days).
+        var oldMs = WorkTrack.ToMs(DateTime.UtcNow.AddDays(-100));
         await using (var c = await _db!.OpenAsync())
         {
             await c.ExecuteAsync("UPDATE work_track SET last_utc = UTC_TIMESTAMP(3) - INTERVAL 91 DAY WHERE work_request_id = @id AND parcel_id = @p",
                 new { id = l.Id, p = w.PA2 });
+            await c.ExecuteAsync("""
+                UPDATE work_track SET path = CONCAT('[{"t":', @oldMs, ',"e":"start","lat":38.5,"lng":23.1,"acc":5,"out":0},', SUBSTRING(path, 2)),
+                  first_utc = UTC_TIMESTAMP(3) - INTERVAL 100 DAY, entry_count = entry_count + 1
+                WHERE work_request_id = @id AND parcel_id = @p
+                """, new { oldMs, id = l.Id, p = w.PA1 });
         }
 
+        Assert.Equal(6, (await l.Work.TracksAsync(w.Admin, l.Id, w.PA1)).Single().Entries.Count);
         var (media, _) = Media(new FixedClock(DateTime.UtcNow));
         var (purged, _) = await media.SweepAsync();
-        Assert.True(purged >= 1);
-        Assert.Equal(new[] { w.PA1 }, (await l.Work.TracksAsync(w.Admin, l.Id, null)).Select(x => x.ParcelId).ToArray());
+        Assert.True(purged >= 2);
+        var kept = await l.Work.TracksAsync(w.Admin, l.Id, null);
+        Assert.Equal(new[] { w.PA1 }, kept.Select(x => x.ParcelId).ToArray());
+        Assert.Equal(a.Select(e => e.T), kept.Single().Entries.Select(e => e.T)); // the five of this week, nothing older
+        await using (var c = await _db!.OpenAsync())
+        {
+            var row = await c.QuerySingleAsync<(int Count, DateTime First)>(
+                "SELECT entry_count, first_utc FROM work_track WHERE work_request_id = @id AND parcel_id = @p", new { id = l.Id, p = w.PA1 });
+            Assert.Equal(5, row.Count);
+            Assert.True(row.First > DateTime.UtcNow.AddDays(-1));
+        }
     }
 
     [Fact]

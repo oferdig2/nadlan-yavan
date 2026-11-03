@@ -168,6 +168,38 @@ public sealed partial class MySqlWorkStore
             """, new { workRequestId, parcelId }, cancellationToken: ct))).ToList();
     }
 
+    public async Task<IReadOnlyList<(long WorkRequestId, long ParcelId)>> ListTracksStartingBeforeAsync(DateTime beforeUtc, int limit,
+        CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return (await conn.QueryAsync<(long, long)>(new CommandDefinition("""
+            SELECT work_request_id, parcel_id FROM work_track WHERE first_utc < @beforeUtc AND last_utc >= @beforeUtc ORDER BY first_utc LIMIT @limit
+            """, new { beforeUtc, limit }, cancellationToken: ct))).ToList();
+    }
+
+    public async Task RewriteTrackAsync(long workRequestId, long parcelId, Func<string, WorkTrackRewrite?> rewrite, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var path = await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT path FROM work_track WHERE work_request_id = @workRequestId AND parcel_id = @parcelId FOR UPDATE",
+            new { workRequestId, parcelId }, tx, cancellationToken: ct));
+        if (path is null)
+        {
+            return;
+        }
+
+        var next = rewrite(path);
+        await conn.ExecuteAsync(new CommandDefinition(next is null
+            ? "DELETE FROM work_track WHERE work_request_id = @workRequestId AND parcel_id = @parcelId"
+            : """
+              UPDATE work_track SET path = @Path, first_utc = @FirstUtc, last_utc = @LastUtc, entry_count = @Count, updated_utc = UTC_TIMESTAMP(3)
+              WHERE work_request_id = @workRequestId AND parcel_id = @parcelId
+              """,
+            new { workRequestId, parcelId, next?.Path, next?.FirstUtc, next?.LastUtc, next?.Count }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+    }
+
     public async Task<int> PurgeLocationsAsync(DateTime recordedBeforeUtc, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);

@@ -253,7 +253,6 @@
 
   function openParcel(id, fromMap) {
     current = id;
-    if (workOn && id !== workParcel) { switchWorkParcel(id); } // working: the parcel chosen now is the one worked on
     render();
     loadMessages(id);
     $("#wl-sheet").scrollTop(0);
@@ -376,10 +375,16 @@
     } catch (e) { /* no sound: the red dot still shows it */ }
   }
 
-  // Inside a Parcel of the request; else the nearest within 100 m; else null.
-  function parcelHere(pos) {
+  // A parcel with work to do now: a work Approved or In work.
+  function workable(p) {
+    return (p.works || []).some(function (w) { return w.status === "APPROVED" || w.status === "IN_WORK"; });
+  }
+
+  // Inside a Parcel of the request; else the nearest within 100 m; else null. onlyWorkable: only parcels with work to do.
+  function parcelHere(pos, onlyWorkable) {
     var best = null;
     view.parcels.forEach(function (p) {
+      if (onlyWorkable && !workable(p)) { return; }
       var d = Nadlan.workMap.distanceM(p.geometry, pos.lat, pos.lng);
       if (!best || d < best.d) { best = { p: p, d: d }; }
     });
@@ -454,13 +459,9 @@
     Nadlan.workTrack.event("stop", workParcel, pos, whereFrom(p, pos).outside);
   }
 
-  // Another parcel chosen while working: Stop on the old one, Start on the new one (or Off, when it is too far).
-  function switchWorkParcel(id) {
-    stopWork();
-    if (!startWork(id)) { setWorkOn(false); }
-  }
-
-  // The button: on = the open parcel, else the one stood in (or the nearest within 100 m), else say to choose one.
+  // The button (owner, 2026-11-03). While On the work stays on its parcel - looking at another parcel doesn't move it.
+  // On: first where he is - inside a parcel with work to do, or within 100 m of one: that one, opened; else the parcel
+  // he has open (his choice); else he is asked to choose one, in the list or on the map.
   function toggleWorkOn() {
     if (workOn) { stopWork(); setWorkOn(false); return; }
     if (!Nadlan.workLocation.active()) { toast(t("needLocation"), true); showOnly("consent"); applyTexts(); return; }
@@ -468,13 +469,11 @@
       try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
     }
     if (audio && audio.state === "suspended") { audio.resume(); }
-    var target = current;
     var pos = Nadlan.workLocation.last();
-    if (!target && pos) {
-      var here = parcelHere(pos);
-      if (here) { target = here.parcelId; openParcel(target, false); }
-    }
+    var here = pos ? parcelHere(pos, true) : null;
+    var target = here ? here.parcelId : current;
     if (!target) { toast(t("chooseParcelToWork"), true); return; }
+    if (target !== current) { openParcel(target, false); }
     if (!startWork(target)) { return; }
     setWorkOn(true);
     if (pos && mapApi) { mapApi.panTo(pos); }
