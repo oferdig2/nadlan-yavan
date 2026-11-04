@@ -74,6 +74,37 @@ public interface IWorkStore
     /// <summary>The request whose link token has this SHA-256 (hex), or null.</summary>
     Task<WorkRequest?> GetRequestByTokenHashAsync(string tokenHash, CancellationToken ct = default);
 
+    // ---- the contractor's link (migration 024): one per contractor -----------------------------------------------
+
+    Task<WorkContractorLink?> GetContractorLinkAsync(long contactId, CancellationToken ct = default);
+
+    Task<WorkContractorLink?> GetContractorLinkByTokenHashAsync(string tokenHash, CancellationToken ct = default);
+
+    /// <summary>Makes the contractor's link; when one exists already (two staff at once) it stays as it is.</summary>
+    Task AddContractorLinkAsync(long contactId, string tokenHash, string tokenSealed, DateTime expiresUtc, CancellationToken ct = default);
+
+    Task SetContractorLinkEnabledAsync(long contactId, bool enabled, CancellationToken ct = default);
+
+    Task SetContractorLinkExpiryAsync(long contactId, DateTime expiresUtc, CancellationToken ct = default);
+
+    Task SetContractorLinkTokenAsync(long contactId, string tokenHash, string tokenSealed, CancellationToken ct = default);
+
+    /// <summary>Sets or removes (null) the password; bumps its version (remembered phones must type it again) and unlocks.</summary>
+    Task SetContractorPasswordAsync(long contactId, string? passwordHash, CancellationToken ct = default);
+
+    Task<int> CountWrongContractorUnlockAsync(long contactId, CancellationToken ct = default);
+
+    Task LockContractorLinkAsync(long contactId, DateTime lockedUntilUtc, CancellationToken ct = default);
+
+    Task ResetContractorUnlocksAsync(long contactId, CancellationToken ct = default);
+
+    /// <summary>The contractor's requests that still have a work not paid, newest first.</summary>
+    Task<IReadOnlyList<WorkRequest>> ListOpenRequestsOfContractorAsync(long contactId, CancellationToken ct = default);
+
+    Task<long?> GetItemRequestIdAsync(long workItemId, CancellationToken ct = default);
+
+    Task<long?> GetFileRequestIdAsync(long workFileId, CancellationToken ct = default);
+
     /// <summary>Counts one more wrong password; returns the count.</summary>
     Task<int> CountWrongUnlockAsync(long workRequestId, CancellationToken ct = default);
 
@@ -125,7 +156,8 @@ public interface IWorkStore
 
     Task<long> AddMessageAsync(long workRequestId, long parcelId, string authorKind, long? authorUserId, string body, CancellationToken ct = default);
 
-    /// <summary>A Parcel's conversation, oldest first (null parcel = the whole request's).</summary>
+    /// <summary>A Parcel's conversation, oldest first (null parcel = the whole request's): one conversation per contractor and
+    /// parcel, so the messages about the parcel from his other requests are in it too.</summary>
     Task<IReadOnlyList<WorkMessage>> ListMessagesAsync(long workRequestId, long? parcelId, CancellationToken ct = default);
 
     /// <summary>The Parcel is in the request.</summary>

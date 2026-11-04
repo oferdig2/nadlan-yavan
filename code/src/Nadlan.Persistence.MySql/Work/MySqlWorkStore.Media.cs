@@ -117,7 +117,13 @@ public sealed partial class MySqlWorkStore
             SELECT m.work_message_id, m.parcel_id, m.author_kind, u.display_name AS author_name, m.body, m.created_utc
             FROM work_message m
             LEFT JOIN app_user u ON u.user_id = m.author_user_id
-            WHERE m.work_request_id = @workRequestId AND (@parcelId IS NULL OR m.parcel_id = @parcelId)
+            WHERE (@parcelId IS NULL OR m.parcel_id = @parcelId)
+              AND (m.work_request_id = @workRequestId
+                   -- one conversation per contractor and parcel (review 2026-11-04): his other requests' messages about this
+                   -- request's parcels too - never another contractor's
+                   OR (m.work_request_id IN (SELECT o.work_request_id FROM work_request o JOIN work_request r ON r.work_request_id = @workRequestId
+                                             WHERE o.contractor_contact_id = r.contractor_contact_id)
+                       AND m.parcel_id IN (SELECT wrp.parcel_id FROM work_request_parcel wrp WHERE wrp.work_request_id = @workRequestId)))
             ORDER BY m.created_utc, m.work_message_id
             """, new { workRequestId, parcelId }, cancellationToken: ct))).ToList();
     }

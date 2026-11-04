@@ -135,6 +135,7 @@ public static class WorkActions
     public const string LinkEnabled = "LINK_ENABLED";
     public const string LinkDisabled = "LINK_DISABLED";
     public const string LinkExtended = "LINK_EXTENDED";
+    public const string LinkRenewed = "LINK_RENEWED";
     public const string PasswordSet = "PASSWORD_SET";
     public const string PasswordRemoved = "PASSWORD_REMOVED";
     public const string ParcelAdded = "PARCEL_ADDED";

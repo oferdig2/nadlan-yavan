@@ -10,7 +10,7 @@ namespace Nadlan.Core.Work;
 /// works, the link (enable, disable, extend, password) and "Copy for another contractor". Every change writes a line in
 /// the request's own history (work_event). Parcels are added only when the user may see them (their areas).
 /// </summary>
-public sealed class WorkService
+public sealed partial class WorkService
 {
     public const int MaxNameLength = 200;
     public const int MinPasswordLength = 4;

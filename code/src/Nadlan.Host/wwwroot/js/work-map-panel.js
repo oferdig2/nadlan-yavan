@@ -230,14 +230,18 @@
           return "<li class=\"work-parcel" + (open ? " open" : "") + "\" data-parcel=\"" + p.parcelId + "\">" +
             "<button type=\"button\" class=\"work-parcel-head\" data-act=\"toggle\" aria-expanded=\"" + open + "\">" +
               "<span class=\"kaek\"></span>" + W.parcelBadge(p.status) +
-              "<span class=\"muted work-parcel-works\"></span></button>" +
+              (open ? "" : "<span class=\"muted work-parcel-works\"></span>") + "</button>" +
             (open ? "<div class=\"work-parcel-body\">" +
               pickerHtml(String(p.parcelId), p.works.map(function (w) { return w.workTypeId; }), locked) +
               "<ul class=\"work-items-mini\">" + p.works.map(function (w) {
                 return "<li data-work=\"" + w.workItemId + "\"><div class=\"work-item-line\"><span class=\"work-item-name\"></span>" +
                   (w.status !== "REQUESTED" ? W.workBadge(w.status) : "") +
                   "<button type=\"button\" class=\"card-icon work-remark-btn" + (w.remarks ? " has-remark" : "") + "\" data-act=\"remark\" title=\"" +
-                    (w.remarks ? "Edit the remark (the contractor sees it)" : "Add a remark for the contractor") + "\" aria-label=\"Remark\">📝</button></div>" +
+                    (w.remarks ? "Edit the remark (the contractor sees it)" : "Add a remark for the contractor") + "\" aria-label=\"Remark\">📝</button>" +
+                  (w.status === "REQUESTED"
+                    ? "<button type=\"button\" class=\"card-icon work-trash-btn\" data-act=\"remove-work\" title=\"Remove this work from the parcel\" aria-label=\"Remove\">🗑</button>"
+                    : "<span class=\"card-icon work-trash-btn is-locked\" title=\"" + esc(W.WORK[w.status].name) + ": correct it on the Work page to remove it\">🗑</span>") +
+                  "</div>" +
                   (w.remarks ? "<div class=\"work-remark\"></div>" : "") + "</li>";
               }).join("") + "</ul>" +
               (removable ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"remove-parcel\">Remove from the work</button>" : "") +
@@ -459,7 +463,7 @@
       var shownPassword = null; // shown once, right after it is set
       var linkUrl = null;
       var d = Nadlan.dialog.open({
-        title: "Link for " + req.contractor.displayName,
+        title: req.contractor.displayName + "'s link",
         content: $box,
         width: Math.min(560, window.innerWidth - 24),
         buttons: [{ text: "Close", click: function () { d.close(); } }]
@@ -470,12 +474,13 @@
         var parcels = parcelsOfWork().length;
         $box.html(
           "<div class=\"work-link-status\">" + W.linkBadge(l.state) +
-            "<span>" + (l.state === "expired" ? "Expired " : "Valid until ") + W.date(l.expiresUtc) + "</span>" +
+            "<label>" + (l.state === "expired" ? "Expired - works until " : "Works until ") +
+              "<input type=\"date\" class=\"input input-small\" data-act=\"last-day\" value=\"" + W.lastDay(l.expiresUtc) + "\"></label>" +
             "<button type=\"button\" class=\"btn btn-small\" data-act=\"extend\">Extend 1 year</button>" +
             (l.lockedUntilUtc ? "<span class=\"warn\">Locked after wrong passwords until " + W.time(l.lockedUntilUtc) + "</span>" : "") +
           "</div>" +
-          "<p class=\"muted\">No login needed: on the phone the contractor sees the " + parcels + " parcel" + (parcels === 1 ? "" : "s") +
-            " on a map, sends prices, starts and finishes the works.</p>" +
+          "<p class=\"muted\">One link per contractor, no login: on the phone he sees these " + parcels + " parcel" + (parcels === 1 ? "" : "s") +
+            " and those of his other open requests on one map, sends prices, starts and finishes the works.</p>" +
 
           "<section class=\"work-link-step\"><h4><span class=\"work-step-no\">1</span> Password <span class=\"muted\">(optional)</span></h4>" +
             (l.hasPassword
@@ -494,7 +499,8 @@
           "<section class=\"work-link-step\"><h4><span class=\"work-step-no\">2</span> Send the link</h4>" +
             (l.enabled
               ? "<div class=\"work-link-row\"><input class=\"input work-link-url\" readonly aria-label=\"The link\">" +
-                "<button type=\"button\" class=\"btn btn-primary\" data-act=\"copy-link\">Copy link</button></div>" +
+                "<button type=\"button\" class=\"btn btn-primary\" data-act=\"copy-link\">Copy link</button>" +
+                "<button type=\"button\" class=\"btn\" data-act=\"renew\" title=\"A new address; the current one stops at once\">New link</button></div>" +
                 "<div class=\"muted\">Send it by WhatsApp, SMS or e-mail" + (l.hasPassword ? "; the password separately." : ".") + "</div>"
               : "<p class=\"warn\">The link is disabled: it opens nothing. Enable it to send it.</p>") +
           "</section>" +
@@ -527,6 +533,21 @@
       }
 
       $box.on("click", "[data-act=extend]", function () { act(Nadlan.api.post(url("/link/extend")), "Link extended."); });
+      $box.on("change", "[data-act=last-day]", function () {
+        var day = $(this).val();
+        if (day) { act(Nadlan.api.put(url("/link/expiry"), { lastDay: day }), "The link works until " + W.date(day) + "."); }
+      });
+      $box.on("click", "[data-act=renew]", function () {
+        W.confirmNewLink(req.contractor.displayName).then(function (ok) {
+          if (!ok) { return; }
+          act(Nadlan.api.post(url("/link/renew")), "New link made: the old address stopped.").then(function (res) {
+            if (!res) { return; }
+            linkUrl = window.location.origin + "/work-link.html#" + res.token;
+            $box.find(".work-link-url").val(linkUrl);
+            copy(linkUrl, "New link");
+          });
+        });
+      });
       $box.on("click", "[data-act=disable]", function () { act(Nadlan.api.post(url("/link/disable")), "Link disabled: it opens nothing now."); });
       $box.on("click", "[data-act=enable]", function () { act(Nadlan.api.post(url("/link/enable")), "Link enabled."); });
       $box.on("click", "[data-act=generate]", function () {
@@ -638,6 +659,11 @@
         $win.find(".work-picker-button").attr("aria-expanded", "false");
       });
       $win.on("click", "[data-act=remark]", function () { editRemark(Number($(this).closest("[data-work]").data("work"))); });
+      $win.on("click", "[data-act=remove-work]", function () {
+        if (busy) { return; }
+        var row = req.items.filter(function (r) { return r.workItemId === Number($(this).closest("[data-work]").data("work")); }, this)[0];
+        if (row) { toggleWork(row.parcelId, row.workTypeId, false); }
+      });
       $win.on("click", "[data-act=remove-parcel]", function () { removeParcel(Number($(this).closest(".work-parcel").data("parcel"))); });
       // The chip drags anywhere (as the parcel cards' chip).
       $win.on("pointerdown", ".card-chip", function (e) {

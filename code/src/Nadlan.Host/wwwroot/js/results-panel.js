@@ -36,7 +36,9 @@
           (s.hasAssets ? " has-assets" : "") + "\" title=\"" + (s.hasAssets ? "Has Asset(s)" : "No Asset") + "\"></span>" +
           f.registryId(s.registryId, s.registryIdIsProvisional) + "</div>" +
           "<div class=\"row-sub muted\">" + f.text(s.geographicArea) + " · OT " + f.text(s.ot) + " / Plot " + f.text(s.plot) +
-          (s.seaMetres !== null && s.seaMetres !== undefined ? " · <span class=\"nowrap\">" + f.escapeHtml(f.seaDistance(s.seaMetres)) + "</span>" : "") + "</div></li>";
+          (s.seaMetres !== null && s.seaMetres !== undefined ? " · <span class=\"nowrap\">" + f.escapeHtml(f.seaDistance(s.seaMetres)) + "</span>" : "") + "</div>" +
+          // While the Work window is open, on hover: straight into the work (as a click on its polygon).
+          "<button type=\"button\" class=\"btn btn-small row-work\" data-role=\"work\" title=\"Add it to the work (as a click on the parcel)\">Work</button></li>";
       }
       return "<li data-index=\"" + index + "\">" +
         // A beach can't go into a Portfolio or a presentation: nothing to select.
@@ -54,6 +56,11 @@
       $list.find("[data-asset-id]").each(function () { this.checked = options.selection.has(Number($(this).data("assetId"))); });
     }
 
+    $list.on("mouseenter", "li", function () { $(this).toggleClass("can-work", !!(options.canWork && options.canWork())); });
+    $list.on("click", "[data-role=work]", function (e) {
+      e.stopPropagation();
+      if (options.onWork) { options.onWork(items[Number($(this).closest("li").data("index"))]); }
+    });
     $list.on("click", "li", function (e) {
       if ($(e.target).is(":checkbox")) { return; }
       options.onItemClick(items[Number($(this).data("index"))]);

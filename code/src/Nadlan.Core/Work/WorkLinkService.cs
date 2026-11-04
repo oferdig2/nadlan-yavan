@@ -35,14 +35,15 @@ public sealed class WorkLinkException : Exception
 }
 
 /// <summary>What the phone keeps after the right password (sealed by the host): which request, which password, until when.</summary>
-public sealed record WorkLinkPass(long WorkRequestId, int PasswordVersion, DateTime ExpiresUtc);
+/// <summary>ContractorId: a pass for the contractor's link (then WorkRequestId is 0).</summary>
+public sealed record WorkLinkPass(long WorkRequestId, int PasswordVersion, DateTime ExpiresUtc, long ContractorId = 0);
 
 /// <summary>
 /// The contractor's side of a work request (owner, 2026-10-31 / 11-01): the link is the access - no login. Every call
 /// first resolves the request from the token (only its SHA-256 is stored), then works only on that request's Parcels and
 /// works. With a password, nothing is served until it is right; 10 wrong ones lock the link for 15 minutes.
 /// </summary>
-public sealed class WorkLinkService
+public sealed partial class WorkLinkService
 {
     public const int MaxWrongPasswords = 10;
     public static readonly TimeSpan LockFor = TimeSpan.FromMinutes(15);

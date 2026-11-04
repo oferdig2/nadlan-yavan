@@ -180,17 +180,35 @@
     return "<div class=\"wl-chips\" role=\"group\">" + chips + "</div>" +
       (shown.length ? "<ul class=\"wl-list\">" + shown.map(function (p) {
         return "<li><button type=\"button\" class=\"wl-parcel\" data-parcel=\"" + p.parcelId + "\">" +
-          "<span class=\"wl-parcel-top\"><span class=\"wl-kaek\">" + esc(p.kaek || "—") + "</span>" + badge(t("parcel." + p.status), PARCEL_BADGE[p.status]) + "</span>" +
-          "<span class=\"wl-parcel-sub\">" + esc([p.area, otPlot(p), p.sizeSqm !== null && p.sizeSqm !== undefined ? sqm(p.sizeSqm) : null].filter(Boolean).join(" · ")) + "</span>" +
+          "<span class=\"wl-parcel-top\"><span class=\"wl-kaek\">" + esc(parcelName(p)) + "</span>" + badge(t("parcel." + p.status), PARCEL_BADGE[p.status]) + "</span>" +
+          "<span class=\"wl-parcel-sub\">" + esc([p.area, kaekLine(p), requestLine(p), p.sizeSqm !== null && p.sizeSqm !== undefined ? sqm(p.sizeSqm) : null].filter(Boolean).join(" · ")) + "</span>" +
           "<span class=\"wl-parcel-works\">" + p.works.map(function (w) {
-            return "<span class=\"wl-work-tag\" style=\"border-color:" + BADGE[w.status] + "\">" + esc(workName(w)) + ": " + esc(t("work." + w.status)) + "</span>";
+            return "<span class=\"wl-work-tag\" style=\"border-color:" + BADGE[w.status] + "\">" + esc(workName(w)) + ": " + esc(t("work." + w.status)) +
+              (inTwo(p) ? " <span class=\"wl-work-req\">· " + esc(w.request) + "</span>" : "") + "</span>";
           }).join("") + "</span>" +
         "</button></li>";
       }).join("") + "</ul>" : "<div class=\"wl-empty\">" + esc(t("noParcels")) + "</div>");
   }
 
-  function otPlot(p) {
-    return p.ot || p.plot ? t("otPlot") + " " + (p.ot || "—") + " / " + (p.plot || "—") : null;
+  // The parcel as the contractor knows it (Alon, 2026-11-03): "OT7 Plot60" in bold; the KAEK beside it, small. No OT or
+  // plot: the KAEK.
+  function parcelName(p) {
+    if (!p.ot && !p.plot) { return p.kaek || "—"; }
+    return [p.ot ? t("otName", { ot: p.ot }) : null, p.plot ? t("plotName", { plot: p.plot }) : null].filter(Boolean).join(" ");
+  }
+
+  // With the contractor's link (all his requests): which request the parcel is in, when he has more than one.
+  function requestLine(p) {
+    return view.requests && view.requests.length > 1 && p.requests ? p.requests.join(", ") : null;
+  }
+
+  // The parcel is in two (or more) of his requests: each work says which one.
+  function inTwo(p) {
+    return !!(p && p.requests && p.requests.length > 1);
+  }
+
+  function kaekLine(p) {
+    return (p.ot || p.plot) && p.kaek ? t("kaek") + " " + p.kaek : null;
   }
 
   function sqm(value) { return Number(value).toLocaleString(I.locale(), { maximumFractionDigits: 0 }) + " m²"; }
@@ -198,10 +216,10 @@
   function parcelHtml(p) {
     return "<div class=\"wl-detail\">" +
       "<button type=\"button\" class=\"btn wl-back\" data-act=\"back\">" + esc(t("back")) + "</button>" +
-      "<h2 class=\"wl-kaek-big\">" + esc(p.kaek || "—") + " " + badge(t("parcel." + p.status), PARCEL_BADGE[p.status]) + "</h2>" +
+      "<h2 class=\"wl-kaek-big\">" + esc(parcelName(p)) + " " + badge(t("parcel." + p.status), PARCEL_BADGE[p.status]) + "</h2>" +
       "<dl class=\"wl-facts\">" +
         (p.area ? "<div><dt>" + esc(t("area")) + "</dt><dd>" + esc(p.area) + "</dd></div>" : "") +
-        (p.ot || p.plot ? "<div><dt>" + esc(t("otPlot")) + "</dt><dd>" + esc((p.ot || "—") + " / " + (p.plot || "—")) + "</dd></div>" : "") +
+        ((p.ot || p.plot) && p.kaek ? "<div><dt>" + esc(t("kaek")) + "</dt><dd>" + esc(p.kaek) + "</dd></div>" : "") +
         (p.sizeSqm !== null && p.sizeSqm !== undefined ? "<div><dt>" + esc(t("size")) + "</dt><dd>" + esc(sqm(p.sizeSqm)) + "</dd></div>" : "") +
       "</dl>" +
       "<h3>" + esc(t("works")) + "</h3>" +
@@ -218,7 +236,8 @@
   }
 
   function workHtml(w) {
-    var head = "<div class=\"wl-work-head\"><span class=\"wl-work-name\">" + esc(workName(w)) + "</span>" + badge(t("work." + w.status), BADGE[w.status]) + "</div>";
+    var head = "<div class=\"wl-work-head\"><span class=\"wl-work-name\">" + esc(workName(w)) + "</span>" + badge(t("work." + w.status), BADGE[w.status]) + "</div>" +
+      (inTwo(parcelById(current)) ? "<div class=\"wl-work-req\">" + esc(w.request) + "</div>" : "");
     var body = "";
     if (w.status === "REQUESTED" || w.status === "OFFERED") {
       var price = w.price === null || w.price === undefined ? "" : String(w.price).replace(".", I.lang() === "el" ? "," : ".");
@@ -294,7 +313,7 @@
     var which = $btn.data("step");
     var p = parcelById(current);
     var w = p.works.filter(function (x) { return x.workItemId === Number($btn.data("work")); })[0];
-    if (!window.confirm(t(which === "start" ? "confirmStart" : "confirmDone", { work: workName(w), kaek: p.kaek || "" }))) { return; }
+    if (!window.confirm(t(which === "start" ? "confirmStart" : "confirmDone", { work: workName(w), kaek: parcelName(p) }))) { return; }
     $btn.prop("disabled", true);
     after(api.post("/" + which, { workItemId: w.workItemId }), t(which === "start" ? "started" : "finished"))
       .catch(function () { $btn.prop("disabled", false); });
@@ -408,7 +427,7 @@
     if (w.d !== Infinity && w.d > FAR_M) {
       Nadlan.workTrack.event("far", p.parcelId, pos, true);
       setWorkOn(false);
-      toast(t("farStopped", { kaek: p.kaek || "" }), true);
+      toast(t("farStopped", { kaek: parcelName(p) }), true);
       return false;
     }
     if (w.outside !== wasOutside) { Nadlan.workTrack.event(w.outside ? "out" : "in", p.parcelId, pos, w.outside); }
@@ -429,7 +448,7 @@
     var $s = $(".wl-work-status");
     $s.prop("hidden", !workOn).toggleClass("is-out", outside);
     if (workOn && p) {
-      $s.text(outside ? t("outsideParcel", { kaek: p.kaek || "", m: (Math.round(d / 5) * 5).toLocaleString(I.locale()) }) : t("workingOn", { kaek: p.kaek || "" }));
+      $s.text(outside ? t("outsideParcel", { kaek: parcelName(p), m: (Math.round(d / 5) * 5).toLocaleString(I.locale()) }) : t("workingOn", { kaek: parcelName(p) }));
     }
   }
 
@@ -445,7 +464,7 @@
   function startWork(id) {
     var p = parcelById(id), pos = Nadlan.workLocation.last(), w = whereFrom(p, pos);
     if (pos && w.d !== Infinity && w.d > FAR_M) {
-      toast(t("tooFarToStart", { kaek: p.kaek || "", km: (Math.round(w.d / 100) / 10).toLocaleString(I.locale()) }), true);
+      toast(t("tooFarToStart", { kaek: parcelName(p), km: (Math.round(w.d / 100) / 10).toLocaleString(I.locale()) }), true);
       return false;
     }
     workParcel = id;
@@ -518,10 +537,10 @@
       if (!best || d < best.d) { best = { p: p, d: d }; }
     });
     if (best && best.d === 0) {
-      toast(t("standingOn", { kaek: best.p.kaek || "" }));
+      toast(t("standingOn", { kaek: parcelName(best.p) }));
       openParcel(best.p.parcelId, false);
     } else if (best && best.d <= 100) {
-      toast(t("nearest", { kaek: best.p.kaek || "", m: Math.round(best.d) }));
+      toast(t("nearest", { kaek: parcelName(best.p), m: Math.round(best.d) }));
       openParcel(best.p.parcelId, false);
     } else {
       toast(t("noneNear"), true);
@@ -536,7 +555,7 @@
     var p = current && parcelById(current), pos = Nadlan.workLocation.last();
     var d = p && pos ? Nadlan.workMap.distanceM(p.geometry, pos.lat, pos.lng) : 0;
     var away = d > 100 && d !== Infinity;
-    $w.prop("hidden", !away).text(away ? t("notHere", { m: (Math.round(d / 10) * 10).toLocaleString(I.locale()), kaek: p.kaek || "" }) : "");
+    $w.prop("hidden", !away).text(away ? t("notHere", { m: (Math.round(d / 10) * 10).toLocaleString(I.locale()), kaek: parcelName(p) }) : "");
   }
 
   // ---- pictures of a work (piece 3) -----------------------------------------------------------------------------

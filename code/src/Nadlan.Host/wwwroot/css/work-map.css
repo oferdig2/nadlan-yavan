@@ -23,9 +23,10 @@
 .work-parcels { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .work-parcel { border: 1px solid var(--border); border-radius: 6px; }
 .work-parcel.open { border-color: #facc15; box-shadow: 0 0 0 1px #facc15; }
-.work-parcel-head { width: 100%; display: flex; align-items: center; gap: 6px; border: none; background: none; padding: 5px 8px; cursor: pointer; font: inherit; text-align: left; color: var(--text); }
+.work-parcel-head { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border: none; background: none; padding: 5px 8px; cursor: pointer; font: inherit; text-align: left; color: var(--text); }
 .work-parcel-head:hover { background: var(--bg); }
-.work-parcel-works { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; text-align: right; }
+/* collapsed: the works on their own line under the KAEK (owner, 2026-11-04) */
+.work-parcel-works { flex: 0 0 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; text-align: left; }
 .work-parcel-body { padding: 2px 8px 8px; }
 
 /* The chooser dialog */
@@ -78,3 +79,12 @@
 .work-link-step > .btn { align-self: flex-start; }
 .work-link-dialog { max-height: calc(100vh - 200px); overflow-y: auto; padding-right: 2px; }
 .work-chooser-page { font-size: 12px; color: var(--accent); margin-top: 4px; }
+
+/* The link's last day (owner, 2026-11-04) */
+.input.input-small { padding: 2px 6px; font-size: 13px; height: auto; width: auto; }
+
+/* open parcel: each work with its remark and a trash (owner, 2026-11-04); a work past "Requested" is corrected on the Work page */
+.work-item-line .work-item-name { flex: 1; min-width: 0; }
+.work-trash-btn { filter: grayscale(1); opacity: 0.55; }
+.work-trash-btn:hover { filter: none; opacity: 1; }
+.work-trash-btn.is-locked { opacity: 0.25; cursor: not-allowed; }
