@@ -143,3 +143,6 @@
 .work-split-left .work-items td.row-buttons, .work-split-left .work-items thead th:last-child {
   position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -6px 0 6px -6px rgba(0, 0, 0, 0.25); }
 .work-split-left .work-items tr.is-highlighted td.row-buttons { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+
+/* The link's last day (owner, 2026-11-04) */
+.input.input-small { padding: 2px 6px; font-size: 13px; height: auto; width: auto; }

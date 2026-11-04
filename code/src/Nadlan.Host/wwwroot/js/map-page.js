@@ -262,6 +262,9 @@
         popups.showParcel(it.summary);
       },
       onZoomToResults: function () { fitItems(state.items); },
+      // The Work window open: a result row goes straight into the work, as a click on its polygon (owner, 2026-11-04).
+      canWork: function () { return !!(workPanel && workPanel.isOpen()); },
+      onWork: function (it) { if (workPanel && workPanel.isOpen()) { workPanel.clicked(it.summary); } },
       onAddToPortfolio: function () {
         Nadlan.portfolioPicker.open(selection.values()).then(function (r) {
           if (!r) { return; }

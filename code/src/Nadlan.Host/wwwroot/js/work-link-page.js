@@ -181,7 +181,7 @@
       (shown.length ? "<ul class=\"wl-list\">" + shown.map(function (p) {
         return "<li><button type=\"button\" class=\"wl-parcel\" data-parcel=\"" + p.parcelId + "\">" +
           "<span class=\"wl-parcel-top\"><span class=\"wl-kaek\">" + esc(parcelName(p)) + "</span>" + badge(t("parcel." + p.status), PARCEL_BADGE[p.status]) + "</span>" +
-          "<span class=\"wl-parcel-sub\">" + esc([p.area, kaekLine(p), p.sizeSqm !== null && p.sizeSqm !== undefined ? sqm(p.sizeSqm) : null].filter(Boolean).join(" · ")) + "</span>" +
+          "<span class=\"wl-parcel-sub\">" + esc([p.area, kaekLine(p), requestLine(p), p.sizeSqm !== null && p.sizeSqm !== undefined ? sqm(p.sizeSqm) : null].filter(Boolean).join(" · ")) + "</span>" +
           "<span class=\"wl-parcel-works\">" + p.works.map(function (w) {
             return "<span class=\"wl-work-tag\" style=\"border-color:" + BADGE[w.status] + "\">" + esc(workName(w)) + ": " + esc(t("work." + w.status)) + "</span>";
           }).join("") + "</span>" +
@@ -194,6 +194,11 @@
   function parcelName(p) {
     if (!p.ot && !p.plot) { return p.kaek || "—"; }
     return [p.ot ? t("otName", { ot: p.ot }) : null, p.plot ? t("plotName", { plot: p.plot }) : null].filter(Boolean).join(" ");
+  }
+
+  // With the contractor's link (all his requests): which request the parcel is in, when he has more than one.
+  function requestLine(p) {
+    return view.requests && view.requests.length > 1 && p.requests ? p.requests.join(", ") : null;
   }
 
   function kaekLine(p) {

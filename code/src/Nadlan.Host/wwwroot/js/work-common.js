@@ -158,6 +158,13 @@
     parcelBadge: function (code) { return badge(PARCEL, code); },
     linkBadge: function (state) { return badge(LINK, state); },
     dateTime: dateTime,
+    // The link's last day (yyyy-mm-dd, UTC) from its expiry moment, for a date field.
+    lastDay: function (expiresUtc) { return new Date(new Date(expiresUtc).getTime() - 1).toISOString().slice(0, 10); },
+    // The "New link" question, the same on both pages.
+    confirmNewLink: function (name) {
+      return Nadlan.dialog.confirm("A new link for " + name,
+        "The current address stops at once, for all his requests. Send him the new one (the password stays).", "New link");
+    },
     date: date,
     time: time,
     setStatus: setStatus,

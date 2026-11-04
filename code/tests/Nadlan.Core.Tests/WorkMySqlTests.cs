@@ -450,7 +450,7 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
     // ---- migration 021 --------------------------------------------------------------------------------------------
 
     private static readonly string[] WorkTables =
-        { "work_type", "work_request", "work_request_parcel", "work_item", "work_message", "work_file", "work_location", "work_track", "work_track_batch", "work_event" };
+        { "work_type", "work_request", "work_request_parcel", "work_item", "work_message", "work_file", "work_location", "work_track", "work_track_batch", "work_contractor_link", "work_event" };
 
     [Fact]
     public async Task Migration_021_on_a_copy_of_schema_20_only_adds()
@@ -466,11 +466,11 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
 
             // Back to version 20 - what production has - with some data there, then 021 again.
             await c.ExecuteAsync("""
-                DROP TABLE work_track_batch, work_track, work_event, work_location, work_file, work_message, work_item, work_request_parcel, work_request, work_type;
+                DROP TABLE work_contractor_link, work_track_batch, work_track, work_event, work_location, work_file, work_message, work_item, work_request_parcel, work_request, work_type;
                 DELETE rp FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE p.code = 'MANAGE_WORK';
                 DELETE FROM permission WHERE code = 'MANAGE_WORK';
                 DELETE FROM contact_role WHERE code = 'CONTRACTOR';
-                DELETE FROM schema_version WHERE version IN (21, 22, 23);
+                DELETE FROM schema_version WHERE version IN (21, 22, 23, 24);
                 INSERT INTO contact_role (code, name, sort_order) VALUES ('MADE_BY_ADMIN', 'Made by an Admin', 120);
                 INSERT INTO contact (display_name) VALUES ('Someone');
                 """);
@@ -495,14 +495,14 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
                 SELECT COUNT(*) FROM role_permission rp JOIN security_role r ON r.security_role_id = rp.security_role_id WHERE r.code = 'DATA_PERSON'
                 """);
 
-            Assert.Equal(new[] { "021_work_requests", "022_work_item_remarks", "023_work_track" }, await migrator.MigrateAsync());
+            Assert.Equal(new[] { "021_work_requests", "022_work_item_remarks", "023_work_track", "024_work_contractor_link" }, await migrator.MigrateAsync());
             var after = await TablesAsync();
 
             Assert.Equal(before.Keys.Concat(WorkTables).Order(), after.Keys.Order()); // the new tables, nothing dropped
             foreach (var (table, was) in before)
             {
                 Assert.True(was.Columns == after[table].Columns, $"{table}: columns changed");
-                var added = table switch { "permission" or "role_permission" or "contact_role" => 1, "schema_version" => 3, _ => 0 };
+                var added = table switch { "permission" or "role_permission" or "contact_role" => 1, "schema_version" => 4, _ => 0 };
                 Assert.True(was.Rows + added == after[table].Rows, $"{table}: {was.Rows} rows before, {after[table].Rows} after");
             }
 

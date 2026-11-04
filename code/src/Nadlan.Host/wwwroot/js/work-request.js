@@ -85,17 +85,19 @@
   function linkHtml() {
     var l = req.link;
     return "<section class=\"work-card work-link\">" +
-      "<h3>Link for the contractor " + W.linkBadge(l.state) + "</h3>" +
-      "<div class=\"muted\">Works without a login, on the phone: the contractor sees these parcels on a map, sends prices, starts and finishes the works. " +
-        (l.hasPassword ? "Send the password separately." : "") + "</div>" +
+      "<h3>" + esc(req.contractor.displayName) + "'s link " + W.linkBadge(l.state) + "</h3>" +
+      "<div class=\"muted\">One link per contractor: on the phone, without a login, he sees the parcels of all his open requests on one map, " +
+        "sends prices, starts and finishes the works. " + (l.hasPassword ? "Send the password separately." : "") + "</div>" +
       (l.lockedUntilUtc ? "<div class=\"warn\">Locked after wrong passwords until " + W.time(l.lockedUntilUtc) + " (" + W.date(l.lockedUntilUtc) + ").</div>" : "") +
       "<div class=\"btn-row\">" +
         "<button type=\"button\" class=\"btn btn-primary\" data-act=\"copy-link\">Copy link</button>" +
+        "<button type=\"button\" class=\"btn\" data-act=\"renew\" title=\"A new address; the current one stops at once\">New link</button>" +
         (l.enabled
           ? "<button type=\"button\" class=\"btn\" data-act=\"disable\">Disable</button>"
           : "<button type=\"button\" class=\"btn\" data-act=\"enable\">Enable</button>") +
       "</div>" +
-      "<div class=\"work-link-line\">" + (l.state === "expired" ? "<span class=\"error\">Expired</span> " : "Expires ") + W.date(l.expiresUtc) +
+      "<div class=\"work-link-line\"><label>" + (l.state === "expired" ? "<span class=\"error\">Expired</span> - works until " : "Works until ") +
+        "<input type=\"date\" class=\"input input-small\" data-act=\"last-day\" value=\"" + W.lastDay(l.expiresUtc) + "\"></label>" +
         " <button type=\"button\" class=\"btn btn-small\" data-act=\"extend\">Extend 1 year</button></div>" +
       "<div class=\"work-link-line\">Password: " + (l.hasPassword
         ? "<strong>set</strong> <button type=\"button\" class=\"btn btn-small\" data-act=\"password\">Change…</button>" +
@@ -120,6 +122,23 @@
     $link.on("click", "[data-act=enable], [data-act=disable]", function () {
       var on = $(this).data("act") === "enable";
       api(Nadlan.api.post(url("/link/" + (on ? "enable" : "disable")))).then(function (d) { update(d, on ? "Link enabled." : "Link disabled: it opens nothing now."); });
+    });
+    $link.on("change", "[data-act=last-day]", function () {
+      var day = $(this).val();
+      if (!day) { return; }
+      api(Nadlan.api.put(url("/link/expiry"), { lastDay: day })).then(function (d) { update(d, "The link works until " + W.date(day) + "."); },
+        function () { render(); });
+    });
+    $link.on("click", "[data-act=renew]", function () {
+      W.confirmNewLink(req.contractor.displayName).then(function (ok) {
+        if (!ok) { return; }
+        api(Nadlan.api.post(url("/link/renew"))).then(function (res) {
+          update(res.request);
+          W.copyText("New link for " + req.contractor.displayName, window.location.origin + "/work-link.html#" + res.token).then(function (copied) {
+            W.setStatus("New link made" + (copied ? " and copied" : "") + ": the old address stopped.");
+          });
+        });
+      });
     });
     $link.on("click", "[data-act=extend]", function () {
       api(Nadlan.api.post(url("/link/extend"))).then(function (d) { update(d, "Link extended to " + W.date(d.link.expiresUtc) + "."); });

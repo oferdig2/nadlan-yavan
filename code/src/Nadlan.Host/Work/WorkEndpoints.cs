@@ -29,6 +29,9 @@ internal static class WorkEndpoints
     /// <summary>Password: the typed one, or <c>Generate</c> = 6 random digits.</summary>
     public sealed record PasswordDto(string? Password, bool Generate);
 
+    /// <summary>lastDay: yyyy-MM-dd, the last day the link works.</summary>
+    public sealed record ExpiryDto(string? LastDay);
+
     public sealed record AddParcelDto(long ParcelId, int[]? WorkTypeIds);
 
     public sealed record ApproveDto(long[]? WorkItemIds);
@@ -187,25 +190,41 @@ internal static class WorkEndpoints
 
         // ---- the link -------------------------------------------------------------------------------------------
 
+        // The contractor's link (migration 024, owner + Alon, 2026-11-04): one per contractor, all his open requests. The
+        // request's own link (021) is no longer offered; links sent before keep working.
         // The token only: the page builds https://<this site>/work-link.html#<token> (the token after "#" never reaches a server log).
         group.MapGet("/requests/{id:long}/link", async (long id, UserAccess me, WorkService work, CancellationToken ct) =>
-            Results.Ok(new { token = await work.LinkTokenAsync(me, id, ct) }));
+            Results.Ok(new { token = await work.ContractorLinkTokenAsync(me, id, ct) }));
+
+        // A new address: the old one stops at once.
+        group.MapPost("/requests/{id:long}/link/renew", async (long id, UserAccess me, WorkService work, IWorkStore store, CancellationToken ct) =>
+        {
+            var token = await work.RenewContractorLinkAsync(me, id, ct);
+            return Results.Ok(new { token, request = await DetailAsync(id, me, work, store, ct) });
+        });
+
+        // The last day the link works (staff choose it; 1 year by default).
+        group.MapPut("/requests/{id:long}/link/expiry", async (long id, ExpiryDto dto, UserAccess me, WorkService work, IWorkStore store, CancellationToken ct) =>
+        {
+            await work.SetContractorLinkExpiryAsync(me, id, dto.LastDay, ct);
+            return Results.Ok(await DetailAsync(id, me, work, store, ct));
+        });
 
         group.MapPost("/requests/{id:long}/link/enable", async (long id, UserAccess me, WorkService work, IWorkStore store, CancellationToken ct) =>
         {
-            await work.SetLinkEnabledAsync(me, id, true, ct);
+            await work.SetContractorLinkEnabledAsync(me, id, true, ct);
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
 
         group.MapPost("/requests/{id:long}/link/disable", async (long id, UserAccess me, WorkService work, IWorkStore store, CancellationToken ct) =>
         {
-            await work.SetLinkEnabledAsync(me, id, false, ct);
+            await work.SetContractorLinkEnabledAsync(me, id, false, ct);
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
 
         group.MapPost("/requests/{id:long}/link/extend", async (long id, UserAccess me, WorkService work, IWorkStore store, CancellationToken ct) =>
         {
-            await work.ExtendLinkAsync(me, id, ct);
+            await work.ExtendContractorLinkAsync(me, id, ct);
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
 
@@ -218,13 +237,13 @@ internal static class WorkEndpoints
                 throw new DomainValidationException("WORK_PASSWORD_LENGTH", "Type a password, or press Generate.");
             }
 
-            var password = await work.SetPasswordAsync(me, id, dto.Generate ? null : dto.Password, ct);
+            var password = await work.SetContractorPasswordAsync(me, id, dto.Generate ? null : dto.Password, ct);
             return Results.Ok(new { password, request = await DetailAsync(id, me, work, store, ct) });
         });
 
         group.MapDelete("/requests/{id:long}/password", async (long id, UserAccess me, WorkService work, IWorkStore store, CancellationToken ct) =>
         {
-            await work.RemovePasswordAsync(me, id, ct);
+            await work.RemoveContractorPasswordAsync(me, id, ct);
             return Results.Ok(await DetailAsync(id, me, work, store, ct));
         });
 
@@ -458,6 +477,7 @@ internal static class WorkEndpoints
     private static async Task<object> DetailAsync(long id, UserAccess me, WorkService work, IWorkStore store, CancellationToken ct)
     {
         var r = await work.GetAsync(me, id, ct);
+        var link = await work.ContractorLinkAsync(me, id, ct);
         var items = await store.ListItemsAsync(id, me.Scope, ct);
         var pictures = (await store.ListWorkFilesAsync(id, null, ct)).GroupBy(f => f.WorkItemId).ToDictionary(g => g.Key, g => g.Count());
         var messages = (await store.ListMessagesAsync(id, null, ct)).GroupBy(m => m.ParcelId).ToDictionary(g => g.Key, g => g.Count());
@@ -468,13 +488,14 @@ internal static class WorkEndpoints
             r.Name,
             contractor = new { contactId = r.ContractorContactId, displayName = r.ContractorName },
             r.ShowSizeToContractor,
-            link = new
+            link = new // the contractor's link: the same for all his requests
             {
-                state = WorkLinkStates.Of(r.LinkEnabled, r.LinkExpiresUtc, r.LockedUntilUtc, now),
-                enabled = r.LinkEnabled,
-                expiresUtc = r.LinkExpiresUtc,
-                hasPassword = r.PasswordHash is not null,
-                lockedUntilUtc = r.LockedUntilUtc is DateTime l && l > now ? l : (DateTime?)null,
+                state = WorkLinkStates.Of(link.LinkEnabled, link.LinkExpiresUtc, link.LockedUntilUtc, now),
+                enabled = link.LinkEnabled,
+                expiresUtc = link.LinkExpiresUtc,
+                hasPassword = link.PasswordHash is not null,
+                lockedUntilUtc = link.LockedUntilUtc is DateTime l && l > now ? l : (DateTime?)null,
+                perContractor = true,
             },
             copiedFrom = r.CopiedFromRequestId is long src ? new { workRequestId = src, name = r.CopiedFromName } : null,
             contractorLocked = await store.HasProgressAsync(id, ct), // after an offer: another contractor only by "Copy for another contractor"

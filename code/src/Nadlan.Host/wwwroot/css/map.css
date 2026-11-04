@@ -263,3 +263,8 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .map-measure.on { color: #2563eb; box-shadow: 0 0 0 2px #2563eb, 0 1px 4px rgba(0, 0, 0, 0.3); }
 .map-measure-label { margin-top: -22px; padding: 2px 7px; border-radius: 6px; background: #111827; color: #facc15 !important;
   font-size: 13px !important; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+
+/* The Work window open: a Work button on the hovered result row (owner, 2026-11-04) */
+.results-list li { position: relative; }
+.results-list .row-work { display: none; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
+.results-list li.can-work:hover .row-work { display: inline-block; }

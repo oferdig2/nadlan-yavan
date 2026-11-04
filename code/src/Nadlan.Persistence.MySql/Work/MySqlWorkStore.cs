@@ -138,8 +138,10 @@ public sealed partial class MySqlWorkStore : IWorkStore
         var visible = AccessSql.ParcelVisible("p", scope, args);
         await using var conn = await _db.OpenAsync(ct);
         return (await conn.QueryAsync<WorkRequestSummary>(new CommandDefinition($"""
-            SELECT r.work_request_id, r.name, r.contractor_contact_id, c.display_name AS contractor_name, r.link_enabled,
-                   r.link_expires_utc, r.locked_until_utc, r.password_hash IS NOT NULL AS has_password, r.created_utc,
+            SELECT r.work_request_id, r.name, r.contractor_contact_id, c.display_name AS contractor_name,
+                   COALESCE(cl.link_enabled, r.link_enabled) AS link_enabled, COALESCE(cl.link_expires_utc, r.link_expires_utc) AS link_expires_utc,
+                   IF(cl.contact_id IS NULL, r.locked_until_utc, cl.locked_until_utc) AS locked_until_utc,
+                   IF(cl.contact_id IS NULL, r.password_hash, cl.password_hash) IS NOT NULL AS has_password, r.created_utc,
                    COALESCE(pc.parcels, 0) AS parcels,
                    COALESCE(w.requested, 0) AS requested, COALESCE(w.offered, 0) AS offered, COALESCE(w.approved, 0) AS approved,
                    COALESCE(w.in_work, 0) AS in_work, COALESCE(w.done, 0) AS done, COALESCE(w.paid, 0) AS paid,
@@ -147,6 +149,7 @@ public sealed partial class MySqlWorkStore : IWorkStore
                    (SELECT MAX(e.created_utc) FROM work_event e WHERE e.work_request_id = r.work_request_id) AS last_activity_utc
             FROM work_request r
             JOIN contact c ON c.contact_id = r.contractor_contact_id
+            LEFT JOIN work_contractor_link cl ON cl.contact_id = r.contractor_contact_id
             LEFT JOIN (SELECT wrp.work_request_id, CAST(COUNT(*) AS SIGNED) AS parcels
                        FROM work_request_parcel wrp JOIN parcel p ON p.parcel_id = wrp.parcel_id
                        WHERE {visible}
