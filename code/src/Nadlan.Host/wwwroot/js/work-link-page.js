@@ -183,7 +183,8 @@
           "<span class=\"wl-parcel-top\"><span class=\"wl-kaek\">" + esc(parcelName(p)) + "</span>" + badge(t("parcel." + p.status), PARCEL_BADGE[p.status]) + "</span>" +
           "<span class=\"wl-parcel-sub\">" + esc([p.area, kaekLine(p), requestLine(p), p.sizeSqm !== null && p.sizeSqm !== undefined ? sqm(p.sizeSqm) : null].filter(Boolean).join(" · ")) + "</span>" +
           "<span class=\"wl-parcel-works\">" + p.works.map(function (w) {
-            return "<span class=\"wl-work-tag\" style=\"border-color:" + BADGE[w.status] + "\">" + esc(workName(w)) + ": " + esc(t("work." + w.status)) + "</span>";
+            return "<span class=\"wl-work-tag\" style=\"border-color:" + BADGE[w.status] + "\">" + esc(workName(w)) + ": " + esc(t("work." + w.status)) +
+              (inTwo(p) ? " <span class=\"wl-work-req\">· " + esc(w.request) + "</span>" : "") + "</span>";
           }).join("") + "</span>" +
         "</button></li>";
       }).join("") + "</ul>" : "<div class=\"wl-empty\">" + esc(t("noParcels")) + "</div>");
@@ -199,6 +200,11 @@
   // With the contractor's link (all his requests): which request the parcel is in, when he has more than one.
   function requestLine(p) {
     return view.requests && view.requests.length > 1 && p.requests ? p.requests.join(", ") : null;
+  }
+
+  // The parcel is in two (or more) of his requests: each work says which one.
+  function inTwo(p) {
+    return !!(p && p.requests && p.requests.length > 1);
   }
 
   function kaekLine(p) {
@@ -230,7 +236,8 @@
   }
 
   function workHtml(w) {
-    var head = "<div class=\"wl-work-head\"><span class=\"wl-work-name\">" + esc(workName(w)) + "</span>" + badge(t("work." + w.status), BADGE[w.status]) + "</div>";
+    var head = "<div class=\"wl-work-head\"><span class=\"wl-work-name\">" + esc(workName(w)) + "</span>" + badge(t("work." + w.status), BADGE[w.status]) + "</div>" +
+      (inTwo(parcelById(current)) ? "<div class=\"wl-work-req\">" + esc(w.request) + "</div>" : "");
     var body = "";
     if (w.status === "REQUESTED" || w.status === "OFFERED") {
       var price = w.price === null || w.price === undefined ? "" : String(w.price).replace(".", I.lang() === "el" ? "," : ".");

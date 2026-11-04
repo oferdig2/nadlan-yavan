@@ -355,6 +355,7 @@ internal static class WorkLinkEndpoints
         }
 
         var filesOf = files.ToLookup(f => f.WorkItemId);
+        var requestOf = rows.ToDictionary(x => x.Work.WorkItemId, x => x.Request.Name);
         var maps = options.Maps;
         return new
         {
@@ -382,6 +383,7 @@ internal static class WorkLinkEndpoints
                     works = g.Select(x => x.Work).Select(w => new
                     {
                         w.WorkItemId,
+                        request = requestOf[w.WorkItemId], // a parcel in two of his requests: which one this work is in
                         name = w.WorkTypeName,
                         nameEl = w.WorkTypeNameEl,
                         w.Status,

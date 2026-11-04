@@ -101,5 +101,17 @@ public partial class WorkMySqlTests
         await links.DoneAsync(single.Requests[0], clear);
         await work.PaidAsync(w.Admin, a, clear);
         Assert.Equal(new[] { b }, (await links.ResolveScopeAsync(fresh)).Requests.Select(r => r.WorkRequestId));
+
+        // One conversation per contractor and parcel: his message about PA1 sent through request B shows on request A's page
+        // too; another contractor's conversation about the same parcel stays apart.
+        await work.AddParcelWorksAsync(w.Admin, b, w.PA1, new[] { w.Burn });
+        await work.AddParcelWorksAsync(w.Admin, other, w.PA1, new[] { w.Clear });
+        var s2 = await links.ResolveScopeAsync(fresh);
+        Assert.Equal(b, (await links.RequestOfParcelAsync(s2, w.PA1)).WorkRequestId);
+        await links.SendMessageAsync(await links.RequestOfParcelAsync(s2, w.PA1), w.PA1, "Gate is locked");
+        await work.SendMessageAsync(w.Admin, other, w.PA1, "For the other contractor");
+        Assert.Equal(new[] { "Gate is locked" }, (await work.MessagesAsync(w.Admin, a, w.PA1)).Select(m => m.Body));
+        Assert.Equal(new[] { "Gate is locked" }, (await work.MessagesAsync(w.Admin, b, w.PA1)).Select(m => m.Body));
+        Assert.Equal(new[] { "For the other contractor" }, (await work.MessagesAsync(w.Admin, other, w.PA1)).Select(m => m.Body));
     }
 }

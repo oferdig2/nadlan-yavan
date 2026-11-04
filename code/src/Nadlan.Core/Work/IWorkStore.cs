@@ -156,7 +156,8 @@ public interface IWorkStore
 
     Task<long> AddMessageAsync(long workRequestId, long parcelId, string authorKind, long? authorUserId, string body, CancellationToken ct = default);
 
-    /// <summary>A Parcel's conversation, oldest first (null parcel = the whole request's).</summary>
+    /// <summary>A Parcel's conversation, oldest first (null parcel = the whole request's): one conversation per contractor and
+    /// parcel, so the messages about the parcel from his other requests are in it too.</summary>
     Task<IReadOnlyList<WorkMessage>> ListMessagesAsync(long workRequestId, long? parcelId, CancellationToken ct = default);
 
     /// <summary>The Parcel is in the request.</summary>
