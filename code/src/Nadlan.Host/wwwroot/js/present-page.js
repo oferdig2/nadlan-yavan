@@ -136,7 +136,7 @@
     return items.map(function (it, i) {
       var thumb = it.media && it.media.length ? thumbOf(it.media[0]) : null;
       return "<button type=\"button\" class=\"pres-chip\" data-index=\"" + i + "\">" +
-        "<span class=\"pres-chip-img\"" + (thumb ? " style=\"background-image:url('" + esc(thumb).replace(/'/g, "%27") + "')\"" : "") + "><span class=\"pres-num\">" + (i + 1) + "</span></span>" +
+        "<span class=\"pres-chip-img" + (thumb ? "" : " no-photo") + "\"" + (thumb ? " style=\"background-image:url('" + esc(thumb).replace(/'/g, "%27") + "')\"" : "") + "><span class=\"pres-num\">" + (i + 1) + "</span></span>" +
         "<span class=\"pres-chip-text\"><strong>" + esc(heading(it)) + "</strong><span>" + price(it) + (it.otPlot ? " · " + esc(it.otPlot) : "") + "</span></span></button>";
     }).join("");
   }

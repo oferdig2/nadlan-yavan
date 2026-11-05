@@ -73,6 +73,8 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-chip-img { flex: 0 0 auto; width: 64px; height: 48px; border-radius: 7px; background: #1e293b center / cover no-repeat;
   display: flex; align-items: flex-start; justify-content: flex-start; padding: 3px; }
 .pres-chip-img .pres-num { min-width: 20px; height: 20px; font-size: 11px; }
+/* No photo: no dark box - only the number, in a narrow column (owner, 2026-11-05). */
+.pres-chip-img.no-photo { width: 24px; height: auto; background: none; padding: 0; align-items: center; justify-content: center; }
 .pres-chip-text { display: flex; flex-direction: column; min-width: 0; }
 .pres-chip-text strong { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pres-chip-text span { color: var(--p-muted); font-size: 12px; }
