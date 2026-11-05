@@ -99,9 +99,31 @@ public static class PresentationEndpoints
         });
 
         // ?portfolioId=12  or  ?assetIds=5&assetIds=9 (in that order); t = the sealed title from the link
-        app.MapGet("/api/presentation", async (long? portfolioId, long[]? assetIds, string? t, UserAccess me, AccessPolicy policy,
-            IPortfolioStore portfolios, IAssetStore assets, IParcelStore parcels, IFileAttachmentStore files, IFileUrlProvider urls,
-            IDataProtectionProvider protection, SeaDistanceService sea, CancellationToken ct) =>
+        app.MapGet("/api/presentation", async (long? portfolioId, long[]? assetIds, string? t, UserAccess me, IServiceProvider services,
+            IDataProtectionProvider protection, CancellationToken ct) =>
+        {
+            var (items, total, truncated) = await BuildAsync(services, me, portfolioId, assetIds, forSaleOnly: false, ct);
+            // No Portfolio name or notes: they are internal ("Deal with X"). The title is the presenter's, from a sealed
+            // link for exactly these properties - and only shown when there is something to show.
+            var title = items.Count > 0 ? OpenTitle(protection, t, portfolioId, portfolioId is null ? (assetIds ?? Array.Empty<long>()).Distinct().ToList() : null) : null;
+            return Results.Ok(new { title, items, total, truncated });
+        });
+    }
+
+    /// <summary>
+    /// The presentation's properties as <paramref name="me"/> may present them: a Portfolio's (in its order) or the given
+    /// Assets'. forSaleOnly: only Assets For sale (a public link: owner, 2026-11-05).
+    /// </summary>
+    internal static async Task<(List<object> Items, int Total, bool Truncated)> BuildAsync(IServiceProvider services, UserAccess me, long? portfolioId,
+        IReadOnlyList<long>? assetIds, bool forSaleOnly, CancellationToken ct)
+    {
+        var policy = services.GetRequiredService<AccessPolicy>();
+        var portfolios = services.GetRequiredService<IPortfolioStore>();
+        var assets = services.GetRequiredService<IAssetStore>();
+        var parcels = services.GetRequiredService<IParcelStore>();
+        var files = services.GetRequiredService<IFileAttachmentStore>();
+        var urls = services.GetRequiredService<IFileUrlProvider>();
+        var sea = services.GetRequiredService<SeaDistanceService>();
         {
             List<long> order;
             AssetQuery query;
@@ -130,7 +152,7 @@ public static class PresentationEndpoints
 
             // One row per Asset and Parcel: an Asset on two Parcels is one stop with both polygons.
             var rank = order.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
-            var all = (await assets.QueryAsync(query, ct)).GroupBy(a => a.AssetId)
+            var all = (await assets.QueryAsync(query, ct)).Where(a => !forSaleOnly || a.StatusCode == AssetStatusCodes.ForSale).GroupBy(a => a.AssetId)
                 .OrderBy(g => rank.GetValueOrDefault(g.Key, int.MaxValue)).ThenBy(g => g.Key).ToList();
             var groups = all.Take(MaxAssets).ToList();
 
@@ -155,11 +177,8 @@ public static class PresentationEndpoints
                 items.Add(Item(g.ToList(), asset, plotSqm, await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct), seaMetres));
             }
 
-            // No Portfolio name or notes: they are internal ("Deal with X"). The title is the presenter's, from a sealed
-            // link for exactly these properties - and only shown when there is something to show.
-            var title = items.Count > 0 ? OpenTitle(protection, t, portfolioId, portfolioId is null ? order : null) : null;
-            return Results.Ok(new { title, items, total = all.Count, truncated = all.Count > groups.Count });
-        });
+            return (items, all.Count, all.Count > groups.Count);
+        }
     }
 
     /// <summary>

@@ -78,6 +78,9 @@ public sealed record AssetMapItem
     public int AssetStatusId { get; init; }
     public string StatusName { get; init; } = "";
     public string StatusColor { get; init; } = "";
+
+    /// <summary>asset_status.code (FOR_SALE, SOLD, ...): a public presentation link shows only For sale.</summary>
+    public string? StatusCode { get; init; }
     public string? PropertyTypeName { get; init; }
 
     /// <summary>A beach (property type BEACH): a public place, shown in its own colour, never in a Portfolio or presentation.</summary>
@@ -106,4 +109,10 @@ public interface IAssetStore
 
     /// <summary>Hands the Asset to another user: its creator, who sees and edits it as their own (Admin only - the caller checks).</summary>
     Task SetCreatorAsync(long assetId, long userId, CancellationToken ct = default) => throw new NotSupportedException();
+}
+
+/// <summary>asset_status codes the code relies on (migration 003).</summary>
+public static class AssetStatusCodes
+{
+    public const string ForSale = "FOR_SALE";
 }

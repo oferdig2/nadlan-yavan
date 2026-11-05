@@ -156,6 +156,13 @@ public sealed class AuthService
         return ToAccess(user, await _roles.GetRolePermissionCodesAsync(user.SecurityRoleId, ct));
     }
 
+    /// <summary>An active user's access by id (a public presentation link shows what its creator may present); null if gone or inactive.</summary>
+    public async Task<UserAccess?> LoadActiveUserAsync(long userId, CancellationToken ct = default)
+    {
+        var user = await _users.GetAsync(userId, ct);
+        return user is { IsActive: true } ? ToAccess(user, await _roles.GetRolePermissionCodesAsync(user.SecurityRoleId, ct)) : null;
+    }
+
     public const string ApiTokenPrefix = "nad_";
 
     /// <summary>Per request with "Authorization: Bearer nad_...": the token's user, if the token is live and the user active.</summary>

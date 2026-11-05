@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GreekPlot — Presentation</title>
+  <!-- A presentation opened by a public link (owner, 2026-11-05): no sign-in - the token after "#" is the access; an optional
+       password first. Same page as present.html (present-page.js runs both); nothing here needs a GreekPlot account. -->
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/css/files.css" />
+  <link rel="stylesheet" href="/css/present.css" />
+</head>
+<body class="present present-public">
+  <div id="stage" class="pres-stage"></div>
+
+  <header class="pres-bar">
+    <span class="pres-brand">GreekPlot</span>
+    <div class="pres-title">
+      <h1 data-role="title">Loading…</h1>
+      <span class="pres-sub" data-role="sub"></span>
+    </div>
+    <nav class="pres-controls" aria-label="Presentation">
+      <button type="button" data-act="overview" title="See all (O)">⌂ All</button>
+      <button type="button" data-act="prev" title="Previous (←)">◀</button>
+      <button type="button" data-act="tour" class="pres-tour" title="Tour: fly to each in turn (Space)">▶ Tour</button>
+      <button type="button" data-act="next" title="Next (→)">▶</button>
+      <button type="button" data-act="me" class="pres-me" title="Show where I am (M)">◎ Me</button>
+      <button type="button" data-act="view3d" class="pres-3d" title="Google's 3D view (D)" aria-pressed="false" hidden>⛰ 3D</button>
+    </nav>
+  </header>
+
+  <form class="pres-lock" data-role="lock" autocomplete="off" hidden>
+    <h2>This presentation is protected</h2>
+    <label>Password<input class="pres-lock-input" name="password" type="password" inputmode="text" autocomplete="current-password" required></label>
+    <div class="pres-lock-error" role="alert" hidden></div>
+    <button type="submit" class="pres-lock-btn">Open</button>
+  </form>
+
+  <aside class="pres-card" data-role="card" hidden></aside>
+  <div class="pres-strip" data-role="strip"></div>
+  <div class="pres-notice" data-role="notice" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js" integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs" crossorigin="anonymous"></script>
+  <script src="/js/formatters.js"></script>
+  <script src="/js/file-card.js"></script>
+  <script src="/js/my-location.js"></script>
+  <script src="/js/present-views.js"></script>
+  <script src="/js/present-page.js"></script>
+</body>
+</html>

@@ -1,19 +1,50 @@
 // "Present": asks for the title the customer will read (never the Portfolio's internal name), then opens the
-// presentation (present.html) in a new tab or copies its link to send. The link works for anyone signed in with
+// presentation (present.html) in a new tab or copies its link to send. That link works for anyone signed in with
 // access to those properties.
+// With SHARE_PRESENTATION (Admin, Data person - owner, 2026-11-05) the dialog also makes and manages PUBLIC links
+// (show.html#token): no sign-in, an optional password, 1 week by default (up to a year), disable / new link / delete.
 (function (window, $) {
   "use strict";
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
+  var esc = function (s) { return Nadlan.format.escapeHtml(s); };
+
+  function copyText(text, done) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { window.prompt("Copy this link:", text); });
+    } else { window.prompt("Copy this link:", text); }
+  }
+
+  function day(d) { var x = new Date(d); return x.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); }
+
+  function lastDayOf(expiresUtc) { return new Date(new Date(expiresUtc).getTime() - 1).toISOString().slice(0, 10); }
+
+  function inDays(n) { var d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+
+  var STATE = { active: "Active", disabled: "Disabled", expired: "Expired", locked: "Locked (wrong passwords)" };
 
   /** @param {{ portfolioId?: number, assetIds?: number[] }} what */
   function open(what) {
+    var canShare = !!(Nadlan.session && Nadlan.session.can && Nadlan.session.can("SHARE_PRESENTATION"));
     var $form = $(
-      "<form class=\"form\">" +
+      "<form class=\"form present-dialog\">" +
         "<label>Title the customer sees<input class=\"input\" name=\"title\" maxlength=\"120\" placeholder=\"e.g. Sea-view plots for the Smiths\"></label>" +
         "<div class=\"muted\">Leave empty for “4 properties · Skroponeria”. Only marketing photos and videos are shown.</div>" +
         "<div class=\"muted\" data-role=\"copied\" hidden>Link copied.</div>" +
+        (canShare
+          ? "<section class=\"public-links\"><h4>Public link <span class=\"muted\">- opens without signing in</span></h4>" +
+              "<div class=\"muted\">Shows only properties For sale" + (what.portfolioId ? "; follows the Portfolio as it changes" : "") + ".</div>" +
+              "<div class=\"form-row public-new\">" +
+                "<label>Works until<input class=\"input\" type=\"date\" name=\"lastDay\"></label>" +
+                "<label class=\"check\"><input type=\"checkbox\" name=\"protect\"> Password (6 digits)</label>" +
+                "<button type=\"button\" class=\"btn btn-primary\" data-act=\"create\">Create public link</button>" +
+              "</div>" +
+              "<div class=\"public-made\" hidden></div>" +
+              "<div class=\"public-list\"><div class=\"muted\">Loading…</div></div>" +
+            "</section>"
+          : "") +
       "</form>");
+    $form.find("[name=lastDay]").val(inDays(7)).attr({ min: inDays(0), max: inDays(365) });
 
     // The server seals the title into the link (a link typed by hand can't carry text of its own onto the page).
     function link() {
@@ -26,7 +57,7 @@
     var d = Nadlan.dialog.open({
       title: "Present to a customer",
       content: $form,
-      width: 460,
+      width: canShare ? 600 : 460,
       buttons: [
         { text: "Open", primary: true, click: function () {
           // Opened before the request ends, so the browser doesn't block it as a pop-up; filled in once the link is back.
@@ -35,16 +66,120 @@
             function () { if (tab) { tab.close(); } });
         } },
         { text: "Copy link", click: function () {
-          link().then(function (url) {
-            var done = function () { $form.find("[data-role=copied]").prop("hidden", false); };
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              navigator.clipboard.writeText(url).then(done, function () { window.prompt("Copy this link:", url); });
-            } else { window.prompt("Copy this link:", url); }
-          }, function () { /* shown in the dialog */ });
+          link().then(function (url) { copyText(url, function () { $form.find("[data-role=copied]").prop("hidden", false); }); },
+            function () { /* shown in the dialog */ });
         } },
         { text: "Cancel", click: function () { d.close(); } }
       ]
     });
+    if (!canShare) { return d; }
+
+    // ---- public links ---------------------------------------------------------------------------------------------
+
+    var base = "/api/presentation/links";
+    var target = what.portfolioId ? { portfolioId: what.portfolioId } : { assetIds: what.assetIds };
+    var $list = $form.find(".public-list"), $made = $form.find(".public-made");
+    var links = [];
+
+    function publicUrl(token) { return window.location.origin + "/show.html#" + token; }
+
+    function showMade(text) { $made.html(text).prop("hidden", !text); }
+
+    function render() {
+      if (!links.length) { $list.html("<div class=\"muted\">No public links yet.</div>"); return; }
+      $list.html("<ul class=\"public-rows\">" + links.map(function (l) {
+        return "<li data-id=\"" + l.id + "\"><div class=\"public-row-head\"><strong class=\"public-title\"></strong>" +
+            "<span class=\"badge public-state public-" + esc(l.state) + "\">" + esc(STATE[l.state] || l.state) + "</span>" +
+            (l.hasPassword ? " <span title=\"Asks for a password\">🔒</span>" : "") + "</div>" +
+          "<div class=\"muted\">Until " + esc(day(new Date(new Date(l.expiresUtc).getTime() - 1))) + " · opened " + l.openCount + " time" + (l.openCount === 1 ? "" : "s") +
+            (l.lastOpenedUtc ? ", last " + esc(day(l.lastOpenedUtc)) : "") + " · by " + esc(l.createdBy) + "</div>" +
+          "<div class=\"btn-row public-actions\">" +
+            (l.enabled ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"copy\">Copy link</button>" : "") +
+            "<button type=\"button\" class=\"btn btn-small\" data-act=\"extend\">+1 week</button>" +
+            "<label class=\"public-day\">until <input type=\"date\" class=\"input input-small\" data-act=\"day\" value=\"" + lastDayOf(l.expiresUtc) + "\" min=\"" + inDays(0) +
+              "\" max=\"" + inDays(365) + "\"></label>" +
+            "<button type=\"button\" class=\"btn btn-small\" data-act=\"" + (l.enabled ? "disable" : "enable") + "\">" + (l.enabled ? "Disable" : "Enable") + "</button>" +
+            "<button type=\"button\" class=\"btn btn-small\" data-act=\"password\">" + (l.hasPassword ? "New password" : "Add password") + "</button>" +
+            (l.hasPassword ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"nopassword\">No password</button>" : "") +
+            "<button type=\"button\" class=\"btn btn-small\" data-act=\"renew\" title=\"A new address; the current one stops at once\">New link</button>" +
+            "<button type=\"button\" class=\"btn btn-small btn-danger\" data-act=\"delete\">Delete</button>" +
+          "</div></li>";
+      }).join("") + "</ul>");
+      $list.find("li").each(function (i) { $(this).find(".public-title").text(links[i].title || "(no title)"); });
+    }
+
+    function load() {
+      return Nadlan.api.get(base, target).then(function (rows) { links = rows; render(); },
+        function (err) { $list.html("<div class=\"error\">" + esc(err.message) + "</div>"); });
+    }
+
+    function act(promise, message) {
+      d.showError("");
+      return promise.then(function (res) { if (message) { showMade(esc(message)); } load(); return res; },
+        function (err) { d.showError(err.message); return null; });
+    }
+
+    function idOf(el) { return Number($(el).closest("li").data("id")); }
+
+    $form.on("click", "[data-act=create]", function () {
+      var $btn = $(this).prop("disabled", true);
+      act(Nadlan.api.post(base, $.extend({}, target, {
+        title: $.trim($form.find("[name=title]").val()) || null, lastDay: $form.find("[name=lastDay]").val() || null,
+        generatePassword: $form.find("[name=protect]").prop("checked")
+      }))).then(function (res) {
+        $btn.prop("disabled", false);
+        if (!res) { return; }
+        var url = publicUrl(res.token);
+        copyText(url, function () { });
+        showMade("Public link made and copied: <input class=\"input public-url\" readonly>" +
+          (res.password ? "<div>Password: <strong class=\"public-pw\"></strong> <span class=\"muted\">- shown only now; send it separately.</span></div>" : ""));
+        $made.find(".public-url").val(url);
+        $made.find(".public-pw").text(res.password || "");
+      });
+    });
+
+    $form.on("click", "[data-act=copy]", function () {
+      var id = idOf(this);
+      act(Nadlan.api.get(base + "/" + id + "/token")).then(function (res) {
+        if (res) { copyText(publicUrl(res.token), function () { showMade("Link copied."); }); }
+      });
+    });
+    $form.on("click", "[data-act=extend]", function () { act(Nadlan.api.post(base + "/" + idOf(this) + "/extend"), "Extended by a week."); });
+    $form.on("change", "[data-act=day]", function () {
+      var v = $(this).val();
+      if (v) { act(Nadlan.api.put(base + "/" + idOf(this) + "/expiry", { lastDay: v }), "The link works until " + day(v) + "."); }
+    });
+    $form.on("click", "[data-act=disable]", function () { act(Nadlan.api.post(base + "/" + idOf(this) + "/disable"), "Disabled: the link opens nothing now."); });
+    $form.on("click", "[data-act=enable]", function () { act(Nadlan.api.post(base + "/" + idOf(this) + "/enable"), "Enabled."); });
+    $form.on("click", "[data-act=nopassword]", function () { act(Nadlan.api.del(base + "/" + idOf(this) + "/password"), "The link opens without a password now."); });
+    $form.on("click", "[data-act=password]", function () {
+      act(Nadlan.api.post(base + "/" + idOf(this) + "/password", { generate: true })).then(function (res) {
+        if (!res) { return; }
+        showMade("New password: <strong class=\"public-pw\"></strong> <span class=\"muted\">- shown only now; phones that had the old one must type it.</span>");
+        $made.find(".public-pw").text(res.password);
+      });
+    });
+    $form.on("click", "[data-act=renew]", function () {
+      var id = idOf(this);
+      Nadlan.dialog.confirm("A new link", "The current address stops at once. Send the customer the new one.", "New link").then(function (ok) {
+        if (!ok) { return; }
+        act(Nadlan.api.post(base + "/" + id + "/renew")).then(function (res) {
+          if (!res) { return; }
+          var url = publicUrl(res.token);
+          copyText(url, function () { });
+          showMade("New link made and copied: <input class=\"input public-url\" readonly>");
+          $made.find(".public-url").val(url);
+        });
+      });
+    });
+    $form.on("click", "[data-act=delete]", function () {
+      var id = idOf(this);
+      Nadlan.dialog.confirm("Delete the public link", "It stops working at once and leaves the list.", "Delete").then(function (ok) {
+        if (ok) { act(Nadlan.api.del(base + "/" + id), "Deleted."); }
+      });
+    });
+
+    load();
     return d;
   }
 
