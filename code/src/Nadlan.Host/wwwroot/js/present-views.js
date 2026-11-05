@@ -39,11 +39,29 @@
 
   function centerOf(b) { return { lat: (b.south + b.north) / 2, lng: (b.west + b.east) / 2 }; }
 
-  // A camera that frames the box, looking down at 60° from the south-west-ish (heading 30°).
-  function cameraFor(b, wide) {
+  // A camera that frames the box, looking down at 60° from the south-west-ish (heading 30°), aimed at the ground's
+  // height there. Its altitude is above sea level: aimed at 0, a hillside plot was viewed from under the ground (owner,
+  // 2026-11-05). ground = null (height unknown): higher and steeper, so even a hill of ~1,000 m stays below the camera.
+  function cameraFor(b, wide, ground) {
     var c = centerOf(b);
     var range = Math.min(60000, Math.max(wide ? 600 : 220, diagonalMetres(b) * (wide ? 1.6 : 3.2)));
-    return { center: { lat: c.lat, lng: c.lng, altitude: 0 }, range: range, tilt: wide ? 50 : 62, heading: 30 };
+    if (ground === null || ground === undefined) {
+      return { center: { lat: c.lat, lng: c.lng, altitude: 0 }, range: Math.max(range, wide ? 3000 : 1500), tilt: wide ? 35 : 40, heading: 30 };
+    }
+    return { center: { lat: c.lat, lng: c.lng, altitude: Math.max(0, ground) }, range: range, tilt: wide ? 50 : 62, heading: 30 };
+  }
+
+  // The ground's height (m above sea level) at each point, from Google's Elevation service; null for all when it isn't
+  // allowed for the key (then cameraFor keeps a safe height) or doesn't answer in time.
+  function groundHeights(points) {
+    var none = points.map(function () { return null; });
+    if (!points.length || !google.maps.importLibrary) { return Promise.resolve(none); }
+    var asked = google.maps.importLibrary("elevation").then(function (lib) {
+      return new lib.ElevationService().getElevationForLocations({ locations: points });
+    }).then(function (r) {
+      return points.map(function (p, i) { var x = r && r.results && r.results[i]; return x && isFinite(x.elevation) ? x.elevation : null; });
+    }, function () { return none; });
+    return Promise.race([asked, new Promise(function (r) { setTimeout(function () { r(none); }, 5000); })]);
   }
 
   function ring(coords) { return coords.map(function (p) { return { lat: p[1], lng: p[0] }; }); }
@@ -71,7 +89,12 @@
    * @param {{ onPick: function(number): void }} options
    */
   function create3dView(lib, el, items, options) {
-    var overview = cameraFor(allBounds(items), true);
+    // Ground heights: the properties' centres, then the whole set's centre. Until they arrive (or without them) the
+    // cameras keep a safe height.
+    var ground = items.map(function () { return null; }), groundAll = null;
+    var overview = cameraFor(allBounds(items), true, null);
+    var heightsReady = groundHeights(items.map(function (it) { return centerOf(boundsOf(it.polygons)); }).concat([centerOf(allBounds(items))]))
+      .then(function (h) { ground = h.slice(0, items.length); groundAll = h[items.length]; overview = cameraFor(allBounds(items), true, groundAll); });
     var map = new lib.Map3DElement({ center: overview.center, range: overview.range, tilt: overview.tilt, heading: overview.heading });
     if (lib.MapMode && "mode" in map) { map.mode = lib.MapMode.HYBRID; } // place names and roads over the 3D imagery
     map.classList.add("pres-map-3d");
@@ -158,18 +181,26 @@
           me.position = position;
         }
         if (!fly) { return Promise.resolve(); }
-        var cam = { center: { lat: p.lat, lng: p.lng, altitude: 0 }, range: Math.min(20000, Math.max(350, p.accuracy * 4)), tilt: 60, heading: 30 };
-        return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 2500 }); }, 2500);
+        return groundHeights([{ lat: p.lat, lng: p.lng }]).then(function (h) {
+          var known = h[0] !== null;
+          var cam = { center: { lat: p.lat, lng: p.lng, altitude: known ? Math.max(0, h[0]) : 0 },
+            range: Math.min(20000, Math.max(known ? 350 : 1500, p.accuracy * 4)), tilt: known ? 60 : 40, heading: 30 };
+          return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 2500 }); }, 2500);
+        });
       },
       showAll: function () {
-        return animation(map, function () { map.flyCameraTo({ endCamera: overview, durationMillis: 3000 }); }, 3000);
+        return heightsReady.then(function () {
+          return animation(map, function () { map.flyCameraTo({ endCamera: overview, durationMillis: 3000 }); }, 3000);
+        });
       },
       fly: function (i) {
-        var cam = cameraFor(boundsOf(items[i].polygons), false);
-        return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 3500 }); }, 3500);
+        return heightsReady.then(function () {
+          var cam = cameraFor(boundsOf(items[i].polygons), false, ground[i]);
+          return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 3500 }); }, 3500);
+        });
       },
       orbit: function (i, ms) {
-        var cam = cameraFor(boundsOf(items[i].polygons), false);
+        var cam = cameraFor(boundsOf(items[i].polygons), false, ground[i]);
         return animation(map, function () {
           try { map.flyCameraAround(orbitOptions(cam, ms)); } catch (e) { map.flyCameraAround({ camera: cam, durationMillis: ms, rounds: 1 }); } // older beta
         }, ms);
