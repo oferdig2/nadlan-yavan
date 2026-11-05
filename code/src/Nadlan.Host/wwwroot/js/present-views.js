@@ -283,9 +283,11 @@
 
     // The ruler (owner, 2026-11-05: "from the beach, or from anything he wants"): map-measure.js, as on the main map.
     // While it is on, a click on a property adds a point instead of opening its card.
+    var ruler = null;
     if (Nadlan.mapMeasure) {
-      Nadlan.mapMeasure.createMeasureControl(map, {
+      ruler = Nadlan.mapMeasure.createMeasureControl(map, {
         setStatus: options.setStatus || function () { },
+        button: options.measureButton || null, // the top bar's, left of "All" (owner, 2026-11-05)
         position: "RIGHT_CENTER",
         onActiveChange: function (on) {
           measuring = on;
@@ -308,7 +310,7 @@
     return {
       kind: "2d",
       ready: function () { return Promise.resolve(true); },
-      destroy: function () { google.maps.event.clearInstanceListeners(map); box.remove(); },
+      destroy: function () { if (ruler) { ruler.destroy(); } google.maps.event.clearInstanceListeners(map); box.remove(); },
       showMe: function (p, fly) {
         var here = { lat: p.lat, lng: p.lng };
         if (!dot) {

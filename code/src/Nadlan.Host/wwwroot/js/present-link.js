@@ -27,6 +27,10 @@
     return ("00000" + n).slice(-6);
   }
 
+  // The buttons under each link (+1 week, Disable, New password, New link, Delete ...) are hidden for now (owner,
+  // 2026-11-05: "confusing"); the server still offers them.
+  var SHOW_ROW_ACTIONS = false;
+
   var STATE = { active: "Active", disabled: "Disabled", expired: "Expired", locked: "Locked (wrong passwords)" };
 
   /** @param {{ portfolioId?: number, assetIds?: number[] }} what */
@@ -36,13 +40,11 @@
       "<form class=\"form present-dialog\">" +
         "<label>Title the customer sees<input class=\"input\" name=\"title\" maxlength=\"120\" placeholder=\"e.g. Sea-view plots for the Smiths\"></label>" +
         "<div class=\"muted\">Leave empty for “4 properties · Skroponeria”. Only marketing photos and videos are shown.</div>" +
-        "<div class=\"muted\" data-role=\"copied\" hidden>Link copied.</div>" +
         (canShare
           ? "<section class=\"public-links\"><h4>Public link <span class=\"muted\">- opens without signing in</span></h4>" +
-              "<div class=\"muted\">Shows only properties For sale" + (what.portfolioId ? "; follows the Portfolio as it changes" : "") + ".</div>" +
+              "<div class=\"muted\">Shows only properties For sale" + (what.portfolioId ? "; follows the Portfolio as it changes" : "") + ". <strong>Copy link</strong> below makes it and copies it.</div>" +
               "<div class=\"form-row public-new\">" +
                 "<label>Works until<input class=\"input\" type=\"date\" name=\"lastDay\"></label>" +
-                "<button type=\"button\" class=\"btn btn-primary\" data-act=\"create\">Create public link</button>" +
               "</div>" +
               "<label class=\"check\"><input type=\"checkbox\" name=\"protect\"> Password</label>" +
               "<div class=\"public-password\" hidden><input class=\"input\" name=\"password\" maxlength=\"64\" autocomplete=\"off\" spellcheck=\"false\">" +
@@ -78,12 +80,10 @@
           link().then(function (url) { if (tab) { tab.opener = null; tab.location = url; } else { window.open(url, "_blank", "noopener"); } d.close(); },
             function () { if (tab) { tab.close(); } });
         } },
-        { text: "Copy link", click: function () {
-          link().then(function (url) { copyText(url, function () { $form.find("[data-role=copied]").prop("hidden", false); }); },
-            function () { /* shown in the dialog */ });
-        } },
+        // Copy link = the PUBLIC link (owner, 2026-11-05: "Open" is for the signed-in one); only for those who may share.
+      ].concat(canShare ? [{ text: "Copy link", click: function () { copyPublic(); } }] : []).concat([
         { text: "Cancel", click: function () { d.close(); } }
-      ]
+      ])
     });
     if (!canShare) { return d; }
 
@@ -106,7 +106,7 @@
             (l.hasPassword ? " <span title=\"Asks for a password\">🔒</span>" : "") + "</div>" +
           "<div class=\"muted\">Until " + esc(day(new Date(new Date(l.expiresUtc).getTime() - 1))) + " · opened " + l.openCount + " time" + (l.openCount === 1 ? "" : "s") +
             (l.lastOpenedUtc ? ", last " + esc(day(l.lastOpenedUtc)) : "") + " · by " + esc(l.createdBy) + "</div>" +
-          "<div class=\"btn-row public-actions\">" +
+          (!SHOW_ROW_ACTIONS ? "" : "<div class=\"btn-row public-actions\">" +
             (l.enabled ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"copy\">Copy link</button>" : "") +
             "<button type=\"button\" class=\"btn btn-small\" data-act=\"extend\">+1 week</button>" +
             "<label class=\"public-day\">until <input type=\"date\" class=\"input input-small\" data-act=\"day\" value=\"" + lastDayOf(l.expiresUtc) + "\" min=\"" + inDays(0) +
@@ -116,7 +116,7 @@
             (l.hasPassword ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"nopassword\">No password</button>" : "") +
             "<button type=\"button\" class=\"btn btn-small\" data-act=\"renew\" title=\"A new address; the current one stops at once\">New link</button>" +
             "<button type=\"button\" class=\"btn btn-small btn-danger\" data-act=\"delete\">Delete</button>" +
-          "</div></li>";
+          "</div>") + "</li>";
       }).join("") + "</ul>");
       $list.find("li").each(function (i) { $(this).find(".public-title").text(links[i].title || "(no title)"); });
     }
@@ -134,22 +134,32 @@
 
     function idOf(el) { return Number($(el).closest("li").data("id")); }
 
-    $form.on("click", "[data-act=create]", function () {
-      var $btn = $(this).prop("disabled", true);
-      act(Nadlan.api.post(base, $.extend({}, target, {
+    // "Copy link": makes the public link with the settings above and copies it. Pressed again with the same settings, the
+    // same link is copied again (no new one each time).
+    var lastMade = null; // { settings, url, password }
+    function copyPublic() {
+      var body = $.extend({}, target, {
         title: $.trim($form.find("[name=title]").val()) || null, lastDay: $form.find("[name=lastDay]").val() || null,
         password: $form.find("[name=protect]").prop("checked") ? ($.trim($form.find("[name=password]").val()) || madeUpPassword()) : null
-      }))).then(function (res) {
-        $btn.prop("disabled", false);
-        if (!res) { return; }
-        var url = publicUrl(res.token);
-        copyText(url, function () { });
-        showMade("Public link made and copied: <input class=\"input public-url\" readonly>" +
-          (res.password ? "<div>Password: <strong class=\"public-pw\"></strong> <span class=\"muted\">- shown only now; send it separately.</span></div>" : ""));
-        $made.find(".public-url").val(url);
-        $made.find(".public-pw").text(res.password || "");
       });
-    });
+      var settings = JSON.stringify(body);
+      if (lastMade && lastMade.settings === settings) { copyText(lastMade.url, function () { }); shown(lastMade, "Copied again"); return; }
+      d.busy(true);
+      act(Nadlan.api.post(base, body)).then(function (res) {
+        d.busy(false);
+        if (!res) { return; }
+        lastMade = { settings: settings, url: publicUrl(res.token), password: res.password };
+        copyText(lastMade.url, function () { });
+        shown(lastMade, "Public link made and copied");
+      });
+    }
+
+    function shown(m, what) {
+      showMade(esc(what) + ": <input class=\"input public-url\" readonly>" +
+        (m.password ? "<div>Password: <strong class=\"public-pw\"></strong> <span class=\"muted\">- send it separately.</span></div>" : ""));
+      $made.find(".public-url").val(m.url);
+      $made.find(".public-pw").text(m.password || "");
+    }
 
     $form.on("click", "[data-act=copy]", function () {
       var id = idOf(this);

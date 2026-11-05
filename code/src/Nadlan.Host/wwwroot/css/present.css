@@ -105,13 +105,11 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-lock .pres-lock-btn { padding: 10px; border: 0; border-radius: 999px; background: var(--p-accent); color: #111827; font-weight: 650; }
 body.present-locked .pres-controls { visibility: hidden; }
 
-/* The ruler on the 2D map (map-measure.js, owner 2026-11-05): a round button above Google's zoom buttons; the length beside the
-   line. Same look as on the main map. */
-.present .map-locate { width: 40px; height: 40px; margin: 0 10px 10px 0; border: 0; border-radius: 50%; background: #fff; color: #475569;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
-.present .map-locate svg { width: 22px; height: 22px; }
-.present .map-locate:hover { color: #0f172a; }
-.present .map-measure.on { color: #2563eb; box-shadow: 0 0 0 2px #2563eb, 0 1px 4px rgba(0, 0, 0, 0.3); }
+/* The ruler (map-measure.js, owner 2026-11-05): in the top bar left of "All", 2D only; the length beside the line. */
+.pres-controls .pres-measure { display: inline-flex; align-items: center; justify-content: center; padding: 4px 9px; }
+.pres-controls .pres-measure svg { width: 18px; height: 18px; }
+.pres-controls .pres-measure[aria-pressed="true"] { border-color: var(--p-accent); color: var(--p-accent); }
+body:not(.view-2d) .pres-controls .pres-measure { display: none; }
 .map-measure-label { margin-top: -22px; padding: 2px 7px; border-radius: 6px; background: #111827; color: #facc15 !important;
   font-size: 13px !important; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
 /* Measuring: the strip and the card step back so the line can reach any point. */
