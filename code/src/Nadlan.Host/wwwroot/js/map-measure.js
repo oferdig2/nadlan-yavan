@@ -27,21 +27,27 @@
     return m < 1000 ? Math.round(m) + " m" : (m / 1000).toFixed(m < 10000 ? 2 : 1) + " km";
   }
 
+  var RULER_SVG = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 17 17 3l4 4L7 21z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"/>" +
+    "<path d=\"M7 13l2 2M10 10l2 2M13 7l2 2\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>";
+
   /**
    * @param {google.maps.Map} map
    * @param {{ setStatus: function(string): void, onActiveChange: function(boolean): void, position?: string }} options
    *        onActiveChange(true) while measuring: the page stops parcel clicks (cards) until it is turned off
    */
   function createMeasureControl(map, options) {
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "map-locate map-measure";
+    // options.button: a button the page already has (the presentation's top bar); else a round one on the map.
+    var own = !options.button;
+    var button = options.button || document.createElement("button");
+    if (own) {
+      button.type = "button";
+      button.className = "map-locate map-measure";
+      button.innerHTML = RULER_SVG;
+    }
     button.title = "Measure a distance (click points on the map; double-click or Enter finishes, Esc clears)";
     button.setAttribute("aria-label", "Measure a distance");
     button.setAttribute("aria-pressed", "false");
-    button.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 17 17 3l4 4L7 21z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"/>" +
-      "<path d=\"M7 13l2 2M10 10l2 2M13 7l2 2\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>";
-    map.controls[google.maps.ControlPosition[options.position || "RIGHT_BOTTOM"]].push(button); // the presentation: RIGHT_CENTER, above its strip
+    if (own) { map.controls[google.maps.ControlPosition[options.position || "RIGHT_BOTTOM"]].push(button); }
 
     var active = false, finished = false, points = [];
     var line = null, label = null, clickListener = null, dblListener = null;
@@ -112,10 +118,16 @@
       options.onActiveChange(on);
     }
 
-    button.addEventListener("click", function () { setActive(!active); });
+    function toggle() { setActive(!active); }
+    button.addEventListener("click", toggle);
 
-    return { isActive: function () { return active; }, stop: function () { setActive(false); } };
+    return {
+      isActive: function () { return active; },
+      stop: function () { setActive(false); },
+      /** Off, and the page's own button let go (the map is going away). */
+      destroy: function () { setActive(false); button.removeEventListener("click", toggle); }
+    };
   }
 
-  Nadlan.mapMeasure = { createMeasureControl: createMeasureControl, distance: distance, length: length, formatLength: formatLength };
+  Nadlan.mapMeasure = { createMeasureControl: createMeasureControl, rulerSvg: RULER_SVG, distance: distance, length: length, formatLength: formatLength };
 })(window);
