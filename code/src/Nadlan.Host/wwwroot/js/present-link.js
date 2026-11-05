@@ -48,7 +48,7 @@
               "</div>" +
               "<label class=\"check\"><input type=\"checkbox\" name=\"protect\"> Password</label>" +
               "<div class=\"public-password\" hidden><input class=\"input\" name=\"password\" maxlength=\"64\" autocomplete=\"off\" spellcheck=\"false\">" +
-                "<span class=\"muted\">Ours, or type your own (4-64 characters). Send it separately.</span></div>" +
+                "<span class=\"muted\">4-64 characters. Send it separately.</span></div>" +
               "<div class=\"public-made\" hidden></div>" +
               "<div class=\"public-list\"><div class=\"muted\">Loading…</div></div>" +
             "</section>"
