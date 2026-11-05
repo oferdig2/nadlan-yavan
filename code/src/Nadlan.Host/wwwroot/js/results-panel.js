@@ -28,15 +28,25 @@
       "<ul class=\"results-list\"></ul>");
     var $list = $root.find(".results-list");
 
+    // OT / plot first when entered: that is how people know a plot; the KAEK comes after it (Alon, 2026-11-05).
+    function otPlot(s) {
+      return s.ot || s.plot ? "<span class=\"row-otplot\">OT " + f.escapeHtml(s.ot || "—") + " / Plot " + f.escapeHtml(s.plot || "—") + "</span>" : null;
+    }
+
+    function seaHtml(s) {
+      return s.seaMetres !== null && s.seaMetres !== undefined ? "<span class=\"nowrap\">" + f.escapeHtml(f.seaDistance(s.seaMetres)) + "</span>" : null;
+    }
+
     function rowHtml(it, index) {
       var s = it.summary;
       if (mode === "parcels") {
+        var named = otPlot(s);
         // Same colour code as the map: fill = OT/plot entry (kind), purple ring = has an Asset.
         return "<li data-index=\"" + index + "\"><div class=\"row-main\"><span class=\"kind-dot kind-" + f.escapeHtml(s.kind || "todo") +
           (s.hasAssets ? " has-assets" : "") + "\" title=\"" + (s.hasAssets ? "Has Asset(s)" : "No Asset") + "\"></span>" +
-          f.registryId(s.registryId, s.registryIdIsProvisional) + "</div>" +
-          "<div class=\"row-sub muted\">" + f.text(s.geographicArea) + " · OT " + f.text(s.ot) + " / Plot " + f.text(s.plot) +
-          (s.seaMetres !== null && s.seaMetres !== undefined ? " · <span class=\"nowrap\">" + f.escapeHtml(f.seaDistance(s.seaMetres)) + "</span>" : "") + "</div>" +
+          (named || f.registryId(s.registryId, s.registryIdIsProvisional)) + "</div>" +
+          "<div class=\"row-sub muted\">" + [named ? f.registryId(s.registryId, s.registryIdIsProvisional) : null,
+            s.geographicArea ? f.escapeHtml(s.geographicArea) : null, named ? null : "No OT / plot yet", seaHtml(s)].filter(Boolean).join(" · ") + "</div>" +
           // While the Work window is open, on hover: straight into the work (as a click on its polygon).
           "<button type=\"button\" class=\"btn btn-small row-work\" data-role=\"work\" title=\"Add it to the work (as a click on the parcel)\">Work</button></li>";
       }
@@ -45,8 +55,8 @@
         (s.isBeach ? "<span class=\"row-no-select\"></span>" : "<input type=\"checkbox\" data-asset-id=\"" + s.assetId + "\"" + (options.selection.has(s.assetId) ? " checked" : "") + ">") +
         "<div class=\"row-body\"><div class=\"row-main\">" + f.assetPrice(s) + " " + f.statusBadge(s.statusName, s.statusColor) + "</div>" +
         "<div class=\"row-sub\">" + f.text(s.managingContactName) + "</div>" +
-        "<div class=\"row-sub muted\">" + f.registryId(s.registryId, s.registryIdIsProvisional) + (s.geographicArea ? " · " + f.escapeHtml(s.geographicArea) : "") +
-          (s.seaMetres !== null && s.seaMetres !== undefined ? " · <span class=\"nowrap\">" + f.escapeHtml(f.seaDistance(s.seaMetres)) + "</span>" : "") + "</div></div></li>";
+        "<div class=\"row-sub muted\">" + [otPlot(s), f.registryId(s.registryId, s.registryIdIsProvisional),
+          s.geographicArea ? f.escapeHtml(s.geographicArea) : null, seaHtml(s)].filter(Boolean).join(" · ") + "</div></div></li>";
     }
 
     function renderSelection() {

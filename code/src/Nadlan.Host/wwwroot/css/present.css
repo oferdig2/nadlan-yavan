@@ -14,7 +14,10 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .present button { font: inherit; color: inherit; cursor: pointer; }
 
 .pres-stage { position: fixed; inset: 0; }
-.pres-stage > gmp-map-3d { display: block; width: 100%; height: 100%; }
+/* Each view in its own box over the whole stage (Google restyles the element it is given). 3D is made behind the map
+   and only shown once it has drawn. */
+.pres-stage > .pres-map-2d, .pres-stage > gmp-map-3d { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.pres-stage > gmp-map-3d.loading { opacity: 0; pointer-events: none; z-index: -1; }
 
 .pres-bar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; align-items: center; gap: 16px;
   padding: 10px 14px; background: var(--p-glass); border: 1px solid var(--p-line); border-radius: 14px;
@@ -30,10 +33,12 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-controls .pres-tour { background: var(--p-accent); border-color: var(--p-accent); color: #111827; font-weight: 650; min-width: 92px; }
 .pres-controls .pres-tour.on { background: #fff; border-color: #fff; }
 .pres-controls .pres-me.on { border-color: #60a5fa; color: #93c5fd; }
-.pres-controls .pres-me.busy { animation: pres-pulse 1s ease-in-out infinite; }
+.pres-controls .pres-me.busy, .pres-controls .pres-3d.busy { animation: pres-pulse 1s ease-in-out infinite; }
+.pres-controls .pres-3d[aria-pressed="true"] { border-color: var(--p-accent); color: var(--p-accent); }
 @keyframes pres-pulse { 50% { opacity: 0.4; } }
 
-.pres-card { position: fixed; top: 84px; right: 12px; width: 340px; max-height: calc(100% - 84px - 132px); overflow: auto;
+/* At most ~40% of the screen's height (Alon, 2026-11-05: it hid the map); the rest scrolls inside. */
+.pres-card { position: fixed; top: 84px; right: 12px; width: 320px; max-height: min(calc(100% - 84px - 132px), 40vh); overflow: auto;
   padding: 14px; background: var(--p-glass-strong); border: 1px solid var(--p-line); border-radius: 14px;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 10; }
 .pres-card[hidden] { display: none; }
@@ -42,9 +47,8 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-close { border: 0; background: transparent; font-size: 22px; line-height: 1; padding: 0 4px; color: var(--p-muted); }
 .pres-num { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 6px;
   border-radius: 999px; background: var(--p-accent); color: #111827; font-weight: 750; font-size: 12px; }
-.pres-hero { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 10; border: 0; border-radius: 10px;
+.pres-hero { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 10px;
   background: #1e293b center / cover no-repeat; position: relative; }
-.pres-hero-empty { color: var(--p-muted); font-size: 13px; }
 .pres-play { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 50%;
   background: rgba(15, 23, 42, 0.7); font-size: 18px; padding-left: 3px; }
 .pres-card h2 { margin: 12px 0 6px; font-size: 18px; font-weight: 650; }
@@ -69,6 +73,8 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-chip-img { flex: 0 0 auto; width: 64px; height: 48px; border-radius: 7px; background: #1e293b center / cover no-repeat;
   display: flex; align-items: flex-start; justify-content: flex-start; padding: 3px; }
 .pres-chip-img .pres-num { min-width: 20px; height: 20px; font-size: 11px; }
+/* No photo: no dark box - only the number, in a narrow column (owner, 2026-11-05). */
+.pres-chip-img.no-photo { width: 24px; height: auto; background: none; padding: 0; align-items: center; justify-content: center; }
 .pres-chip-text { display: flex; flex-direction: column; min-width: 0; }
 .pres-chip-text strong { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pres-chip-text span { color: var(--p-muted); font-size: 12px; }
@@ -82,6 +88,6 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
   .pres-bar { flex-wrap: wrap; gap: 8px; }
   .pres-brand { display: none; }
   .pres-controls { width: 100%; justify-content: space-between; }
-  .pres-card { left: 12px; right: 12px; width: auto; top: auto; bottom: 92px; max-height: 46%; }
+  .pres-card { left: 12px; right: 12px; width: auto; top: auto; bottom: 92px; max-height: 40%; }
   .pres-chip { width: 200px; }
 }

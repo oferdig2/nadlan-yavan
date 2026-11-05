@@ -51,6 +51,8 @@
       show: function (group, color) {
         var assets = group.assets || [];
         var parcel = [];
+        // OT / plot first, in bold, when entered (Alon, 2026-11-05: "the KAEK isn't enough").
+        if (group.ot || group.plot) { parcel.push("<b>OT " + f.escapeHtml(group.ot || "—") + " / Plot " + f.escapeHtml(group.plot || "—") + "</b>"); }
         if (group.registryId) { parcel.push((group.registryIdIsProvisional ? "Provisional " : "KAEK ") + f.escapeHtml(group.registryId)); }
         if (group.geographicArea) { parcel.push(f.escapeHtml(group.geographicArea)); }
         tip.style.borderLeftColor = safeColor(color);
@@ -122,7 +124,7 @@
               geometry: it.geometry,
               group: {
                 parcelId: s.parcelId, registryId: s.registryId, registryIdIsProvisional: s.registryIdIsProvisional,
-                geographicArea: s.geographicArea, assets: []
+                geographicArea: s.geographicArea, ot: s.ot, plot: s.plot, assets: []
               }
             };
             order.push(s.parcelId);

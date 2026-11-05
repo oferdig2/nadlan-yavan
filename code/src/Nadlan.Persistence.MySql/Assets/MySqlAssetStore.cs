@@ -15,6 +15,8 @@ public sealed class MySqlAssetStore : IAssetStore
     // {0} = price-visible expression, {1} = can-edit expression (AccessSql, per caller), {2} = the fresh sea-distance join.
     private const string MapItemSelectFormat = """
         SELECT a.asset_id, p.parcel_id, p.registry_id, p.registry_id_is_provisional, ga.name AS geographic_area,
+               CASE WHEN p.ot IS NULL THEN NULL ELSE CONCAT(p.ot, COALESCE(p.ot_ext, '')) END AS ot,
+               CASE WHEN p.plot_number IS NULL THEN NULL ELSE CONCAT(p.plot_number, COALESCE(p.plot_ext, '')) END AS plot,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt,
                a.managing_contact_id, c.display_name AS managing_contact_name, a.ask_price, a.currency_code,
                a.asset_status_id, s.name AS status_name, s.map_color AS status_color, pt.name AS property_type_name,
@@ -207,6 +209,8 @@ public sealed class MySqlAssetStore : IAssetStore
         public string? RegistryId { get; init; }
         public bool RegistryIdIsProvisional { get; init; }
         public string? GeographicArea { get; init; }
+        public string? Ot { get; init; }
+        public string? Plot { get; init; }
         public string GeometryWkt { get; init; } = "";
         public long ManagingContactId { get; init; }
         public string ManagingContactName { get; init; } = "";
@@ -228,6 +232,8 @@ public sealed class MySqlAssetStore : IAssetStore
             RegistryId = RegistryId,
             RegistryIdIsProvisional = RegistryIdIsProvisional,
             GeographicArea = GeographicArea,
+            Ot = Ot,
+            Plot = Plot,
             Geometry = GeoPolygon.FromWkt(GeometryWkt),
             ManagingContactId = ManagingContactId,
             ManagingContactName = ManagingContactName,

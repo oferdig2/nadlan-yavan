@@ -1,6 +1,7 @@
 // Customer presentation page (present.html): ?portfolio=12 or ?assets=5,9,3 (that order).
-// Loads what the signed-in viewer may see (GET /api/presentation), shows it in Google's photorealistic 3D
-// (present-views.js; satellite map if 3D isn't available) with an info card, a strip of all items and a guided tour.
+// Loads what the signed-in viewer may see (GET /api/presentation), shows it on the satellite map seen from above - the
+// tour too - with an info card, a strip of all items, and a "3D" button for Google's photorealistic 3D (Alon, 2026-11-05:
+// "3D is for the advanced"). present-views.js draws both.
 (function (window, document, $) {
   "use strict";
 
@@ -48,8 +49,7 @@
     } catch (e) { return false; }
   }
 
-  // How long (tab visible) the 3D map may take to draw its first view before the satellite map takes over. A 3D view
-  // that has drawn is only swapped later on an error, or by the presenter (Satellite button).
+  // How long (tab visible) the 3D map may take to draw its first view; until then the satellite map stays in front.
   var READY_3D_MS = 30000;
 
   function withTimeout(promise, ms, what) {
@@ -59,37 +59,30 @@
     });
   }
 
-  function satelliteView(items, onPick, message) {
-    var stage = document.getElementById("stage");
-    $(stage).empty();
+  function satelliteView(items, onPick) {
     return Promise.all([google.maps.importLibrary("maps"), google.maps.importLibrary("marker")]).then(function () {
-      notice(message || "3D view isn't available here - showing the satellite map.");
-      setTimeout(function () { notice(""); }, 6000);
-      return Nadlan.presentViews.create2dView(stage, items, { onPick: onPick });
+      return Nadlan.presentViews.create2dView(document.getElementById("stage"), items, { onPick: onPick, titleOf: pinTitle });
     });
   }
 
-  // 3D when Google serves it for this key and browser AND it actually draws; otherwise the satellite map, said once in
-  // a small notice. "Draws" covers what loading alone doesn't: no graphics acceleration, the Map Tiles API off on the
-  // key, its quota used up - and a 3D library that never arrives.
-  function createView(items, onPick) {
-    var stage = document.getElementById("stage");
-    function satellite() { return satelliteView(items, onPick); }
-    if (!hasWebGl()) { return satellite(); }
+  // The 3D view, made behind the satellite map and shown only once it has really drawn. Loading alone proves nothing:
+  // without graphics acceleration, with the Map Tiles API off on the key, or its quota used up, it stays black.
+  // Rejects with what to tell the presenter; whatever 3D left behind is removed first.
+  function threeDView(items, onPick) {
+    if (!hasWebGl()) { return Promise.reject(new Error("3D needs graphics acceleration, which is off in this browser.")); }
     var view = null;
     return withTimeout(google.maps.importLibrary("maps3d"), READY_3D_MS, "The 3D library").then(function (lib) {
       if (!lib || !lib.Map3DElement) { throw new Error("no 3D"); }
-      view = Nadlan.presentViews.create3dView(lib, stage, items, { onPick: onPick });
+      view = Nadlan.presentViews.create3dView(lib, document.getElementById("stage"), items, { onPick: onPick });
+      view.element.classList.add("loading");
       return view.ready(READY_3D_MS).then(function (ok) {
         if (!ok) { throw new Error("3D didn't draw"); }
+        view.element.classList.remove("loading");
         return view;
       });
-    }).catch(function () {
-      // ANY failure on the 3D path - the library, the element (missing in this beta, or refusing to start), drawing -
-      // ends in the satellite map, never a blank page. Whatever 3D left behind is removed first.
+    }).catch(function (err) {
       try { if (view) { view.destroy(); } } catch (e) { /* already gone */ }
-      $(stage).empty();
-      return satellite();
+      throw new Error(/graphics/.test(err.message) ? err.message : "The 3D view isn't available right now - staying on the map from above.");
     });
   }
 
@@ -103,6 +96,9 @@
   function sqm(v) { return v === null || v === undefined ? null : Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 }) + " m²"; }
 
   function heading(it) { return (it.propertyType || "Property") + (it.area ? " · " + it.area : ""); }
+
+  // The pin's hover text: OT / plot first when entered - how people know a plot (Alon, 2026-11-05).
+  function pinTitle(it, i) { return (i + 1) + ". " + (it.otPlot ? it.otPlot + " · " : "") + heading(it) + " · " + price(it); }
 
   function thumbOf(m) { return m.thumbUrl || (m.kind === "image" ? m.url : null); }
 
@@ -118,16 +114,18 @@
 
   function cardHtml(it, index, count) {
     var facts = [
+      ["Numbers", it.otPlot ? esc(it.otPlot) : null], // "OT 9 / Plot 83" first: how people know a plot (Alon, 2026-11-05)
       ["Asking", price(it)],
-      ["Plot", sqm(it.plotSqm)],
-      ["House", sqm(it.houseSqm)],
+      ["Plot size", sqm(it.plotSqm)],
+      ["House size", sqm(it.houseSqm)],
       ["Sea", it.seaMetres === null || it.seaMetres === undefined ? null : esc(Nadlan.format.seaDistance(it.seaMetres))],
       ["KAEK", it.kaek ? esc(it.kaek) : null]
     ].filter(function (f) { return f[1]; });
     var media = it.media || [];
     return "<div class=\"pres-card-head\"><span class=\"pres-num\">" + (index + 1) + "</span><span class=\"muted\">" + (index + 1) + " of " + count + "</span>" +
         "<button type=\"button\" class=\"pres-close\" data-act=\"close-card\" title=\"Hide\">×</button></div>" +
-      (media.length ? mediaButton(media[0], "pres-hero", "item-" + index) : "<div class=\"pres-hero pres-hero-empty\">No photos yet</div>") +
+      // No photos: no empty picture box - the card is only its text and covers less of the map (Alon, 2026-11-05).
+      (media.length ? mediaButton(media[0], "pres-hero", "item-" + index) : "") +
       "<h2>" + esc(heading(it)) + "</h2>" +
       "<span class=\"pres-status\" style=\"--c:" + (/^#[0-9a-fA-F]{6}$/.test(it.statusColor || "") ? it.statusColor : "#64748b") + "\">" + esc(it.statusName || "") + "</span>" +
       "<dl class=\"pres-facts\">" + facts.map(function (f) { return "<dt>" + f[0] + "</dt><dd>" + f[1] + "</dd>"; }).join("") + "</dl>" +
@@ -138,8 +136,8 @@
     return items.map(function (it, i) {
       var thumb = it.media && it.media.length ? thumbOf(it.media[0]) : null;
       return "<button type=\"button\" class=\"pres-chip\" data-index=\"" + i + "\">" +
-        "<span class=\"pres-chip-img\"" + (thumb ? " style=\"background-image:url('" + esc(thumb).replace(/'/g, "%27") + "')\"" : "") + "><span class=\"pres-num\">" + (i + 1) + "</span></span>" +
-        "<span class=\"pres-chip-text\"><strong>" + esc(heading(it)) + "</strong><span>" + price(it) + "</span></span></button>";
+        "<span class=\"pres-chip-img" + (thumb ? "" : " no-photo") + "\"" + (thumb ? " style=\"background-image:url('" + esc(thumb).replace(/'/g, "%27") + "')\"" : "") + "><span class=\"pres-num\">" + (i + 1) + "</span></span>" +
+        "<span class=\"pres-chip-text\"><strong>" + esc(heading(it)) + "</strong><span>" + price(it) + (it.otPlot ? " · " + esc(it.otPlot) : "") + "</span></span></button>";
     }).join("");
   }
 
@@ -271,36 +269,61 @@
       else if (e.key === "m" || e.key === "M") { showMe(); }
     });
 
-    var $satellite = $("[data-act=satellite]");
+    // The "3D" button: Google's 3D for whoever wants it; pressed again (it then says "2D"), back to the map from above.
+    var $view3d = $("[data-act=view3d]");
+    var switching = false;
     function useView(v) {
       view = v;
       $("body").removeClass("view-3d view-2d").addClass("view-" + v.kind);
-      $satellite.prop("hidden", v.kind !== "3d");
+      $view3d.text(v.kind === "3d" ? "⬒ 2D" : "⛰ 3D").attr("title", v.kind === "3d" ? "Back to the map from above (D)" : "Google's 3D view (D)")
+        .attr("aria-pressed", v.kind === "3d" ? "true" : "false").prop("hidden", false);
       if (v.kind === "3d") {
         // Quota used up, tiles refused mid-meeting: don't leave the customer in front of a black globe.
-        v.onError(function () { toSatellite("3D stopped working - showing the satellite map."); });
+        v.onError(function () { to2d("3D stopped working - back to the map from above."); });
       }
       if (current >= 0) { v.highlight(current); }
     }
 
-    // The presenter's escape hatch (and the automatic one after an error): same properties, same card, satellite map.
-    function toSatellite(message) {
-      if (!view || view.kind !== "3d") { return; }
+    function to2d(message) {
+      if (switching || !view || view.kind !== "3d") { return; }
+      switching = true;
       stopTour();
-      try { view.destroy(); } catch (e) { /* already gone */ }
-      view = null;
-      satelliteView(items, pick, message).then(function (v) {
+      var old = view;
+      satelliteView(items, pick).then(function (v) {
+        try { old.destroy(); } catch (e) { /* already gone */ }
+        useView(v);
+        if (current >= 0) { v.fly(current); } else { v.showAll(); }
+        if (message) { notice(message); setTimeout(function () { notice(""); }, 6000); }
+      }, function (err) { notice(err.message, true); }).then(function () { switching = false; });
+    }
+
+    function to3d() {
+      if (switching || !view || view.kind === "3d") { return; }
+      switching = true;
+      stopTour();
+      $view3d.addClass("busy");
+      notice("Loading the 3D view…");
+      threeDView(items, pick).then(function (v) {
+        try { view.destroy(); } catch (e) { /* already gone */ }
+        notice("");
         useView(v);
         if (current >= 0) { v.fly(current); }
-      }, function (err) { notice(err.message, true); });
+      }, function (err) {
+        notice(err.message, true);
+        setTimeout(function () { notice(""); }, 8000);
+      }).then(function () { switching = false; $view3d.removeClass("busy"); });
     }
-    $satellite.on("click", function () { toSatellite("Showing the satellite map."); });
+    $view3d.on("click", function () { if (view && view.kind === "3d") { to2d(); } else { to3d(); } });
+    $(document).on("keydown", function (e) {
+      if (e.ctrlKey || e.metaKey || e.altKey || $(".media-viewer").length || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { return; }
+      if (e.key === "d" || e.key === "D") { $view3d.trigger("click"); }
+    });
 
     withTimeout(loadGoogle(config.googleMapsApiKey, config.maps3dChannel), 30000, "Google Maps").then(function () {
-      return createView(items, pick);
+      return satelliteView(items, pick);
     }).then(function (v) {
       useView(v);
-      select(0, false); // first card open; the camera starts on the whole set
+      select(0, false); // first card open; the map starts on the whole set
     }).catch(function (err) { notice(err.message + " Check the connection and reload the page.", true); });
   }
 

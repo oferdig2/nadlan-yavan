@@ -1,6 +1,6 @@
 // The two map views of the customer presentation, behind one interface:
-//   create3dView - Google's photorealistic 3D (Maps JavaScript "maps3d": Map3DElement), the show-off view
-//   create2dView - the satellite map, when 3D can't load (key/API not enabled, old browser, no WebGL)
+//   create2dView - the satellite map seen from above: where the presentation starts and tours (Alon, 2026-11-05)
+//   create3dView - Google's photorealistic 3D (Maps JavaScript "maps3d": Map3DElement), on the "3D" button
 // Both: { showAll(): Promise, fly(i): Promise, orbit(i, ms): Promise, stop(), highlight(i), showMe(position, fly): Promise }.
 // Items come from GET /api/presentation: { polygons: [GeoJSON Polygon], statusColor, ... }.
 (function (window) {
@@ -30,6 +30,38 @@
     return boundsOf(items.reduce(function (all, it) { return all.concat(it.polygons); }, []));
   }
 
+  function metresBetween(a, b) {
+    var lat = (a.lat + b.lat) / 2 * Math.PI / 180;
+    var dx = (b.lng - a.lng) * 111320 * Math.cos(lat), dy = (b.lat - a.lat) * 110540;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Properties within this distance of one already in the group join it ("a cluster").
+  var CLUSTER_LINK_M = 3000;
+  // The overview never zooms out further than this box (diagonal): far wider, the 3D view takes too long to draw.
+  var MAX_OVERVIEW_M = 12000;
+
+  /**
+   * What "All" and the first view show (owner, 2026-11-05): property 1 and the ones near it - each within 3 km of another
+   * in the group - never zoomed out past ~12 km. Properties far away are reached with the strip, ◀ ▶ or the tour.
+   */
+  function overviewBounds(items) {
+    var centres = items.map(function (it) { return centerOf(boundsOf(it.polygons)); });
+    var inGroup = [0];
+    for (var grew = true; grew;) {
+      grew = false;
+      centres.forEach(function (c, i) {
+        if (inGroup.indexOf(i) < 0 && inGroup.some(function (j) { return metresBetween(c, centres[j]) <= CLUSTER_LINK_M; })) { inGroup.push(i); grew = true; }
+      });
+    }
+    var b = allBounds(inGroup.map(function (i) { return items[i]; }));
+    var size = diagonalMetres(b);
+    if (size <= MAX_OVERVIEW_M) { return b; }
+    // One long chain of neighbours: the part of it around property 1.
+    var k = MAX_OVERVIEW_M / size, c = centres[0];
+    return { west: c.lng - (c.lng - b.west) * k, east: c.lng + (b.east - c.lng) * k, south: c.lat - (c.lat - b.south) * k, north: c.lat + (b.north - c.lat) * k };
+  }
+
   // Size of a box in metres (good enough at these scales).
   function diagonalMetres(b) {
     var lat = (b.south + b.north) / 2 * Math.PI / 180;
@@ -39,11 +71,29 @@
 
   function centerOf(b) { return { lat: (b.south + b.north) / 2, lng: (b.west + b.east) / 2 }; }
 
-  // A camera that frames the box, looking down at 60° from the south-west-ish (heading 30°).
-  function cameraFor(b, wide) {
+  // A camera that frames the box, looking down at 60° from the south-west-ish (heading 30°), aimed at the ground's
+  // height there. Its altitude is above sea level: aimed at 0, a hillside plot was viewed from under the ground (owner,
+  // 2026-11-05). ground = null (height unknown): higher and steeper, so even a hill of ~1,000 m stays below the camera.
+  function cameraFor(b, wide, ground) {
     var c = centerOf(b);
     var range = Math.min(60000, Math.max(wide ? 600 : 220, diagonalMetres(b) * (wide ? 1.6 : 3.2)));
-    return { center: { lat: c.lat, lng: c.lng, altitude: 0 }, range: range, tilt: wide ? 50 : 62, heading: 30 };
+    if (ground === null || ground === undefined) {
+      return { center: { lat: c.lat, lng: c.lng, altitude: 0 }, range: Math.max(range, wide ? 3000 : 1500), tilt: wide ? 35 : 40, heading: 30 };
+    }
+    return { center: { lat: c.lat, lng: c.lng, altitude: Math.max(0, ground) }, range: range, tilt: wide ? 50 : 62, heading: 30 };
+  }
+
+  // The ground's height (m above sea level) at each point, from Google's Elevation service; null for all when it isn't
+  // allowed for the key (then cameraFor keeps a safe height) or doesn't answer in time.
+  function groundHeights(points) {
+    var none = points.map(function () { return null; });
+    if (!points.length || !google.maps.importLibrary) { return Promise.resolve(none); }
+    var asked = google.maps.importLibrary("elevation").then(function (lib) {
+      return new lib.ElevationService().getElevationForLocations({ locations: points });
+    }).then(function (r) {
+      return points.map(function (p, i) { var x = r && r.results && r.results[i]; return x && isFinite(x.elevation) ? x.elevation : null; });
+    }, function () { return none; });
+    return Promise.race([asked, new Promise(function (r) { setTimeout(function () { r(none); }, 5000); })]);
   }
 
   function ring(coords) { return coords.map(function (p) { return { lat: p[1], lng: p[0] }; }); }
@@ -71,9 +121,16 @@
    * @param {{ onPick: function(number): void }} options
    */
   function create3dView(lib, el, items, options) {
-    var overview = cameraFor(allBounds(items), true);
+    // Ground heights: the properties' centres, then the whole set's centre. Until they arrive (or without them) the
+    // cameras keep a safe height.
+    var ground = items.map(function () { return null; }), groundAll = null;
+    var overviewBox = overviewBounds(items);
+    var overview = cameraFor(overviewBox, true, null);
+    var heightsReady = groundHeights(items.map(function (it) { return centerOf(boundsOf(it.polygons)); }).concat([centerOf(overviewBox)]))
+      .then(function (h) { ground = h.slice(0, items.length); groundAll = h[items.length]; overview = cameraFor(overviewBox, true, groundAll); });
     var map = new lib.Map3DElement({ center: overview.center, range: overview.range, tilt: overview.tilt, heading: overview.heading });
     if (lib.MapMode && "mode" in map) { map.mode = lib.MapMode.HYBRID; } // place names and roads over the 3D imagery
+    map.classList.add("pres-map-3d");
     el.appendChild(map);
 
     var clampToGround = lib.AltitudeMode ? lib.AltitudeMode.CLAMP_TO_GROUND : "CLAMP_TO_GROUND";
@@ -127,6 +184,7 @@
 
     return {
       kind: "3d",
+      element: map,
       /**
        * True once the 3D map has drawn a view; false on an error, or when it hasn't within ms. Only time while the
        * tab is visible counts: a background tab doesn't draw, which says nothing about 3D working.
@@ -156,18 +214,26 @@
           me.position = position;
         }
         if (!fly) { return Promise.resolve(); }
-        var cam = { center: { lat: p.lat, lng: p.lng, altitude: 0 }, range: Math.min(20000, Math.max(350, p.accuracy * 4)), tilt: 60, heading: 30 };
-        return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 2500 }); }, 2500);
+        return groundHeights([{ lat: p.lat, lng: p.lng }]).then(function (h) {
+          var known = h[0] !== null;
+          var cam = { center: { lat: p.lat, lng: p.lng, altitude: known ? Math.max(0, h[0]) : 0 },
+            range: Math.min(20000, Math.max(known ? 350 : 1500, p.accuracy * 4)), tilt: known ? 60 : 40, heading: 30 };
+          return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 2500 }); }, 2500);
+        });
       },
       showAll: function () {
-        return animation(map, function () { map.flyCameraTo({ endCamera: overview, durationMillis: 3000 }); }, 3000);
+        return heightsReady.then(function () {
+          return animation(map, function () { map.flyCameraTo({ endCamera: overview, durationMillis: 3000 }); }, 3000);
+        });
       },
       fly: function (i) {
-        var cam = cameraFor(boundsOf(items[i].polygons), false);
-        return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 3500 }); }, 3500);
+        return heightsReady.then(function () {
+          var cam = cameraFor(boundsOf(items[i].polygons), false, ground[i]);
+          return animation(map, function () { map.flyCameraTo({ endCamera: cam, durationMillis: 3500 }); }, 3500);
+        });
       },
       orbit: function (i, ms) {
-        var cam = cameraFor(boundsOf(items[i].polygons), false);
+        var cam = cameraFor(boundsOf(items[i].polygons), false, ground[i]);
         return animation(map, function () {
           try { map.flyCameraAround(orbitOptions(cam, ms)); } catch (e) { map.flyCameraAround({ camera: cam, durationMillis: ms, rounds: 1 }); } // older beta
         }, ms);
@@ -184,10 +250,18 @@
     };
   }
 
-  /** The satellite map (google.maps, already loaded): same interface, no 3D flight. */
+  /**
+   * The satellite map from above (google.maps, already loaded): same interface, no 3D flight.
+   * options.titleOf(item, index): the pin's hover text.
+   * The map gets its own box: Google writes "position: relative" onto the element it is given, which took the full-screen
+   * stage's "position: fixed" away - the stage fell to 0 px high and the map was drawn into nothing (review 2026-11-05).
+   */
   function create2dView(el, items, options) {
-    var map = new google.maps.Map(el, { mapTypeId: "hybrid", streetViewControl: false, fullscreenControl: false, gestureHandling: "greedy",
-      mapTypeControl: false, tilt: 45 });
+    var box = document.createElement("div");
+    box.className = "pres-map-2d";
+    el.appendChild(box);
+    var map = new google.maps.Map(box, { mapTypeId: "hybrid", streetViewControl: false, fullscreenControl: false, gestureHandling: "greedy",
+      mapTypeControl: false, rotateControl: false, clickableIcons: false });
     var layer = new google.maps.Data({ map: map });
     var highlighted = -1;
     items.forEach(function (it, i) {
@@ -195,7 +269,8 @@
         layer.add(new google.maps.Data.Feature({ geometry: new google.maps.Data.Polygon(g.coordinates.map(ring)), properties: { index: i, color: safeColor(it.statusColor) } }));
       });
       var c = centerOf(boundsOf(it.polygons));
-      var marker = new google.maps.Marker({ map: map, position: c, label: { text: String(i + 1), color: "#fff", fontWeight: "700" } });
+      var marker = new google.maps.Marker({ map: map, position: c, label: { text: String(i + 1), color: "#fff", fontWeight: "700" },
+        title: options.titleOf ? options.titleOf(it, i) : "" });
       marker.addListener("click", function () { options.onPick(i); });
     });
     layer.setStyle(function (f) {
@@ -208,14 +283,14 @@
       map.fitBounds(new google.maps.LatLngBounds({ lat: b.south, lng: b.west }, { lat: b.north, lng: b.east }), padding);
       return new Promise(function (r) { setTimeout(r, 1200); });
     }
-    fit(allBounds(items), 80);
+    fit(overviewBounds(items), 80);
 
     var dot = null, accuracyRing = null; // not "ring": that name is the helper above (a var here would hide it)
 
     return {
       kind: "2d",
       ready: function () { return Promise.resolve(true); },
-      destroy: function () { },
+      destroy: function () { google.maps.event.clearInstanceListeners(map); box.remove(); },
       showMe: function (p, fly) {
         var here = { lat: p.lat, lng: p.lng };
         if (!dot) {
@@ -232,9 +307,10 @@
         if (p.accuracy > 150) { map.fitBounds(accuracyRing.getBounds()); } else { map.panTo(here); if (map.getZoom() < 18) { map.setZoom(18); } }
         return new Promise(function (r) { setTimeout(r, 1200); });
       },
-      showAll: function () { return fit(allBounds(items), 80); },
+      showAll: function () { return fit(overviewBounds(items), 80); },
       fly: function (i) {
-        return fit(boundsOf(items[i].polygons), 160).then(function () { if (map.getZoom() > 19) { map.setZoom(19); } });
+        // At most zoom 18: closer, rural imagery is often missing or loads in patches.
+        return fit(boundsOf(items[i].polygons), 160).then(function () { if (map.getZoom() > 18) { map.setZoom(18); } });
       },
       orbit: function (i, ms) { return new Promise(function (r) { setTimeout(r, Math.min(ms, 6000)); }); }, // no flight in 2D: a pause
       stop: function () { },

@@ -66,6 +66,10 @@ public sealed record AssetMapItem
     public string? RegistryId { get; init; }
     public bool RegistryIdIsProvisional { get; init; }
     public string? GeographicArea { get; init; }
+
+    /// <summary>The Parcel's OT and plot as written (47, 47A); null when not entered. People know a plot by these (Alon, 2026-11-05).</summary>
+    public string? Ot { get; init; }
+    public string? Plot { get; init; }
     public required GeoPolygon Geometry { get; init; }
     public long ManagingContactId { get; init; }
     public string ManagingContactName { get; init; } = "";

@@ -202,6 +202,8 @@ public static class AssetEndpoints
         registryId = a.RegistryId,
         registryIdIsProvisional = a.RegistryIdIsProvisional,
         geographicArea = a.GeographicArea,
+        ot = a.Ot,
+        plot = a.Plot,
         managingContactId = a.ManagingContactId,
         managingContactName = a.ManagingContactName,
         askPrice = a.PriceVisible ? a.AskPrice : null,
