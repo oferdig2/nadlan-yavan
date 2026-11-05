@@ -19,18 +19,19 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-stage > .pres-map-2d, .pres-stage > gmp-map-3d { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .pres-stage > gmp-map-3d.loading { opacity: 0; pointer-events: none; z-index: -1; }
 
-.pres-bar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; align-items: center; gap: 16px;
-  padding: 10px 14px; background: var(--p-glass); border: 1px solid var(--p-line); border-radius: 14px;
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 10; }
-.pres-brand { font-weight: 800; letter-spacing: 0.04em; color: var(--p-accent); }
-.pres-title { flex: 1; min-width: 0; }
-.pres-title h1 { margin: 0; font-size: 17px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pres-sub { display: block; color: var(--p-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The top: no panel - the name and soft see-through buttons float over the map, which shows between them (owner,
+   2026-11-05: "we see more map"). Only the buttons take clicks; the map underneath stays draggable. */
+.pres-bar { position: fixed; top: 10px; left: 12px; right: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  z-index: 10; pointer-events: none; }
+.pres-bar > * { pointer-events: auto; }
+.pres-brand { font-weight: 800; letter-spacing: 0.04em; color: var(--p-accent); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
 .pres-controls { display: flex; gap: 6px; }
-.pres-controls button { border: 1px solid var(--p-line); background: rgba(255, 255, 255, 0.08); border-radius: 999px; padding: 6px 12px; }
-.pres-controls button:hover { background: rgba(255, 255, 255, 0.18); }
+.pres-controls button { border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(15, 23, 42, 0.42); border-radius: 999px; padding: 6px 12px;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0.88; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+.pres-controls button:hover { background: rgba(15, 23, 42, 0.7); opacity: 1; }
 .pres-controls button[hidden] { display: none; }
-.pres-controls .pres-tour { background: var(--p-accent); border-color: var(--p-accent); color: #111827; font-weight: 650; min-width: 92px; }
+.pres-controls .pres-tour { background: rgba(251, 191, 36, 0.82); border-color: transparent; color: #111827; font-weight: 650; min-width: 92px; text-shadow: none; }
+.pres-controls .pres-tour:hover { background: var(--p-accent); }
 .pres-controls .pres-tour.on { background: #fff; border-color: #fff; }
 .pres-controls .pres-me.on { border-color: #60a5fa; color: #93c5fd; }
 .pres-controls .pres-me.busy, .pres-controls .pres-3d.busy { animation: pres-pulse 1s ease-in-out infinite; }
@@ -38,12 +39,16 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 @keyframes pres-pulse { 50% { opacity: 0.4; } }
 
 /* At most ~40% of the screen's height (Alon, 2026-11-05: it hid the map); the rest scrolls inside. */
-.pres-card { position: fixed; top: 84px; right: 12px; width: 320px; max-height: min(calc(100% - 84px - 132px), 40vh); overflow: auto;
+.pres-card { position: fixed; top: 58px; right: 12px; width: 320px; max-height: min(calc(100% - 58px - 132px), 40vh); overflow: auto;
   padding: 14px; background: var(--p-glass-strong); border: 1px solid var(--p-line); border-radius: 14px;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 10; }
 .pres-card[hidden] { display: none; }
 .pres-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.pres-card-head .muted { color: var(--p-muted); font-size: 12px; flex: 1; }
+.pres-card-head .muted { color: var(--p-muted); font-size: 12px; }
+.pres-head-gap { flex: 1; }
+.pres-nav { border: 1px solid var(--p-line); background: rgba(255, 255, 255, 0.08); border-radius: 999px; width: 28px; height: 28px; padding: 0;
+  font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.pres-nav:hover { background: rgba(255, 255, 255, 0.2); }
 .pres-close { border: 0; background: transparent; font-size: 22px; line-height: 1; padding: 0 4px; color: var(--p-muted); }
 .pres-num { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 6px;
   border-radius: 999px; background: var(--p-accent); color: #111827; font-weight: 750; font-size: 12px; }
@@ -62,9 +67,14 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
   align-items: center; justify-content: center; }
 .pres-thumb .pres-play { width: 28px; height: 28px; font-size: 11px; }
 
-.pres-strip { position: fixed; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 8px; overflow-x: auto; padding: 8px;
+/* The bottom bar: the presentation's title, then the properties. */
+.pres-bottom { position: fixed; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px;
   background: var(--p-glass); border: 1px solid var(--p-line); border-radius: 14px; z-index: 10;
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); scrollbar-width: thin; }
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.pres-title { flex: 0 1 auto; min-width: 120px; max-width: 260px; }
+.pres-title h1 { margin: 0; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pres-sub { display: block; color: var(--p-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pres-strip { flex: 1; min-width: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: thin; }
 .pres-strip:empty { display: none; }
 .pres-chip { flex: 0 0 auto; display: flex; gap: 10px; align-items: center; width: 250px; padding: 6px; text-align: left;
   border: 1px solid transparent; border-radius: 10px; background: rgba(255, 255, 255, 0.06); }
@@ -79,16 +89,21 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-chip-text strong { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pres-chip-text span { color: var(--p-muted); font-size: 12px; }
 
-.pres-notice { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
+.pres-notice { position: fixed; top: 58px; left: 50%; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
   padding: 10px 14px; border-radius: 10px; background: var(--p-glass-strong); border: 1px solid var(--p-line); z-index: 11; }
 .pres-notice.error { border-color: #f87171; }
 .pres-notice[hidden] { display: none; }
 
 @media (max-width: 720px) {
-  .pres-bar { flex-wrap: wrap; gap: 8px; }
   .pres-brand { display: none; }
-  .pres-controls { width: 100%; justify-content: space-between; }
-  .pres-card { left: 12px; right: 12px; width: auto; top: auto; bottom: 92px; max-height: 40%; }
+  .pres-bar { justify-content: flex-start; }
+  .pres-controls { flex-wrap: wrap; }
+  /* One low row: a narrow title beside the chips, so the card above keeps its room. */
+  .pres-bottom { gap: 8px; padding: 6px 6px 6px 10px; }
+  .pres-title { min-width: 0; max-width: 96px; }
+  .pres-title h1 { font-size: 13px; }
+  .pres-sub { font-size: 11px; }
+  .pres-card { left: 12px; right: 12px; width: auto; top: auto; bottom: 96px; max-height: 40%; }
   .pres-chip { width: 200px; }
 }
 

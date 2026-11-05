@@ -124,7 +124,12 @@
       ["KAEK", it.kaek ? esc(it.kaek) : null]
     ].filter(function (f) { return f[1]; });
     var media = it.media || [];
-    return "<div class=\"pres-card-head\"><span class=\"pres-num\">" + (index + 1) + "</span><span class=\"muted\">" + (index + 1) + " of " + count + "</span>" +
+    // ‹ › step to the previous / next property here (owner, 2026-11-05: the arrows moved from the top bar into the card).
+    return "<div class=\"pres-card-head\">" +
+        (count > 1 ? "<button type=\"button\" class=\"pres-nav\" data-act=\"prev\" title=\"Previous (←)\" aria-label=\"Previous property\">‹</button>" : "") +
+        "<span class=\"pres-num\">" + (index + 1) + "</span><span class=\"muted\">" + (index + 1) + " of " + count + "</span>" +
+        (count > 1 ? "<button type=\"button\" class=\"pres-nav\" data-act=\"next\" title=\"Next (→)\" aria-label=\"Next property\">›</button>" : "") +
+        "<span class=\"pres-head-gap\"></span>" +
         "<button type=\"button\" class=\"pres-close\" data-act=\"close-card\" title=\"Hide\">×</button></div>" +
       // No photos: no empty picture box - the card is only its text and covers less of the map (Alon, 2026-11-05).
       (media.length ? mediaButton(media[0], "pres-hero", "item-" + index) : "") +
@@ -256,8 +261,8 @@
     });
 
     $strip.on("click", ".pres-chip", function () { pick(Number($(this).data("index"))); });
-    $("[data-act=next]").on("click", function () { pick(current + 1); });
-    $("[data-act=prev]").on("click", function () { pick(current < 0 ? items.length - 1 : current - 1); });
+    $card.on("click", "[data-act=next]", function () { pick(current + 1); });
+    $card.on("click", "[data-act=prev]", function () { pick(current < 0 ? items.length - 1 : current - 1); });
     $("[data-act=overview]").on("click", function () { stopTour(); if (view) { view.highlight(-1); view.showAll(); } $card.prop("hidden", true); });
     $tour.on("click", function () { if (touring) { stopTour(); } else if (view) { tour(); } });
     $card.on("click", "[data-act=close-card]", function () { $card.prop("hidden", true); });
