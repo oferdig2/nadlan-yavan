@@ -1,6 +1,6 @@
 // The two map views of the customer presentation, behind one interface:
-//   create3dView - Google's photorealistic 3D (Maps JavaScript "maps3d": Map3DElement), the show-off view
-//   create2dView - the satellite map, when 3D can't load (key/API not enabled, old browser, no WebGL)
+//   create2dView - the satellite map seen from above: where the presentation starts and tours (Alon, 2026-11-05)
+//   create3dView - Google's photorealistic 3D (Maps JavaScript "maps3d": Map3DElement), on the "3D" button
 // Both: { showAll(): Promise, fly(i): Promise, orbit(i, ms): Promise, stop(), highlight(i), showMe(position, fly): Promise }.
 // Items come from GET /api/presentation: { polygons: [GeoJSON Polygon], statusColor, ... }.
 (function (window) {
@@ -74,6 +74,7 @@
     var overview = cameraFor(allBounds(items), true);
     var map = new lib.Map3DElement({ center: overview.center, range: overview.range, tilt: overview.tilt, heading: overview.heading });
     if (lib.MapMode && "mode" in map) { map.mode = lib.MapMode.HYBRID; } // place names and roads over the 3D imagery
+    map.classList.add("pres-map-3d");
     el.appendChild(map);
 
     var clampToGround = lib.AltitudeMode ? lib.AltitudeMode.CLAMP_TO_GROUND : "CLAMP_TO_GROUND";
@@ -127,6 +128,7 @@
 
     return {
       kind: "3d",
+      element: map,
       /**
        * True once the 3D map has drawn a view; false on an error, or when it hasn't within ms. Only time while the
        * tab is visible counts: a background tab doesn't draw, which says nothing about 3D working.
@@ -184,10 +186,18 @@
     };
   }
 
-  /** The satellite map (google.maps, already loaded): same interface, no 3D flight. */
+  /**
+   * The satellite map from above (google.maps, already loaded): same interface, no 3D flight.
+   * options.titleOf(item, index): the pin's hover text.
+   * The map gets its own box: Google writes "position: relative" onto the element it is given, which took the full-screen
+   * stage's "position: fixed" away - the stage fell to 0 px high and the map was drawn into nothing (review 2026-11-05).
+   */
   function create2dView(el, items, options) {
-    var map = new google.maps.Map(el, { mapTypeId: "hybrid", streetViewControl: false, fullscreenControl: false, gestureHandling: "greedy",
-      mapTypeControl: false, tilt: 45 });
+    var box = document.createElement("div");
+    box.className = "pres-map-2d";
+    el.appendChild(box);
+    var map = new google.maps.Map(box, { mapTypeId: "hybrid", streetViewControl: false, fullscreenControl: false, gestureHandling: "greedy",
+      mapTypeControl: false, rotateControl: false, clickableIcons: false });
     var layer = new google.maps.Data({ map: map });
     var highlighted = -1;
     items.forEach(function (it, i) {
@@ -195,7 +205,8 @@
         layer.add(new google.maps.Data.Feature({ geometry: new google.maps.Data.Polygon(g.coordinates.map(ring)), properties: { index: i, color: safeColor(it.statusColor) } }));
       });
       var c = centerOf(boundsOf(it.polygons));
-      var marker = new google.maps.Marker({ map: map, position: c, label: { text: String(i + 1), color: "#fff", fontWeight: "700" } });
+      var marker = new google.maps.Marker({ map: map, position: c, label: { text: String(i + 1), color: "#fff", fontWeight: "700" },
+        title: options.titleOf ? options.titleOf(it, i) : "" });
       marker.addListener("click", function () { options.onPick(i); });
     });
     layer.setStyle(function (f) {
@@ -215,7 +226,7 @@
     return {
       kind: "2d",
       ready: function () { return Promise.resolve(true); },
-      destroy: function () { },
+      destroy: function () { google.maps.event.clearInstanceListeners(map); box.remove(); },
       showMe: function (p, fly) {
         var here = { lat: p.lat, lng: p.lng };
         if (!dot) {
@@ -234,7 +245,8 @@
       },
       showAll: function () { return fit(allBounds(items), 80); },
       fly: function (i) {
-        return fit(boundsOf(items[i].polygons), 160).then(function () { if (map.getZoom() > 19) { map.setZoom(19); } });
+        // At most zoom 18: closer, rural imagery is often missing or loads in patches.
+        return fit(boundsOf(items[i].polygons), 160).then(function () { if (map.getZoom() > 18) { map.setZoom(18); } });
       },
       orbit: function (i, ms) { return new Promise(function (r) { setTimeout(r, Math.min(ms, 6000)); }); }, // no flight in 2D: a pause
       stop: function () { },

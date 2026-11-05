@@ -204,6 +204,7 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .asset-tip .tip-price b { font-weight: 700; }
 .asset-tip .tip-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
 .asset-tip .tip-parcel { color: #94a3b8; margin-top: 5px; font-size: 11px; }
+.asset-tip .tip-parcel b { color: #f8fafc; font-size: 13px; }
 
 /* Planned "OT / plot" inside each Parcel picked for a row entry (Ctrl+click in quick entry). */
 .parcel-labels { position: absolute; left: 0; top: 0; pointer-events: none; }
@@ -268,3 +269,6 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 /* its own space at the end of the row: the text wraps, nothing is covered (review 2026-11-04) */
 .results-list .row-work { display: none; flex: none; margin-left: auto; align-self: center; }
 .results-list li.can-work:hover .row-work { display: inline-block; }
+/* The Work button sits over the row's end: leave it room so it never covers the text (review 2026-11-04). */
+.results-list li.can-work:hover { padding-right: 72px; }
+.results-list .row-otplot { font-weight: 700; color: var(--text, #111827); white-space: nowrap; }

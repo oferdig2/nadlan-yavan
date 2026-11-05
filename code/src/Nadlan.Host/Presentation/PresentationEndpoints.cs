@@ -175,6 +175,9 @@ public static class PresentationEndpoints
             propertyType = first.PropertyTypeName,
             area = first.GeographicArea,
             kaek = rows.Where(a => !a.RegistryIdIsProvisional).Select(a => a.RegistryId).FirstOrDefault(),
+            // "OT 9 / Plot 83" - how people know the plot (Alon, 2026-11-05); an Asset on two Parcels lists both.
+            otPlot = string.Join(", ", rows.Where(a => a.Ot is not null || a.Plot is not null)
+                .Select(a => "OT " + (a.Ot ?? "—") + " / Plot " + (a.Plot ?? "—")).Distinct()) is { Length: > 0 } op ? op : null,
             statusName = first.StatusName,
             statusColor = first.StatusColor,
             askPrice = first.PriceVisible ? first.AskPrice : null,

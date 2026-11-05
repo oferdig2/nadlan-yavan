@@ -38,6 +38,10 @@
 
   var CATEGORY_ORDER = ["Marketing", "Legal", "Cadastral", "Engineering", "Permission", "General"];
 
+  // A drone's flight log (DJI_0898.SRT beside DJI_0898.MP4): the video's GPS and height per second - not a picture.
+  // Hidden from the grid until asked for (owner, 2026-11-05); later it may place its video on the map.
+  function isFlightLog(f) { return /.srt$/i.test(f.originalFileName || ""); }
+
   /**
    * @param {{ attachedToType: "Parcel"|"Asset", attachedToId: number, title: string, onChanged?: function(): void }} options
    */
@@ -68,6 +72,7 @@
       var $zones = $("<div class=\"zones\"></div>").appendTo($body);
       var $gallery = $("<div class=\"gallery\" data-view-set><div class=\"muted\">Loading…</div></div>").appendTo($body);
       var files = [];
+      var showLogs = false;
 
       // Drop zones only where the user may add files, and only for document kinds they may see.
       var categoryOf = {};
@@ -108,13 +113,21 @@
       function render() {
         if (!files.length) { $gallery.html("<div class=\"muted\">" + (rights.canUpload ? "No files yet - drop some above." : "No files you can see here.") + "</div>"); return; }
         var esc = Nadlan.format.escapeHtml;
+        var logs = files.filter(isFlightLog).length;
         var byCategory = {};
-        files.forEach(function (f) { (byCategory[f.category] = byCategory[f.category] || []).push(f); });
+        files.forEach(function (f) {
+          if (!showLogs && isFlightLog(f)) { return; }
+          (byCategory[f.category] = byCategory[f.category] || []).push(f);
+        });
         $gallery.html(CATEGORY_ORDER.filter(function (c) { return byCategory[c]; }).map(function (c) {
           return "<section class=\"gallery-group\"><h4>" + esc(c) + " <span class=\"muted\">(" + byCategory[c].length + ")</span></h4>" +
             "<div class=\"file-grid\">" + byCategory[c].map(Nadlan.renderFileCard).join("") + "</div></section>";
-        }).join(""));
+        }).join("") +
+          (logs ? "<div class=\"muted flight-logs\">" + logs + " drone flight log" + (logs === 1 ? "" : "s") + " (.SRT) " +
+            (showLogs ? "shown. <a href=\"#\" data-act=\"toggle-logs\">Hide</a>" : "hidden. <a href=\"#\" data-act=\"toggle-logs\">Show</a>") + "</div>" : ""));
       }
+
+      $gallery.on("click", "[data-act=toggle-logs]", function (e) { e.preventDefault(); showLogs = !showLogs; render(); });
 
       $gallery.on("click", ".file-card", function () {
         var id = Number($(this).data("fileId"));

@@ -17,7 +17,8 @@
 
     $el.dialog({
       title: options.title,
-      width: options.width || 440,
+      // Never wider than the screen: on a phone (390 px) a 440 px dialog hid its buttons off the right edge (Alon, 2026-11-05).
+      width: Math.max(260, Math.min(options.width || 440, window.innerWidth - 16)),
       modal: options.modal !== false,
       position: options.position || { my: "center", at: "center", of: window },
       buttons: options.buttons.map(function (b) {
