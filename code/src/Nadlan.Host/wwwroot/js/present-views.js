@@ -30,6 +30,38 @@
     return boundsOf(items.reduce(function (all, it) { return all.concat(it.polygons); }, []));
   }
 
+  function metresBetween(a, b) {
+    var lat = (a.lat + b.lat) / 2 * Math.PI / 180;
+    var dx = (b.lng - a.lng) * 111320 * Math.cos(lat), dy = (b.lat - a.lat) * 110540;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Properties within this distance of one already in the group join it ("a cluster").
+  var CLUSTER_LINK_M = 3000;
+  // The overview never zooms out further than this box (diagonal): far wider, the 3D view takes too long to draw.
+  var MAX_OVERVIEW_M = 12000;
+
+  /**
+   * What "All" and the first view show (owner, 2026-11-05): property 1 and the ones near it - each within 3 km of another
+   * in the group - never zoomed out past ~12 km. Properties far away are reached with the strip, ◀ ▶ or the tour.
+   */
+  function overviewBounds(items) {
+    var centres = items.map(function (it) { return centerOf(boundsOf(it.polygons)); });
+    var inGroup = [0];
+    for (var grew = true; grew;) {
+      grew = false;
+      centres.forEach(function (c, i) {
+        if (inGroup.indexOf(i) < 0 && inGroup.some(function (j) { return metresBetween(c, centres[j]) <= CLUSTER_LINK_M; })) { inGroup.push(i); grew = true; }
+      });
+    }
+    var b = allBounds(inGroup.map(function (i) { return items[i]; }));
+    var size = diagonalMetres(b);
+    if (size <= MAX_OVERVIEW_M) { return b; }
+    // One long chain of neighbours: the part of it around property 1.
+    var k = MAX_OVERVIEW_M / size, c = centres[0];
+    return { west: c.lng - (c.lng - b.west) * k, east: c.lng + (b.east - c.lng) * k, south: c.lat - (c.lat - b.south) * k, north: c.lat + (b.north - c.lat) * k };
+  }
+
   // Size of a box in metres (good enough at these scales).
   function diagonalMetres(b) {
     var lat = (b.south + b.north) / 2 * Math.PI / 180;
@@ -92,9 +124,10 @@
     // Ground heights: the properties' centres, then the whole set's centre. Until they arrive (or without them) the
     // cameras keep a safe height.
     var ground = items.map(function () { return null; }), groundAll = null;
-    var overview = cameraFor(allBounds(items), true, null);
-    var heightsReady = groundHeights(items.map(function (it) { return centerOf(boundsOf(it.polygons)); }).concat([centerOf(allBounds(items))]))
-      .then(function (h) { ground = h.slice(0, items.length); groundAll = h[items.length]; overview = cameraFor(allBounds(items), true, groundAll); });
+    var overviewBox = overviewBounds(items);
+    var overview = cameraFor(overviewBox, true, null);
+    var heightsReady = groundHeights(items.map(function (it) { return centerOf(boundsOf(it.polygons)); }).concat([centerOf(overviewBox)]))
+      .then(function (h) { ground = h.slice(0, items.length); groundAll = h[items.length]; overview = cameraFor(overviewBox, true, groundAll); });
     var map = new lib.Map3DElement({ center: overview.center, range: overview.range, tilt: overview.tilt, heading: overview.heading });
     if (lib.MapMode && "mode" in map) { map.mode = lib.MapMode.HYBRID; } // place names and roads over the 3D imagery
     map.classList.add("pres-map-3d");
@@ -250,7 +283,7 @@
       map.fitBounds(new google.maps.LatLngBounds({ lat: b.south, lng: b.west }, { lat: b.north, lng: b.east }), padding);
       return new Promise(function (r) { setTimeout(r, 1200); });
     }
-    fit(allBounds(items), 80);
+    fit(overviewBounds(items), 80);
 
     var dot = null, accuracyRing = null; // not "ring": that name is the helper above (a var here would hide it)
 
@@ -274,7 +307,7 @@
         if (p.accuracy > 150) { map.fitBounds(accuracyRing.getBounds()); } else { map.panTo(here); if (map.getZoom() < 18) { map.setZoom(18); } }
         return new Promise(function (r) { setTimeout(r, 1200); });
       },
-      showAll: function () { return fit(allBounds(items), 80); },
+      showAll: function () { return fit(overviewBounds(items), 80); },
       fly: function (i) {
         // At most zoom 18: closer, rural imagery is often missing or loads in patches.
         return fit(boundsOf(items[i].polygons), 160).then(function () { if (map.getZoom() > 18) { map.setZoom(18); } });
