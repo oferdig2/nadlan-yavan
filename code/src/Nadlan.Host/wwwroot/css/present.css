@@ -127,8 +127,6 @@ body.present-locked .pres-controls { visibility: hidden; }
 body:not(.view-2d) .pres-controls .pres-measure { display: none; }
 .map-measure-label { margin-top: -22px; padding: 2px 7px; border-radius: 6px; background: #111827; color: #facc15 !important;
   font-size: 13px !important; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
-/* Measuring: the strip and the card step back so the line can reach any point. */
-body.measuring .pres-card { opacity: 0.35; }
 
 /* A spinner on a notice while something loads (the 3D view). */
 .pres-notice.busy { display: flex; align-items: center; gap: 10px; }
