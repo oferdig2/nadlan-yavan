@@ -29,7 +29,7 @@
 
   /**
    * @param {google.maps.Map} map
-   * @param {{ setStatus: function(string): void, onActiveChange: function(boolean): void }} options
+   * @param {{ setStatus: function(string): void, onActiveChange: function(boolean): void, position?: string }} options
    *        onActiveChange(true) while measuring: the page stops parcel clicks (cards) until it is turned off
    */
   function createMeasureControl(map, options) {
@@ -41,7 +41,7 @@
     button.setAttribute("aria-pressed", "false");
     button.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 17 17 3l4 4L7 21z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"/>" +
       "<path d=\"M7 13l2 2M10 10l2 2M13 7l2 2\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>";
-    map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(button);
+    map.controls[google.maps.ControlPosition[options.position || "RIGHT_BOTTOM"]].push(button); // the presentation: RIGHT_CENTER, above its strip
 
     var active = false, finished = false, points = [];
     var line = null, label = null, clickListener = null, dblListener = null;

@@ -22,7 +22,8 @@ public static class PresentationLinkEndpoints
     private const string LinkItem = "nadlan.present.link";
     private const string PassItem = "nadlan.present.pass";
 
-    public sealed record CreateDto(long? PortfolioId, long[]? AssetIds, string? Title, string? LastDay, bool GeneratePassword);
+    /// <summary>Password: the one shown (made up by the page, or typed over it); GeneratePassword = let the server make 6 digits.</summary>
+    public sealed record CreateDto(long? PortfolioId, long[]? AssetIds, string? Title, string? LastDay, bool GeneratePassword, string? Password = null);
 
     public sealed record ExpiryDto(string? LastDay);
 
@@ -52,8 +53,10 @@ public static class PresentationLinkEndpoints
 
         staff.MapPost("", async (CreateDto dto, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
         {
+            var typed = string.IsNullOrWhiteSpace(dto.Password) ? null : PresentationLinkService.CleanPassword(dto.Password); // checked before the link exists
             var (link, token) = await links.CreateAsync(me, dto.PortfolioId, dto.AssetIds, PresentationEndpoints.CleanTitle(dto.Title), dto.LastDay, ct);
-            var password = dto.GeneratePassword ? await links.SetPasswordAsync(me, link.PresentationLinkId, null, ct) : null;
+            var password = typed is not null ? await links.SetPasswordAsync(me, link.PresentationLinkId, typed, ct)
+                : dto.GeneratePassword ? await links.SetPasswordAsync(me, link.PresentationLinkId, null, ct) : null;
             return Results.Ok(new { link = View(await links.GetAsync(me, link.PresentationLinkId, ct), links), token, password });
         });
 
