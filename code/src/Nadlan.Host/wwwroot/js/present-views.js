@@ -131,6 +131,8 @@
     var map = new lib.Map3DElement({ center: overview.center, range: overview.range, tilt: overview.tilt, heading: overview.heading });
     if (lib.MapMode && "mode" in map) { map.mode = lib.MapMode.HYBRID; } // place names and roads over the 3D imagery
     map.classList.add("pres-map-3d");
+    // Google's own buttons (map-type switch, compass) off: our bar does the job (owner, 2026-11-05).
+    if ("defaultUIHidden" in map) { map.defaultUIHidden = true; } else { map.setAttribute("default-ui-hidden", ""); }
     el.appendChild(map);
 
     var clampToGround = lib.AltitudeMode ? lib.AltitudeMode.CLAMP_TO_GROUND : "CLAMP_TO_GROUND";
