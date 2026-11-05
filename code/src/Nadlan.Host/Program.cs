@@ -62,6 +62,7 @@ app.MapFileEndpoints();
 app.MapFileDetailsEndpoints(); // N3: what is inside a photo / video (File details)
 app.MapMapDropEndpoints(); // Map drop: drop media on the map, inspect, assign to Parcels, video time frames
 app.MapPresentationEndpoints();
+app.MapPresentationLinkEndpoints(); // public presentation links (Nadlan.Host/Presentation/PresentationLinkEndpoints.cs)
 app.MapActivityEndpoints();
 app.MapAdminEndpoints();
 app.MapMachineEndpoints();

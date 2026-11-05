@@ -327,6 +327,65 @@
     }).catch(function (err) { notice(err.message + " Check the connection and reload the page.", true); });
   }
 
+  // ---- show.html: a public link (owner, 2026-11-05) - no sign-in; the token after "#" never reaches a server log -----
+
+  if ($("body").hasClass("present-public")) {
+    var token = (window.location.hash || "").replace(/^#/, "");
+    var $lock = $("[data-role=lock]");
+
+    var call = function (method, path, body) {
+      return window.fetch("/api/present-link" + path, {
+        method: method, credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-Nadlan-Request": "1", "X-Present-Link": token },
+        body: body === undefined ? undefined : JSON.stringify(body)
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (json) {
+          if (res.ok) { return json; }
+          var err = new Error(json.message || "Something went wrong.");
+          err.status = res.status; err.code = json.error;
+          throw err;
+        });
+      });
+    };
+
+    var stop = function (err) {
+      $lock.prop("hidden", true);
+      $("body").addClass("present-locked");
+      $title.text("Presentation");
+      notice(err.status === 404 || !token ? "This link isn't active. Ask the person who sent it for a new one." : err.message + " Check the connection and reload the page.", true);
+    };
+
+    var show = function () {
+      call("GET", "/data").then(function (data) {
+        $lock.prop("hidden", true);
+        $("body").removeClass("present-locked");
+        start(data, data);
+      }, function (err) { if (err.status === 401) { askPassword(""); } else { stop(err); } });
+    };
+
+    var askPassword = function (message) {
+      $title.text("Presentation");
+      $("body").addClass("present-locked");
+      $lock.prop("hidden", false).find(".pres-lock-error").text(message || "").prop("hidden", !message);
+      $lock.find("[name=password]").val("").trigger("focus");
+    };
+
+    $lock.on("submit", function (e) {
+      e.preventDefault();
+      var $btn = $lock.find("button").prop("disabled", true);
+      call("POST", "/unlock", { password: $lock.find("[name=password]").val() }).then(show, function (err) {
+        askPassword(err.status === 423 ? "Too many wrong passwords. Try again in 15 minutes." : err.status === 401 ? "Wrong password." : err.message);
+        if (err.status === 404) { stop(err); }
+      }).then(function () { $btn.prop("disabled", false); });
+    });
+
+    if (!token) { stop({ status: 404 }); return; }
+    call("GET", "/state").then(function (st) {
+      if (st.locked) { askPassword("Too many wrong passwords. Try again in 15 minutes."); } else if (st.needsPassword) { askPassword(""); } else { show(); }
+    }, stop);
+    return;
+  }
+
   var query = readQuery();
   if (!query) {
     $title.text("Presentation");

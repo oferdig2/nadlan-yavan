@@ -84,3 +84,18 @@ html, body {
   body:not(.admin-body) .app-header .map-status, body:not(.admin-body) .app-header .table-status { max-width: 60vw; }
   body:not(.admin-body) .user-menu ul { position: fixed; top: calc(var(--header-h) + 4px); right: 8px; }
 }
+
+/* The Present dialog's public links (present-link.js, owner 2026-11-05). */
+.public-links { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 8px; }
+.public-links h4 { margin: 0 0 4px; }
+.public-new { align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.public-made { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.public-made .public-url { width: 100%; margin-top: 4px; font-size: 12px; }
+.public-rows { list-style: none; margin: 8px 0 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.public-rows li { padding: 8px 0; border-top: 1px solid var(--border); }
+.public-row-head { display: flex; align-items: center; gap: 8px; }
+.public-actions { flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.public-day { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.public-state.public-active { background: #dcfce7; color: #166534; }
+.public-state.public-disabled, .public-state.public-expired { background: #f1f5f9; color: #475569; }
+.public-state.public-locked { background: #fee2e2; color: #991b1b; }

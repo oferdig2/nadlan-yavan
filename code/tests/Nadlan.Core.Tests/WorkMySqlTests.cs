@@ -464,8 +464,12 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
             await migrator.MigrateAsync();
             await using var c = await db.OpenAsync();
 
-            // Back to version 20 - what production has - with some data there, then 021 again.
+            // Back to version 20 - what production had - with some data there, then 021 again (and 025 after it).
             await c.ExecuteAsync("""
+                DROP TABLE presentation_link;
+                DELETE rp FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE p.code = 'SHARE_PRESENTATION';
+                DELETE FROM permission WHERE code = 'SHARE_PRESENTATION';
+                DELETE FROM schema_version WHERE version = 25;
                 DROP TABLE work_contractor_link, work_track_batch, work_track, work_event, work_file, work_message, work_item, work_request_parcel, work_request, work_type;
                 DELETE rp FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE p.code = 'MANAGE_WORK';
                 DELETE FROM permission WHERE code = 'MANAGE_WORK';
@@ -495,19 +499,20 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
                 SELECT COUNT(*) FROM role_permission rp JOIN security_role r ON r.security_role_id = rp.security_role_id WHERE r.code = 'DATA_PERSON'
                 """);
 
-            Assert.Equal(new[] { "021_work_requests", "022_work_item_remarks", "023_work_track", "024_work_contractor_link" }, await migrator.MigrateAsync());
+            Assert.Equal(new[] { "021_work_requests", "022_work_item_remarks", "023_work_track", "024_work_contractor_link", "025_presentation_link" },
+                await migrator.MigrateAsync());
             var after = await TablesAsync();
 
-            Assert.Equal(before.Keys.Concat(WorkTables).Order(), after.Keys.Order()); // the new tables, nothing dropped
+            Assert.Equal(before.Keys.Concat(WorkTables).Append("presentation_link").Order(), after.Keys.Order()); // the new tables, nothing dropped
             foreach (var (table, was) in before)
             {
                 Assert.True(was.Columns == after[table].Columns, $"{table}: columns changed");
-                var added = table switch { "permission" or "role_permission" or "contact_role" => 1, "schema_version" => 4, _ => 0 };
+                var added = table switch { "permission" or "role_permission" => 2, "contact_role" => 1, "schema_version" => 5, _ => 0 }; // 025: SHARE_PRESENTATION
                 Assert.True(was.Rows + added == after[table].Rows, $"{table}: {was.Rows} rows before, {after[table].Rows} after");
             }
 
             Assert.Equal(4, after["work_type"].Rows);
-            Assert.Equal(dataPersonBefore + 1, await c.ExecuteScalarAsync<long>("""
+            Assert.Equal(dataPersonBefore + 2, await c.ExecuteScalarAsync<long>("""
                 SELECT COUNT(*) FROM role_permission rp JOIN security_role r ON r.security_role_id = rp.security_role_id WHERE r.code = 'DATA_PERSON'
                 """));
             Assert.Equal(1, await c.ExecuteScalarAsync<int>("""

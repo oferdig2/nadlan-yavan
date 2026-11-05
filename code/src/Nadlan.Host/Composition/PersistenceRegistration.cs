@@ -79,6 +79,7 @@ public static class PersistenceRegistration
         services.AddSingleton<AuthService>();
         services.AddSingleton<UserAdminService>();
         Nadlan.Host.Work.WorkModule.AddWorkModule(services); // work requests for contractors: its stores and services (Nadlan.Host/Work)
+        Nadlan.Host.Presentation.PresentationLinkEndpoints.AddPresentationLinks(services); // public presentation links (migration 025)
         return services;
     }
 }

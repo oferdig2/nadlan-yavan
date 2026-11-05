@@ -19,7 +19,7 @@ public sealed class MySqlAssetStore : IAssetStore
                CASE WHEN p.plot_number IS NULL THEN NULL ELSE CONCAT(p.plot_number, COALESCE(p.plot_ext, '')) END AS plot,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt,
                a.managing_contact_id, c.display_name AS managing_contact_name, a.ask_price, a.currency_code,
-               a.asset_status_id, s.name AS status_name, s.map_color AS status_color, pt.name AS property_type_name,
+               a.asset_status_id, s.name AS status_name, s.map_color AS status_color, s.code AS status_code, pt.name AS property_type_name,
                pt.code AS property_type_code, sd.distance_m AS sea_metres,
                ({0}) AS price_visible, ({1}) AS can_edit
         FROM asset a
@@ -219,6 +219,7 @@ public sealed class MySqlAssetStore : IAssetStore
         public int AssetStatusId { get; init; }
         public string StatusName { get; init; } = "";
         public string StatusColor { get; init; } = "";
+        public string? StatusCode { get; init; }
         public string? PropertyTypeName { get; init; }
         public string? PropertyTypeCode { get; init; }
         public int? SeaMetres { get; init; }
@@ -242,6 +243,7 @@ public sealed class MySqlAssetStore : IAssetStore
             AssetStatusId = AssetStatusId,
             StatusName = StatusName,
             StatusColor = StatusColor,
+            StatusCode = StatusCode,
             PropertyTypeName = PropertyTypeName,
             IsBeach = PropertyTypeCode == Nadlan.Core.Places.Beaches.BeachTypeCode,
             SeaMetres = SeaMetres,
