@@ -40,7 +40,7 @@
 
   // A drone's flight log (DJI_0898.SRT beside DJI_0898.MP4): the video's GPS and height per second - not a picture.
   // Hidden from the grid until asked for (owner, 2026-11-05); later it may place its video on the map.
-  function isFlightLog(f) { return /.srt$/i.test(f.originalFileName || ""); }
+  function isFlightLog(f) { return /\.srt$/i.test(f.originalFileName || ""); }
 
   /**
    * @param {{ attachedToType: "Parcel"|"Asset", attachedToId: number, title: string, onChanged?: function(): void }} options

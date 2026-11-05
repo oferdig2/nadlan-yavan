@@ -269,6 +269,4 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 /* its own space at the end of the row: the text wraps, nothing is covered (review 2026-11-04) */
 .results-list .row-work { display: none; flex: none; margin-left: auto; align-self: center; }
 .results-list li.can-work:hover .row-work { display: inline-block; }
-/* The Work button sits over the row's end: leave it room so it never covers the text (review 2026-11-04). */
-.results-list li.can-work:hover { padding-right: 72px; }
 .results-list .row-otplot { font-weight: 700; color: var(--text, #111827); white-space: nowrap; }
