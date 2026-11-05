@@ -325,7 +325,7 @@
       return satelliteView(items, pick);
     }).then(function (v) {
       useView(v);
-      select(0, false); // first card open; the map starts on the whole set
+      // No card on arrival (Alon, 2026-11-05): the map alone; a card opens on a click (pin, plot, chip), arrows or the tour.
     }).catch(function (err) { notice(err.message + " Check the connection and reload the page.", true); });
   }
 
