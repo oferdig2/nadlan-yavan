@@ -12,8 +12,8 @@
   var $title = $("[data-role=title]"), $sub = $("[data-role=sub]"), $card = $("[data-role=card]");
   var $strip = $("[data-role=strip]"), $notice = $("[data-role=notice]"), $tour = $("[data-act=tour]");
 
-  function notice(text, isError) {
-    $notice.text(text || "").toggleClass("error", !!isError).prop("hidden", !text);
+  function notice(text, isError, busy) {
+    $notice.text(text || "").toggleClass("error", !!isError).toggleClass("busy", !!busy).prop("hidden", !text);
   }
 
   // ?portfolio=12 | ?assets=5,9,3
@@ -309,7 +309,7 @@
       switching = true;
       stopTour();
       $view3d.addClass("busy");
-      notice("Loading the 3D view…");
+      notice("Loading the 3D view…", false, true);
       threeDView(items, pick).then(function (v) {
         try { view.destroy(); } catch (e) { /* already gone */ }
         notice("");

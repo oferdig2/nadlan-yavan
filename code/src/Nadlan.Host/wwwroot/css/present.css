@@ -129,3 +129,10 @@ body:not(.view-2d) .pres-controls .pres-measure { display: none; }
   font-size: 13px !important; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
 /* Measuring: the strip and the card step back so the line can reach any point. */
 body.measuring .pres-card { opacity: 0.35; }
+
+/* A spinner on a notice while something loads (the 3D view). */
+.pres-notice.busy { display: flex; align-items: center; gap: 10px; }
+.pres-notice.busy[hidden] { display: none; }
+.pres-notice.busy::before { content: ""; width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--p-accent); animation: pres-spin 0.8s linear infinite; flex: none; }
+@keyframes pres-spin { to { transform: rotate(360deg); } }
