@@ -264,6 +264,7 @@
       mapTypeControl: false, rotateControl: false, clickableIcons: false });
     var layer = new google.maps.Data({ map: map });
     var highlighted = -1;
+    var measuring = false, markers = [];
     items.forEach(function (it, i) {
       it.polygons.forEach(function (g) {
         layer.add(new google.maps.Data.Feature({ geometry: new google.maps.Data.Polygon(g.coordinates.map(ring)), properties: { index: i, color: safeColor(it.statusColor) } }));
@@ -272,11 +273,28 @@
       var marker = new google.maps.Marker({ map: map, position: c, label: { text: String(i + 1), color: "#fff", fontWeight: "700" },
         title: options.titleOf ? options.titleOf(it, i) : "" });
       marker.addListener("click", function () { options.onPick(i); });
+      markers.push(marker);
     });
     layer.setStyle(function (f) {
       var on = f.getProperty("index") === highlighted;
-      return { strokeColor: f.getProperty("color"), strokeWeight: on ? 5 : 3, fillColor: f.getProperty("color"), fillOpacity: on ? 0.45 : 0.25 };
+      return { strokeColor: f.getProperty("color"), strokeWeight: on ? 5 : 3, fillColor: f.getProperty("color"), fillOpacity: on ? 0.45 : 0.25,
+        clickable: !measuring };
     });
+
+    // The ruler (owner, 2026-11-05: "from the beach, or from anything he wants"): map-measure.js, as on the main map.
+    // While it is on, a click on a property adds a point instead of opening its card.
+    if (Nadlan.mapMeasure) {
+      Nadlan.mapMeasure.createMeasureControl(map, {
+        setStatus: options.setStatus || function () { },
+        position: "RIGHT_CENTER",
+        onActiveChange: function (on) {
+          measuring = on;
+          layer.setStyle(layer.getStyle());
+          markers.forEach(function (m) { m.setClickable(!on); });
+          if (options.onMeasuring) { options.onMeasuring(on); }
+        }
+      });
+    }
     layer.addListener("click", function (e) { options.onPick(e.feature.getProperty("index")); });
 
     function fit(b, padding) {

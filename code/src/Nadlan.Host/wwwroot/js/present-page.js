@@ -61,7 +61,8 @@
 
   function satelliteView(items, onPick) {
     return Promise.all([google.maps.importLibrary("maps"), google.maps.importLibrary("marker")]).then(function () {
-      return Nadlan.presentViews.create2dView(document.getElementById("stage"), items, { onPick: onPick, titleOf: pinTitle });
+      return Nadlan.presentViews.create2dView(document.getElementById("stage"), items, { onPick: onPick, titleOf: pinTitle,
+        setStatus: function (text) { notice(text); }, onMeasuring: function (on) { $("body").toggleClass("measuring", on); } });
     });
   }
 

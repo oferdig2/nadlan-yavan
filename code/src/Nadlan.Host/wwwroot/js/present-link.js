@@ -21,6 +21,12 @@
 
   function inDays(n) { var d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
 
+  // A password we make up for the customer: 6 digits (the staff member may type their own over it).
+  function madeUpPassword() {
+    var n = window.crypto && window.crypto.getRandomValues ? window.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000 : Math.floor(Math.random() * 1000000);
+    return ("00000" + n).slice(-6);
+  }
+
   var STATE = { active: "Active", disabled: "Disabled", expired: "Expired", locked: "Locked (wrong passwords)" };
 
   /** @param {{ portfolioId?: number, assetIds?: number[] }} what */
@@ -36,15 +42,22 @@
               "<div class=\"muted\">Shows only properties For sale" + (what.portfolioId ? "; follows the Portfolio as it changes" : "") + ".</div>" +
               "<div class=\"form-row public-new\">" +
                 "<label>Works until<input class=\"input\" type=\"date\" name=\"lastDay\"></label>" +
-                "<label class=\"check\"><input type=\"checkbox\" name=\"protect\"> Password (6 digits)</label>" +
                 "<button type=\"button\" class=\"btn btn-primary\" data-act=\"create\">Create public link</button>" +
               "</div>" +
+              "<label class=\"check\"><input type=\"checkbox\" name=\"protect\"> Password</label>" +
+              "<div class=\"public-password\" hidden><input class=\"input\" name=\"password\" maxlength=\"64\" autocomplete=\"off\" spellcheck=\"false\">" +
+                "<span class=\"muted\">Ours, or type your own (4-64 characters). Send it separately.</span></div>" +
               "<div class=\"public-made\" hidden></div>" +
               "<div class=\"public-list\"><div class=\"muted\">Loading…</div></div>" +
             "</section>"
           : "") +
       "</form>");
     $form.find("[name=lastDay]").val(inDays(7)).attr({ min: inDays(0), max: inDays(365) });
+    $form.on("change", "[name=protect]", function () {
+      var on = this.checked, $box = $form.find(".public-password").prop("hidden", !on);
+      if (on && !$.trim($box.find("[name=password]").val())) { $box.find("[name=password]").val(madeUpPassword()); }
+      if (on) { $box.find("[name=password]").trigger("focus").trigger("select"); }
+    });
 
     // The server seals the title into the link (a link typed by hand can't carry text of its own onto the page).
     function link() {
@@ -125,7 +138,7 @@
       var $btn = $(this).prop("disabled", true);
       act(Nadlan.api.post(base, $.extend({}, target, {
         title: $.trim($form.find("[name=title]").val()) || null, lastDay: $form.find("[name=lastDay]").val() || null,
-        generatePassword: $form.find("[name=protect]").prop("checked")
+        password: $form.find("[name=protect]").prop("checked") ? ($.trim($form.find("[name=password]").val()) || madeUpPassword()) : null
       }))).then(function (res) {
         $btn.prop("disabled", false);
         if (!res) { return; }

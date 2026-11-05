@@ -227,12 +227,7 @@ public sealed class PresentationLinkService
         }
         else
         {
-            clean = password.Trim();
-            if (clean.Length is < MinPasswordLength or > MaxPasswordLength)
-            {
-                throw new DomainValidationException("PRESENTATION_LINK_PASSWORD",
-                    $"The password needs {MinPasswordLength} to {MaxPasswordLength} characters - or press Generate for 6 digits.");
-            }
+            clean = CleanPassword(password);
         }
 
         await _store.SetPasswordAsync(id, PasswordHasher.Hash(clean), ct);
@@ -330,6 +325,19 @@ public sealed class PresentationLinkService
     public Task RecordOpenAsync(PresentationLink link, CancellationToken ct = default) => _store.RecordOpenAsync(link.PresentationLinkId, ct);
 
     // ---- helpers --------------------------------------------------------------------------------------------------
+
+    /// <summary>A typed password, trimmed: 4 to 64 characters.</summary>
+    public static string CleanPassword(string password)
+    {
+        var clean = password.Trim();
+        if (clean.Length is < MinPasswordLength or > MaxPasswordLength)
+        {
+            throw new DomainValidationException("PRESENTATION_LINK_PASSWORD",
+                $"The password needs {MinPasswordLength} to {MaxPasswordLength} characters.");
+        }
+
+        return clean;
+    }
 
     /// <summary>The chosen Assets as stored ("5,9,3"), or null for a Portfolio link; checks there is exactly one target.</summary>
     internal static string? Target(long? portfolioId, IReadOnlyList<long>? assetIds)
