@@ -13,23 +13,23 @@
 
   <header class="pres-bar">
     <span class="pres-brand">GreekPlot</span>
-    <div class="pres-title">
-      <h1 data-role="title">Loading…</h1>
-      <span class="pres-sub" data-role="sub"></span>
-    </div>
     <nav class="pres-controls" aria-label="Presentation">
       <button type="button" data-act="measure" class="pres-measure"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17 17 3l4 4L7 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       <button type="button" data-act="overview" title="See all (O)">⌂ All</button>
-      <button type="button" data-act="prev" title="Previous (←)">◀</button>
-      <button type="button" data-act="tour" class="pres-tour" title="Tour: fly to each in turn (Space)">▶ Tour</button>
-      <button type="button" data-act="next" title="Next (→)">▶</button>
       <button type="button" data-act="me" class="pres-me" title="Show where I am (M)">◎ Me</button>
+      <button type="button" data-act="tour" class="pres-tour" title="Tour: fly to each in turn (Space)">▶ Tour</button>
       <button type="button" data-act="view3d" class="pres-3d" title="Google's 3D view (D)" aria-pressed="false" hidden>⛰ 3D</button>
     </nav>
   </header>
 
   <aside class="pres-card" data-role="card" hidden></aside>
-  <div class="pres-strip" data-role="strip"></div>
+  <div class="pres-bottom">
+    <div class="pres-title">
+      <h1 data-role="title">Loading…</h1>
+      <span class="pres-sub" data-role="sub"></span>
+    </div>
+    <div class="pres-strip" data-role="strip"></div>
+  </div>
   <div class="pres-notice" data-role="notice" hidden></div>
 
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js" integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs" crossorigin="anonymous"></script>
