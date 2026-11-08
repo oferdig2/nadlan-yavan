@@ -103,7 +103,7 @@
     var w = window.innerWidth, h = window.innerHeight, c = { top: 0, right: 0, bottom: 0, left: 0 };
     var bar = document.querySelector(".pres-controls"), bottom = document.querySelector(".pres-bottom"), card = document.querySelector("[data-role=card]");
     if (bar) { c.top = Math.max(0, bar.getBoundingClientRect().bottom); }
-    if (bottom && bottom.offsetParent) { c.bottom = Math.max(0, h - bottom.getBoundingClientRect().top); }
+    if (bottom && bottom.getBoundingClientRect().height > 0) { c.bottom = Math.max(0, h - bottom.getBoundingClientRect().top); } // fixed: no offsetParent
     if (card && !card.hidden) {
       var r = card.getBoundingClientRect();
       if (r.width > w * 0.6) { c.bottom = Math.max(c.bottom, h - r.top); } else { c.right = Math.max(0, w - r.left); }
@@ -128,7 +128,8 @@
       (m.kind === "video" ? "<span class=\"pres-play\">▶</span>" : "") + "</button>";
   }
 
-  function factsHtml(it) {
+  // noTitle: the card shows the title in its head instead (2026-11-08).
+  function factsHtml(it, noTitle) {
     var facts = [
       ["Numbers", it.otPlot ? esc(it.otPlot) : null], // "OT 9 / Plot 83" first: how people know a plot (Alon, 2026-11-05)
       ["Asking", price(it)],
@@ -137,7 +138,7 @@
       ["Sea", it.seaMetres === null || it.seaMetres === undefined ? null : esc(Nadlan.format.seaDistance(it.seaMetres))],
       ["KAEK", it.kaek ? esc(it.kaek) : null]
     ].filter(function (f) { return f[1]; });
-    return "<h2>" + esc(heading(it)) + "</h2>" +
+    return (noTitle ? "" : "<h2>" + esc(heading(it)) + "</h2>") +
       "<span class=\"pres-status\" style=\"--c:" + (/^#[0-9a-fA-F]{6}$/.test(it.statusColor || "") ? it.statusColor : "#64748b") + "\">" + esc(it.statusName || "") + "</span>" +
       "<dl class=\"pres-facts\">" + facts.map(function (f) { return "<dt>" + f[0] + "</dt><dd>" + f[1] + "</dd>"; }).join("") + "</dl>";
   }
@@ -153,11 +154,11 @@
           "<button type=\"button\" class=\"pres-car-nav next\" data-car=\"1\" aria-label=\"Next photo\">›</button>" +
           "<span class=\"pres-car-count\">1 / " + media.length + "</span>"
         : "") + "</div>";
-    return "<div class=\"pres-card-head\"><span class=\"pres-num\">" + (index + 1) + "</span><span class=\"muted\">" + (index + 1) + " of " + count + "</span>" +
-        "<span class=\"pres-head-gap\"></span>" +
+    // The head: the number and the title (no "2 of 5" - owner, 2026-11-08: it frees room).
+    return "<div class=\"pres-card-head\"><span class=\"pres-num\">" + (index + 1) + "</span><h2 class=\"pres-card-title\">" + esc(heading(it)) + "</h2>" +
         "<button type=\"button\" class=\"pres-close\" data-act=\"close-card\" title=\"Hide\">×</button></div>" +
       // No photos: no empty picture box - the card is only its text and covers less of the map (Alon, 2026-11-05).
-      carousel + factsHtml(it);
+      carousel + factsHtml(it, true);
   }
 
   function carouselStep($car, by) {
