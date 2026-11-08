@@ -26,19 +26,22 @@
   // Media viewer above every dialog; closes on ×, Esc or a click outside the media.
   // startMs/endMs (optional, videos): a time frame on a Parcel (Map drop) - play starts there and pauses once at its end;
   // pressing play again goes on.
-  // set (optional): { items: [{ kind, url, name, download }], index } - several photos / videos (a presentation property, a Files
+  // set (optional): { items: [{ kind, url, name, download }], index, info } - several photos / videos (a presentation property, a Files
   // list): "‹" / "›" and the arrow keys step through them without closing (remark 6). One file alone has no arrows.
+  // info: HTML the page built (escaped there) shown in a rail at the top right - the presentation's property details (2026-11-08).
   function openViewer(mediaKind, url, name, startMs, endMs, set) {
     var esc = Nadlan.format.escapeHtml;
     var items = set && set.items && set.items.length ? set.items : [{ kind: mediaKind, url: url, name: name }];
     var index = items.length > 1 ? Math.max(0, Math.min(items.length - 1, set.index || 0)) : 0;
+    var info = set && set.info ? set.info : "";
     var $viewer = $(
-      "<div class=\"media-viewer\" role=\"dialog\">" +
+      "<div class=\"media-viewer" + (info ? " has-info" : "") + "\" role=\"dialog\">" +
         "<div class=\"media-viewer-bar\"><span class=\"media-viewer-name\"></span>" +
           (items.length > 1 ? "<span class=\"media-viewer-count\"></span>" : "") +
           "<a class=\"media-viewer-open\" target=\"_blank\" rel=\"noopener\">Open in new tab</a>" +
           "<button type=\"button\" class=\"media-viewer-close\" title=\"Close (Esc)\">×</button></div>" +
         "<div class=\"media-viewer-stage\"></div>" +
+        (info ? "<aside class=\"media-viewer-info\">" + info + "</aside>" : "") +
         (items.length > 1
           ? "<button type=\"button\" class=\"media-viewer-nav prev\" data-step=\"-1\" title=\"Previous (←)\" aria-label=\"Previous\">‹</button>" +
             "<button type=\"button\" class=\"media-viewer-nav next\" data-step=\"1\" title=\"Next (→)\" aria-label=\"Next\">›</button>"
@@ -98,6 +101,7 @@
 
     $viewer.on("click", function (e) {
       if ($(e.target).closest("[data-step]").length) { step(Number($(e.target).closest("[data-step]").data("step"))); return; }
+      if ($(e.target).closest(".media-viewer-info").length) { return; }
       if (e.target === this || e.target === $stage[0] || $(e.target).is(".media-viewer-close")) { close(); }
     });
     // Capture phase, so Esc closes the viewer and not the jQuery UI dialog underneath; arrows don't scroll the page.
@@ -142,9 +146,12 @@
     if (!b) { return; }
     e.preventDefault();
     e.stopPropagation();
+    var set = viewSet(b) || { items: [viewItem(b)], index: 0 };
+    // A page may add details beside the photos (the presentation: the property's card) - Nadlan.mediaViewer.infoFor(button).
+    set.info = Nadlan.mediaViewer.infoFor ? Nadlan.mediaViewer.infoFor(b) : "";
     openViewer(b.getAttribute("data-view-file"), b.getAttribute("data-url"), b.getAttribute("data-name"),
       b.hasAttribute("data-start") ? Number(b.getAttribute("data-start")) : undefined, b.hasAttribute("data-end") ? Number(b.getAttribute("data-end")) : undefined,
-      viewSet(b) || { items: [viewItem(b)], index: 0 });
+      set);
   }, true);
 
   function thumbHtml(file) {

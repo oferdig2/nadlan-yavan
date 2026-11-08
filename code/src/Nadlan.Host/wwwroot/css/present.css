@@ -62,6 +62,20 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
 .pres-facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; }
 .pres-facts dt { color: var(--p-muted); }
 .pres-facts dd { margin: 0; font-weight: 600; text-align: right; }
+/* The card's carousel: one photo at a time, ‹ › over it, "3 / 12" in the corner (2026-11-08). */
+.pres-carousel { position: relative; }
+.pres-carousel .pres-hero { display: none; }
+.pres-carousel .pres-hero.on { display: flex; }
+.pres-car-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; border: 0; border-radius: 50%; padding: 0;
+  background: rgba(15, 23, 42, 0.62); color: #fff; font-size: 20px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+.pres-car-nav:hover { background: rgba(15, 23, 42, 0.85); }
+.pres-car-nav.prev { left: 6px; }
+.pres-car-nav.next { right: 6px; }
+.pres-car-count { position: absolute; right: 8px; bottom: 8px; padding: 1px 8px; border-radius: 999px; background: rgba(15, 23, 42, 0.7);
+  font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; }
+/* The viewer's rail uses the card's look. */
+.pres-rail h2 { margin: 6px 0; font-size: 18px; font-weight: 650; }
+.pres-rail .pres-card-head { margin-bottom: 0; }
 .pres-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
 .pres-thumb { aspect-ratio: 1; border: 0; border-radius: 8px; background: #1e293b center / cover no-repeat; display: flex;
   align-items: center; justify-content: center; }
@@ -105,6 +119,15 @@ html, body.present { margin: 0; height: 100%; overflow: hidden; background: #0b1
   .pres-sub { font-size: 11px; }
   .pres-card { left: 12px; right: 12px; width: auto; top: auto; bottom: 96px; max-height: 40%; }
   .pres-chip { width: 200px; }
+}
+
+/* A phone on its side (owner, 2026-11-08): the card as on an upright phone but on the right, ~30% wide, between the bars;
+   the map keeps the left part and centres the property there. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .pres-card { left: auto; right: 12px; top: 52px; bottom: auto; width: clamp(240px, 32vw, 340px); max-height: calc(100% - 52px - 86px); }
+  .pres-bottom { padding: 4px 6px 4px 10px; }
+  .pres-chip { width: 190px; padding: 4px; }
+  .pres-chip-img { height: 38px; }
 }
 
 /* show.html: the password screen of a protected public link (owner, 2026-11-05). */

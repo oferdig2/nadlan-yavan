@@ -63,7 +63,7 @@
     return Promise.all([google.maps.importLibrary("maps"), google.maps.importLibrary("marker")]).then(function () {
       return Nadlan.presentViews.create2dView(document.getElementById("stage"), items, { onPick: onPick, titleOf: pinTitle,
         setStatus: function (text) { notice(text); }, onMeasuring: function (on) { $("body").toggleClass("measuring", on); },
-        measureButton: document.querySelector("[data-act=measure]") });
+        measureButton: document.querySelector("[data-act=measure]"), covered: coveredArea });
     });
   }
 
@@ -97,6 +97,20 @@
 
   function sqm(v) { return v === null || v === undefined ? null : Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 }) + " m²"; }
 
+  // What the panels cover of the map, in px from each edge: the top bar, the bottom bar, and the card - at the bottom (phone
+  // upright) or on the right (computer, phone on its side). The map centres a property in the rest (2026-11-08).
+  function coveredArea() {
+    var w = window.innerWidth, h = window.innerHeight, c = { top: 0, right: 0, bottom: 0, left: 0 };
+    var bar = document.querySelector(".pres-controls"), bottom = document.querySelector(".pres-bottom"), card = document.querySelector("[data-role=card]");
+    if (bar) { c.top = Math.max(0, bar.getBoundingClientRect().bottom); }
+    if (bottom && bottom.offsetParent) { c.bottom = Math.max(0, h - bottom.getBoundingClientRect().top); }
+    if (card && !card.hidden) {
+      var r = card.getBoundingClientRect();
+      if (r.width > w * 0.6) { c.bottom = Math.max(c.bottom, h - r.top); } else { c.right = Math.max(0, w - r.left); }
+    }
+    return c;
+  }
+
   function heading(it) { return (it.propertyType || "Property") + (it.area ? " · " + it.area : ""); }
 
   // The pin's hover text: OT / plot first when entered - how people know a plot (Alon, 2026-11-05).
@@ -114,7 +128,7 @@
       (m.kind === "video" ? "<span class=\"pres-play\">▶</span>" : "") + "</button>";
   }
 
-  function cardHtml(it, index, count) {
+  function factsHtml(it) {
     var facts = [
       ["Numbers", it.otPlot ? esc(it.otPlot) : null], // "OT 9 / Plot 83" first: how people know a plot (Alon, 2026-11-05)
       ["Asking", price(it)],
@@ -123,20 +137,34 @@
       ["Sea", it.seaMetres === null || it.seaMetres === undefined ? null : esc(Nadlan.format.seaDistance(it.seaMetres))],
       ["KAEK", it.kaek ? esc(it.kaek) : null]
     ].filter(function (f) { return f[1]; });
+    return "<h2>" + esc(heading(it)) + "</h2>" +
+      "<span class=\"pres-status\" style=\"--c:" + (/^#[0-9a-fA-F]{6}$/.test(it.statusColor || "") ? it.statusColor : "#64748b") + "\">" + esc(it.statusName || "") + "</span>" +
+      "<dl class=\"pres-facts\">" + facts.map(function (f) { return "<dt>" + f[0] + "</dt><dd>" + f[1] + "</dd>"; }).join("") + "</dl>";
+  }
+
+  // The card (2026-11-08): its photos and videos as a carousel - ‹ ›, swipe, "3 / 12" - a click opens the big viewer
+  // there; no arrows to other properties (the strip, the map and the keyboard do that).
+  function cardHtml(it, index, count) {
     var media = it.media || [];
-    // ‹ › step to the previous / next property here (owner, 2026-11-05: the arrows moved from the top bar into the card).
-    return "<div class=\"pres-card-head\">" +
-        (count > 1 ? "<button type=\"button\" class=\"pres-nav\" data-act=\"prev\" title=\"Previous (←)\" aria-label=\"Previous property\">‹</button>" : "") +
-        "<span class=\"pres-num\">" + (index + 1) + "</span><span class=\"muted\">" + (index + 1) + " of " + count + "</span>" +
-        (count > 1 ? "<button type=\"button\" class=\"pres-nav\" data-act=\"next\" title=\"Next (→)\" aria-label=\"Next property\">›</button>" : "") +
+    var carousel = !media.length ? "" : "<div class=\"pres-carousel\" data-at=\"0\">" +
+      media.map(function (m, i) { return mediaButton(m, "pres-hero" + (i === 0 ? " on" : ""), "item-" + index); }).join("") +
+      (media.length > 1
+        ? "<button type=\"button\" class=\"pres-car-nav prev\" data-car=\"-1\" aria-label=\"Previous photo\">‹</button>" +
+          "<button type=\"button\" class=\"pres-car-nav next\" data-car=\"1\" aria-label=\"Next photo\">›</button>" +
+          "<span class=\"pres-car-count\">1 / " + media.length + "</span>"
+        : "") + "</div>";
+    return "<div class=\"pres-card-head\"><span class=\"pres-num\">" + (index + 1) + "</span><span class=\"muted\">" + (index + 1) + " of " + count + "</span>" +
         "<span class=\"pres-head-gap\"></span>" +
         "<button type=\"button\" class=\"pres-close\" data-act=\"close-card\" title=\"Hide\">×</button></div>" +
       // No photos: no empty picture box - the card is only its text and covers less of the map (Alon, 2026-11-05).
-      (media.length ? mediaButton(media[0], "pres-hero", "item-" + index) : "") +
-      "<h2>" + esc(heading(it)) + "</h2>" +
-      "<span class=\"pres-status\" style=\"--c:" + (/^#[0-9a-fA-F]{6}$/.test(it.statusColor || "") ? it.statusColor : "#64748b") + "\">" + esc(it.statusName || "") + "</span>" +
-      "<dl class=\"pres-facts\">" + facts.map(function (f) { return "<dt>" + f[0] + "</dt><dd>" + f[1] + "</dd>"; }).join("") + "</dl>" +
-      (media.length > 1 ? "<div class=\"pres-gallery\">" + media.slice(1).map(function (m) { return mediaButton(m, "pres-thumb", "item-" + index); }).join("") + "</div>" : "");
+      carousel + factsHtml(it);
+  }
+
+  function carouselStep($car, by) {
+    var $slides = $car.find(".pres-hero"), n = $slides.length;
+    var at = (Number($car.attr("data-at")) + by + n) % n;
+    $slides.removeClass("on").eq(at).addClass("on");
+    $car.attr("data-at", at).find(".pres-car-count").text((at + 1) + " / " + n);
   }
 
   function stripHtml(items) {
@@ -261,8 +289,22 @@
     });
 
     $strip.on("click", ".pres-chip", function () { pick(Number($(this).data("index"))); });
-    $card.on("click", "[data-act=next]", function () { pick(current + 1); });
-    $card.on("click", "[data-act=prev]", function () { pick(current < 0 ? items.length - 1 : current - 1); });
+    $card.on("click", "[data-car]", function (e) { e.stopPropagation(); carouselStep($(this).closest(".pres-carousel"), Number($(this).data("car"))); });
+    // Swipe on a phone: left = next photo, right = previous (a tap still opens the viewer).
+    var swipeX = null;
+    $card.on("touchstart", ".pres-carousel", function (e) { swipeX = e.originalEvent.touches[0].clientX; });
+    $card.on("touchend", ".pres-carousel", function (e) {
+      if (swipeX === null) { return; }
+      var dx = e.originalEvent.changedTouches[0].clientX - swipeX;
+      swipeX = null;
+      if (Math.abs(dx) > 40) { e.preventDefault(); carouselStep($(this), dx < 0 ? 1 : -1); }
+    });
+    // The big viewer shows this property's details in a rail beside its photos.
+    Nadlan.mediaViewer.infoFor = function (b) {
+      var m = /^item-(\d+)$/.exec(b.getAttribute("data-view-group") || "");
+      var it = m ? items[Number(m[1])] : null;
+      return it ? "<div class=\"pres-rail\"><div class=\"pres-card-head\"><span class=\"pres-num\">" + (Number(m[1]) + 1) + "</span></div>" + factsHtml(it) + "</div>" : "";
+    };
     $("[data-act=overview]").on("click", function () { stopTour(); if (view) { view.highlight(-1); view.showAll(); } $card.prop("hidden", true); });
     $tour.on("click", function () { if (touring) { stopTour(); } else if (view) { tour(); } });
     $card.on("click", "[data-act=close-card]", function () { $card.prop("hidden", true); });

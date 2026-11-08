@@ -82,3 +82,14 @@ video.media-viewer-media { width: min(100%, 1600px); }
 .media-viewer-cant .media-viewer-download { color: #93c5fd; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .media-viewer-cant .media-viewer-download:hover { color: #bfdbfe; }
 @media (max-width: 600px) { .media-viewer-nav { width: 38px; height: 52px; font-size: 30px; } }
+
+/* The viewer's info rail (the presentation's property details, 2026-11-08): top right; the photo keeps the rest. */
+.media-viewer.has-info { padding-right: 344px; }
+.media-viewer-info { position: absolute; top: 52px; right: 16px; width: 312px; max-height: calc(100% - 68px); overflow: auto; padding: 14px;
+  border-radius: 12px; background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(255, 255, 255, 0.14); color: #f8fafc; }
+.media-viewer.has-info .media-viewer-nav.next { right: 338px; }
+@media (max-width: 760px) {
+  .media-viewer.has-info { padding-right: 24px; padding-bottom: 38vh; }
+  .media-viewer-info { top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; max-height: 34vh; }
+  .media-viewer.has-info .media-viewer-nav.next { right: 10px; }
+}

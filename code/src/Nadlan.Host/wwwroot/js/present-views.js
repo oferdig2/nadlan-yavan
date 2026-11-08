@@ -301,7 +301,14 @@
     }
     layer.addListener("click", function (e) { options.onPick(e.feature.getProperty("index")); });
 
-    function fit(b, padding) {
+    // margin: around the property; options.covered() = what the page's card and bars cover ({ top, right, bottom, left }
+    // px) - the property is centred in what stays visible (owner, 2026-11-08: on a phone the card hid the polygon).
+    function fit(b, margin) {
+      var c = options.covered ? options.covered() : { top: 0, right: 0, bottom: 0, left: 0 };
+      var el = map.getDiv(), w = el.clientWidth, h = el.clientHeight;
+      var m = Math.max(16, Math.min(margin, (w - c.left - c.right) / 4, (h - c.top - c.bottom) / 4));
+      var padding = { top: c.top + m, right: c.right + m, bottom: c.bottom + m, left: c.left + m };
+      if (w - padding.left - padding.right < 60 || h - padding.top - padding.bottom < 60) { padding = margin; } // too little left: plain
       map.fitBounds(new google.maps.LatLngBounds({ lat: b.south, lng: b.west }, { lat: b.north, lng: b.east }), padding);
       return new Promise(function (r) { setTimeout(r, 1200); });
     }
@@ -332,7 +339,9 @@
       showAll: function () { return fit(overviewBounds(items), 80); },
       fly: function (i) {
         // At most zoom 18: closer, rural imagery is often missing or loads in patches.
-        return fit(boundsOf(items[i].polygons), 160).then(function () { if (map.getZoom() > 18) { map.setZoom(18); } });
+        // The cap inside the fit (maxZoom), so the property stays centred in the visible part; the presenter may zoom closer after.
+        map.setOptions({ maxZoom: 18 });
+        return fit(boundsOf(items[i].polygons), 160).then(function () { map.setOptions({ maxZoom: null }); });
       },
       orbit: function (i, ms) { return new Promise(function (r) { setTimeout(r, Math.min(ms, 6000)); }); }, // no flight in 2D: a pause
       stop: function () { },
