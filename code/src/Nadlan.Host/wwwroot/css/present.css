@@ -158,4 +158,4 @@ body:not(.view-2d) .pres-controls .pres-measure { display: none; }
   border-top-color: var(--p-accent); animation: pres-spin 0.8s linear infinite; flex: none; }
 @keyframes pres-spin { to { transform: rotate(360deg); } }
 /* The card's title in its head, beside the number (2026-11-08). */
-.pres-card .pres-card-head .pres-card-title { flex: 1; min-width: 0; margin: 0; font-size: 17px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pres-card .pres-card-head .pres-card-title, .pres-rail .pres-card-head .pres-card-title { flex: 1; min-width: 0; margin: 0; font-size: 17px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
