@@ -155,7 +155,7 @@
           "<span class=\"pres-car-count\">1 / " + media.length + "</span>"
         : "") + "</div>";
     // The head: the number and the title (no "2 of 5" - owner, 2026-11-08: it frees room).
-    return "<div class=\"pres-card-head\"><span class=\"pres-num\">" + (index + 1) + "</span><h2 class=\"pres-card-title\">" + esc(heading(it)) + "</h2>" +
+    return "<div class=\"pres-card-head\"><span class=\"pres-num\">" + (index + 1) + "</span><h2 class=\"pres-card-title\" title=\"" + esc(heading(it)) + "\">" + esc(heading(it)) + "</h2>" +
         "<button type=\"button\" class=\"pres-close\" data-act=\"close-card\" title=\"Hide\">×</button></div>" +
       // No photos: no empty picture box - the card is only its text and covers less of the map (Alon, 2026-11-05).
       carousel + factsHtml(it, true);
@@ -304,7 +304,9 @@
     Nadlan.mediaViewer.infoFor = function (b) {
       var m = /^item-(\d+)$/.exec(b.getAttribute("data-view-group") || "");
       var it = m ? items[Number(m[1])] : null;
-      return it ? "<div class=\"pres-rail\"><div class=\"pres-card-head\"><span class=\"pres-num\">" + (Number(m[1]) + 1) + "</span></div>" + factsHtml(it) + "</div>" : "";
+      // One line: the number and the title, cut with "…" (the full name on hover) - owner, 2026-11-08.
+      return it ? "<div class=\"pres-rail\"><div class=\"pres-card-head\"><span class=\"pres-num\">" + (Number(m[1]) + 1) + "</span>" +
+        "<h2 class=\"pres-card-title\" title=\"" + esc(heading(it)) + "\">" + esc(heading(it)) + "</h2></div>" + factsHtml(it, true) + "</div>" : "";
     };
     $("[data-act=overview]").on("click", function () { stopTour(); if (view) { view.highlight(-1); view.showAll(); } $card.prop("hidden", true); });
     $tour.on("click", function () { if (touring) { stopTour(); } else if (view) { tour(); } });
