@@ -88,8 +88,22 @@ video.media-viewer-media { width: min(100%, 1600px); }
 .media-viewer-info { position: absolute; top: 52px; right: 16px; width: 312px; max-height: calc(100% - 68px); overflow: auto; padding: 14px;
   border-radius: 12px; background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(255, 255, 255, 0.14); color: #f8fafc; }
 .media-viewer.has-info .media-viewer-nav.next { right: 338px; }
-@media (max-width: 760px) {
+/* A phone upright: the details below the photo; the arrows centred on the photo (its band between the bar and the details),
+   smaller and easier to see (owner, 2026-11-08). */
+@media (max-width: 760px) and (orientation: portrait) {
   .media-viewer.has-info { padding-right: 24px; padding-bottom: 38vh; }
   .media-viewer-info { top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; max-height: 34vh; }
+  .media-viewer.has-info .media-viewer-nav { top: calc(24px + 50% - 19vh); }
   .media-viewer.has-info .media-viewer-nav.next { right: 10px; }
+}
+/* A phone on its side: the details in a right rail, as on a computer, narrower. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .media-viewer.has-info { padding-right: 264px; }
+  .media-viewer-info { top: 48px; right: 10px; width: 240px; max-height: calc(100% - 58px); padding: 10px; font-size: 13px; }
+  .media-viewer.has-info .media-viewer-nav.next { right: 258px; }
+}
+/* Phones: small arrows that stand out over any photo. */
+@media (max-width: 760px), (max-height: 520px) {
+  .media-viewer-nav { width: 34px; height: 44px; font-size: 26px; border-radius: 8px; background: rgba(15, 23, 42, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.55); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); }
 }
