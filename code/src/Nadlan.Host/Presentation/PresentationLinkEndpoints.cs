@@ -168,7 +168,7 @@ public static class PresentationLinkEndpoints
             try
             {
                 (items, total, truncated) = await PresentationEndpoints.BuildAsync(services, creator, link.PortfolioId,
-                    link.PortfolioId is null ? link.AssetIdList : null, forSaleOnly: true, ct);
+                    link.PortfolioId is null ? link.AssetIdList : null, forSaleOnly: true, ct, hideNumbers: true);
             }
             catch (Nadlan.Core.Validation.EntityNotFoundException)
             {

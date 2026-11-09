@@ -283,6 +283,27 @@ public class AgentTableTests
     }
 
     [Fact]
+    public void A_public_link_reply_carries_no_KAEK_OT_or_plot_but_the_signed_in_one_does()
+    {
+        var row = new AssetMapItem
+        {
+            AssetId = 3, ParcelId = 10, RegistryId = "120981102004", Ot = "9", Plot = "83", GeographicArea = "Skroponeria",
+            Geometry = GeoPolygon.FromWkt("POLYGON((23.70 37.90, 23.71 37.90, 23.71 37.91, 23.70 37.90))"),
+            AskPrice = 60_000, CurrencyCode = "EUR", StatusName = "For sale", StatusColor = "#16a34a",
+        };
+        string Json(bool hide) => JsonSerializer.Serialize(PresentationEndpoints.Item(new[] { row }, null, 830, new List<object>(), 150, hide),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        var signedIn = Json(false);
+        Assert.Contains("120981102004", signedIn);
+        Assert.Contains("OT 9 / Plot 83", signedIn);
+        var open = Json(true); // owner, 2026-11-09: the numbers are for GreekPlot users only
+        Assert.DoesNotContain("120981102004", open);
+        Assert.DoesNotContain("OT 9", open);
+        Assert.Contains("\"askPrice\":60000", open);
+    }
+
+    [Fact]
     public void An_Asset_table_row_carries_no_people_either()
     {
         var json = JsonSerializer.Serialize(AssetTableEndpoints.Row(new AssetTableRow { AssetId = 1, ParcelId = 2, RegistryId = "K", PriceVisible = true }),

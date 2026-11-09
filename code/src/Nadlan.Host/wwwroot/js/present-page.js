@@ -131,12 +131,12 @@
   // noTitle: the card shows the title in its head instead (2026-11-08).
   function factsHtml(it, noTitle) {
     var facts = [
-      ["Numbers", it.otPlot ? esc(it.otPlot) : null], // "OT 9 / Plot 83" first: how people know a plot (Alon, 2026-11-05)
+      // OT / plot and the KAEK in one row (owner, 2026-11-09); a public link sends neither.
+      ["Numbers", it.otPlot || it.kaek ? (it.otPlot ? esc(it.otPlot) : "") + (it.kaek ? "<span class=\"pres-kaek\">KAEK " + esc(it.kaek) + "</span>" : "") : null],
       ["Asking", price(it)],
       ["Plot size", sqm(it.plotSqm)],
       ["House size", sqm(it.houseSqm)],
-      ["Sea", it.seaMetres === null || it.seaMetres === undefined ? null : esc(Nadlan.format.seaDistance(it.seaMetres))],
-      ["KAEK", it.kaek ? esc(it.kaek) : null]
+      ["Sea", it.seaMetres === null || it.seaMetres === undefined ? null : esc(Nadlan.format.seaDistance(it.seaMetres))]
     ].filter(function (f) { return f[1]; });
     return (noTitle ? "" : "<h2>" + esc(heading(it)) + "</h2>") +
       "<span class=\"pres-status\" style=\"--c:" + (/^#[0-9a-fA-F]{6}$/.test(it.statusColor || "") ? it.statusColor : "#64748b") + "\">" + esc(it.statusName || "") + "</span>" +
