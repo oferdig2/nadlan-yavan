@@ -114,8 +114,10 @@ public static class PresentationEndpoints
     /// The presentation's properties as <paramref name="me"/> may present them: a Portfolio's (in its order) or the given
     /// Assets'. forSaleOnly: only Assets For sale (a public link: owner, 2026-11-05).
     /// </summary>
+    /// hideNumbers: no KAEK, OT or plot - a public link's viewer isn't signed in (owner, 2026-11-09: the numbers are for
+    /// GreekPlot users only, not customers).
     internal static async Task<(List<object> Items, int Total, bool Truncated)> BuildAsync(IServiceProvider services, UserAccess me, long? portfolioId,
-        IReadOnlyList<long>? assetIds, bool forSaleOnly, CancellationToken ct)
+        IReadOnlyList<long>? assetIds, bool forSaleOnly, CancellationToken ct, bool hideNumbers = false)
     {
         var policy = services.GetRequiredService<AccessPolicy>();
         var portfolios = services.GetRequiredService<IPortfolioStore>();
@@ -174,7 +176,7 @@ public static class PresentationEndpoints
                 }
 
                 var seaMetres = sea.Settings.Shown(g.Select(a => seaByParcel.GetValueOrDefault(a.ParcelId)).Where(m => m is not null).Min());
-                items.Add(Item(g.ToList(), asset, plotSqm, await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct), seaMetres));
+                items.Add(Item(g.ToList(), asset, plotSqm, await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct), seaMetres, hideNumbers));
             }
 
             return (items, all.Count, all.Count > groups.Count);
@@ -185,7 +187,8 @@ public static class PresentationEndpoints
     /// One stop of the presentation: the Asset (one row per Parcel) as a buyer may read it. Never people - no Managing
     /// Contact, creator, uploader or any user / contact name, phone or email (owner, 2026-10-25; tested).
     /// </summary>
-    internal static object Item(IReadOnlyList<AssetMapItem> rows, Asset? asset, decimal? plotSqm, List<object> media, int? seaMetres = null)
+    internal static object Item(IReadOnlyList<AssetMapItem> rows, Asset? asset, decimal? plotSqm, List<object> media, int? seaMetres = null,
+        bool hideNumbers = false)
     {
         var first = rows[0];
         return new
@@ -193,9 +196,9 @@ public static class PresentationEndpoints
             assetId = first.AssetId,
             propertyType = first.PropertyTypeName,
             area = first.GeographicArea,
-            kaek = rows.Where(a => !a.RegistryIdIsProvisional).Select(a => a.RegistryId).FirstOrDefault(),
+            kaek = hideNumbers ? null : rows.Where(a => !a.RegistryIdIsProvisional).Select(a => a.RegistryId).FirstOrDefault(),
             // "OT 9 / Plot 83" - how people know the plot (Alon, 2026-11-05); an Asset on two Parcels lists both.
-            otPlot = string.Join(", ", rows.Where(a => a.Ot is not null || a.Plot is not null)
+            otPlot = hideNumbers ? null : string.Join(", ", rows.Where(a => a.Ot is not null || a.Plot is not null)
                 .Select(a => "OT " + (a.Ot ?? "—") + " / Plot " + (a.Plot ?? "—")).Distinct()) is { Length: > 0 } op ? op : null,
             statusName = first.StatusName,
             statusColor = first.StatusColor,
