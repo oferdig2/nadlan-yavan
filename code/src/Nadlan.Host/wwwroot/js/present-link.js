@@ -99,14 +99,17 @@
     function showMade(text) { $made.html(text).prop("hidden", !text); }
 
     function render() {
+      var analytics = !!(Nadlan.analyticsReport && Nadlan.analyticsReport.canSee());
       if (!links.length) { $list.html("<div class=\"muted\">No public links yet.</div>"); return; }
       $list.html("<ul class=\"public-rows\">" + links.map(function (l) {
         return "<li data-id=\"" + l.id + "\"><div class=\"public-row-head\"><strong class=\"public-title\"></strong>" +
             "<span class=\"badge public-state public-" + esc(l.state) + "\">" + esc(STATE[l.state] || l.state) + "</span>" +
             (l.hasPassword ? " <span title=\"Asks for a password\">🔒</span>" : "") + "</div>" +
-          "<div class=\"muted\">Until " + esc(day(new Date(new Date(l.expiresUtc).getTime() - 1))) + " · opened " + l.openCount + " time" + (l.openCount === 1 ? "" : "s") +
-            (l.lastOpenedUtc ? ", last " + esc(day(l.lastOpenedUtc)) : "") + " · by " + esc(l.createdBy) + "</div>" +
-          (Nadlan.analyticsReport && Nadlan.analyticsReport.canSee() ? "<div class=\"public-stats muted\"></div>" : "") +
+          "<div class=\"muted\">Until " + esc(day(new Date(new Date(l.expiresUtc).getTime() - 1))) +
+            // One count only (review 2026-11-10): with analytics the line below says how often; else the link's own counter.
+            (analytics ? "" : " · opened " + l.openCount + " time" + (l.openCount === 1 ? "" : "s") + (l.lastOpenedUtc ? ", last " + esc(day(l.lastOpenedUtc)) : "")) +
+            " · by " + esc(l.createdBy) + "</div>" +
+          (analytics ? "<div class=\"public-stats muted\"></div>" : "") +
           (!SHOW_ROW_ACTIONS ? "" : "<div class=\"btn-row public-actions\">" +
             (l.enabled ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"copy\">Copy link</button>" : "") +
             "<button type=\"button\" class=\"btn btn-small\" data-act=\"extend\">+1 week</button>" +

@@ -205,6 +205,15 @@ public class AnalyticsRulesTests
     }
 
     [Fact]
+    public void A_property_is_named_with_its_OT_and_plot_else_its_KAEK_else_its_number()
+    {
+        Assert.Equal("Plot · Skroponeria · OT 9 / Plot 83", new AssetLabel(5, "Plot", "Skroponeria", "9", "83", "250101234567").Text);
+        Assert.Equal("House · Skroponeria · OT 9 / Plot —", new AssetLabel(5, "House", "Skroponeria", "9", null, null).Text);
+        Assert.Equal("Plot · KAEK 250101234567", new AssetLabel(5, "Plot", null, null, null, "250101234567").Text);
+        Assert.Equal("Property · #5", new AssetLabel(5, null, null).Text);
+    }
+
+    [Fact]
     public async Task Reports_are_for_VIEW_ANALYTICS_only()
     {
         var reports = new AnalyticsReportService(new NoStore());

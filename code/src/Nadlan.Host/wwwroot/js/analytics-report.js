@@ -34,12 +34,15 @@
     return [v.deviceType, v.deviceModel, version(v.browser, v.browserVersion), version(v.os, v.osVersion)].filter(Boolean).join(" · ");
   }
 
-  /** "opened 4× by 2 devices · last Nov 9, Athens (GR) · phone" - or that nobody opened it yet. */
+  /**
+   * "3 visits from 2 devices · last Nov 9, Athens (GR) · phone" - or none yet. The one count of the link's line (review
+   * 2026-11-10): a visit = a browser tab on the link; reloads within it, and returns within 30 minutes, are the same visit.
+   */
   function lineHtml(s) {
-    if (!s || !s.visits) { return "<span class=\"muted\">No visits recorded yet.</span>"; }
+    if (!s || !s.visits) { return "<span class=\"muted\">No visits yet.</span>"; }
     var last = [s.lastUtc ? "last " + esc(day(s.lastUtc)) + (s.lastCity || s.lastCountry ? ", " + esc(place(s.lastCity, s.lastCountry)) : "") : "", esc(s.lastDeviceType || "")]
       .filter(Boolean).join(" · ");
-    return "opened " + s.opens + "× by " + s.devices + " device" + (s.devices === 1 ? "" : "s") + (last ? " · " + last : "") +
+    return s.visits + " visit" + (s.visits === 1 ? "" : "s") + " from " + s.devices + " device" + (s.devices === 1 ? "" : "s") + (last ? " · " + last : "") +
       " · <button type=\"button\" class=\"an-link\" data-an-details>Details</button>";
   }
 

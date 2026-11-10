@@ -163,13 +163,17 @@ public sealed class MySqlEventStore : IEventStore
     public async Task<IReadOnlyList<AssetLabel>> AssetLabelsAsync(IReadOnlyList<long> assetIds, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
-        // As the presentation names a property: its type and the area of its first Parcel.
+        // The presentation's name of a property (its type, the area of its first Parcel) and that Parcel's numbers.
         return (await conn.QueryAsync<AssetLabel>(new CommandDefinition("""
-            SELECT a.asset_id AS AssetId, pt.name AS PropertyType,
-                   (SELECT ga.name FROM asset_parcel ap JOIN parcel p ON p.parcel_id = ap.parcel_id
-                    JOIN geographic_area ga ON ga.geographic_area_id = p.geographic_area_id
-                    WHERE ap.asset_id = a.asset_id ORDER BY ap.sort_order IS NULL, ap.sort_order, ap.parcel_id LIMIT 1) AS Area
-            FROM asset a LEFT JOIN property_type pt ON pt.property_type_id = a.property_type_id
+            SELECT a.asset_id AS AssetId, pt.name AS PropertyType, ga.name AS Area,
+                   CASE WHEN p.ot IS NULL THEN NULL ELSE CONCAT(p.ot, COALESCE(p.ot_ext, '')) END AS Ot,
+                   CASE WHEN p.plot_number IS NULL THEN NULL ELSE CONCAT(p.plot_number, COALESCE(p.plot_ext, '')) END AS Plot,
+                   CASE WHEN p.registry_id_is_provisional = 0 THEN p.registry_id END AS Kaek
+            FROM asset a
+            LEFT JOIN property_type pt ON pt.property_type_id = a.property_type_id
+            LEFT JOIN parcel p ON p.parcel_id = (SELECT ap.parcel_id FROM asset_parcel ap WHERE ap.asset_id = a.asset_id
+                                                 ORDER BY ap.sort_order IS NULL, ap.sort_order, ap.parcel_id LIMIT 1)
+            LEFT JOIN geographic_area ga ON ga.geographic_area_id = p.geographic_area_id
             WHERE a.asset_id IN @assetIds
             """, new { assetIds }, cancellationToken: ct))).ToList();
     }

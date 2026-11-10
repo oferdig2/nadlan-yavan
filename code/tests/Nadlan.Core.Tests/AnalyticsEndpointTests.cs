@@ -413,7 +413,7 @@ public class AnalyticsEndpointTests : IClassFixture<AnalyticsAppFixture>
         var props = report.GetProperty("properties").EnumerateArray().ToDictionary(p => p.GetProperty("assetId").GetInt64());
         Assert.Equal((1, 40.0, 1), (props[plot].GetProperty("views").GetInt32(), props[plot].GetProperty("seconds").GetDouble(), props[plot].GetProperty("photos").GetInt32()));
         Assert.Equal((1, 20.0), (props[house].GetProperty("views").GetInt32(), props[house].GetProperty("seconds").GetDouble()));
-        Assert.Equal("Plot · " + _f.AreaName, props[plot].GetProperty("label").GetString());
+        Assert.Equal("Plot · " + _f.AreaName + " · KAEK AN-PLOT", props[plot].GetProperty("label").GetString()); // staff tell the rows apart
         var visits = report.GetProperty("visits").EnumerateArray().ToList();
         Assert.Equal(3, visits.Count);
         Assert.DoesNotContain(visits, v => v.TryGetProperty("ip", out _)); // never the IP in the list
@@ -422,7 +422,7 @@ public class AnalyticsEndpointTests : IClassFixture<AnalyticsAppFixture>
         var (s3, visit, _) = await SendAsync("GET", $"/api/analytics/visits/{first.GetProperty("contextId").GetInt64()}", cookie: admin, csrf: false);
         Assert.Equal(200, s3);
         Assert.Equal(London, visit.GetProperty("context").GetProperty("ip").GetString());
-        Assert.Equal($"Opened → Plot · {_f.AreaName} (40 s, 1 photo) → measured 150 m → left (1 min on screen)",
+        Assert.Equal($"Opened → Plot · {_f.AreaName} · KAEK AN-PLOT (40 s, 1 photo) → measured 150 m → left (1 min on screen)",
             string.Join(" → ", visit.GetProperty("steps").EnumerateArray().Select(s => s.GetProperty("text").GetString())));
 
         var sales = await SignInAsync(_f.SalesEmail);
