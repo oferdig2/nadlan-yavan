@@ -37,6 +37,7 @@ public sealed class ConfigAdmin
         new ConfigSection("Nadlan:Auth:Google", "Google sign-in", "OAuth client of type \"Web application\"; redirect URI https://<domain>/signin-google. Both empty = no Google button."),
         new ConfigSection("Nadlan:Auth:Email", "Email (SMTP)", "Only two emails use it: \"Forgot password?\" on the sign-in page, and \"also email it\" when an Admin makes a password link (Users). Empty host = no emails: \"Forgot password?\" tells the user to ask an Admin, who copies the link from Users instead. To turn it on, e.g. Amazon SES SMTP."),
         new ConfigSection("Nadlan:Places", "Beaches and the sea", "A beach is a parcel carrying an Asset of property type Beach. Parcel and Asset cards show the distance to the sea when it is short enough."),
+        new ConfigSection("Nadlan:Geo", "Visitor places (analytics)", "Where a public link's visitors are, from their IP: MaxMind GeoLite2 files on the server (geoipupdate keeps them current, weekly). Empty or a missing file = visits keep their IP without a place; a daily job fills it in once the files are there. A replaced file is picked up within a minute."),
         new ConfigSection("Nadlan:Storage", "File storage (S3)", "Where uploaded documents, photos and videos are kept. On EC2 the instance role gives access: leave AwsProfile empty."),
         new ConfigSection("Nadlan:Storage:Delivery", "File delivery", "Keep Mode = S3Presigned and leave the CloudFront fields empty: browsers then get short-lived signed links straight to the S3 bucket. CloudFront is Amazon's CDN, optional, only worth it if photos and videos load slowly far from the server."),
     };
@@ -71,6 +72,9 @@ public sealed class ConfigAdmin
         new ConfigField("Nadlan:Places:PublicContactId", "Contact for public places", "contact", "Given to a new beach when its creator has no linked contact (e.g. Alon Schwarz). None = the user picks one."),
         new ConfigField("Nadlan:Places:SeaDistanceMaxKm", "Show the distance to the sea up to (km)", "number", "Longer distances are not shown."),
         new ConfigField("Nadlan:Places:SeaSearchKm", "Look for beaches within (km)", "number", "Beaches further away don't count. Raising it recalculates every parcel at its next opening."),
+
+        new ConfigField("Nadlan:Geo:CityDbPath", "City database (file)", "text", "Full path, e.g. /var/lib/GeoIP/GeoLite2-City.mmdb"),
+        new ConfigField("Nadlan:Geo:AsnDbPath", "Network database (file)", "text", "Full path, e.g. /var/lib/GeoIP/GeoLite2-ASN.mmdb"),
 
         new ConfigField("Nadlan:Storage:Bucket", "Bucket", "text", "Empty = file features off (the rest of the app still runs)."),
         new ConfigField("Nadlan:Storage:Region", "Region", "text", "e.g. eu-north-1"),

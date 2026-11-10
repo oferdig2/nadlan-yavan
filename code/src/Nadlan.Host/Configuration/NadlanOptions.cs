@@ -14,6 +14,21 @@ public sealed class NadlanOptions
 
     public PlacesOptions Places { get; set; } = new();
 
+    public GeoOptions Geo { get; set; } = new();
+
+    /// <summary>
+    /// Where a visitor's IP is placed (analytics, migration 026): MaxMind GeoLite2 files on this machine, no call to anyone.
+    /// Empty or a missing file = the IP is kept and the place left empty (filled in later by the daily job).
+    /// </summary>
+    public sealed class GeoOptions
+    {
+        /// <summary>GeoLite2-City.mmdb: country, region, city, approximate lat/lng.</summary>
+        public string CityDbPath { get; set; } = "";
+
+        /// <summary>GeoLite2-ASN.mmdb: the network number and its organisation (ISP).</summary>
+        public string AsnDbPath { get; set; } = "";
+    }
+
     /// <summary>Public places - beaches - and the distance to the sea (owner, 2026-10-27).</summary>
     public sealed class PlacesOptions
     {

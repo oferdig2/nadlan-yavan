@@ -106,6 +106,7 @@
             (l.hasPassword ? " <span title=\"Asks for a password\">🔒</span>" : "") + "</div>" +
           "<div class=\"muted\">Until " + esc(day(new Date(new Date(l.expiresUtc).getTime() - 1))) + " · opened " + l.openCount + " time" + (l.openCount === 1 ? "" : "s") +
             (l.lastOpenedUtc ? ", last " + esc(day(l.lastOpenedUtc)) : "") + " · by " + esc(l.createdBy) + "</div>" +
+          (Nadlan.analyticsReport && Nadlan.analyticsReport.canSee() ? "<div class=\"public-stats muted\"></div>" : "") +
           (!SHOW_ROW_ACTIONS ? "" : "<div class=\"btn-row public-actions\">" +
             (l.enabled ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"copy\">Copy link</button>" : "") +
             "<button type=\"button\" class=\"btn btn-small\" data-act=\"extend\">+1 week</button>" +
@@ -119,7 +120,21 @@
           "</div>") + "</li>";
       }).join("") + "</ul>");
       $list.find("li").each(function (i) { $(this).find(".public-title").text(links[i].title || "(no title)"); });
+      stats();
     }
+
+    // Who opened each link (in-house analytics, VIEW_ANALYTICS only - analytics-report.js): a line, and "Details".
+    function stats() {
+      var report = Nadlan.analyticsReport;
+      if (!report || !report.canSee() || !links.length) { return; }
+      report.summaries(links.map(function (l) { return l.id; })).then(function (byId) {
+        $list.find("li").each(function () { $(this).find(".public-stats").html(report.lineHtml(byId[Number($(this).data("id"))])); });
+      }, function () { $list.find(".public-stats").text(""); });
+    }
+    $form.on("click", "[data-an-details]", function () {
+      var id = idOf(this), l = links.filter(function (x) { return x.id === id; })[0];
+      if (l) { Nadlan.analyticsReport.open(l); }
+    });
 
     function load() {
       return Nadlan.api.get(base, target).then(function (rows) { links = rows; render(); },

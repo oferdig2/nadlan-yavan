@@ -59,11 +59,14 @@
     });
   }
 
-  function satelliteView(items, onPick) {
+  // What a public link's visitor does (events.js, started only on show.html; elsewhere it records nothing).
+  function track(name, subject, props) { if (Nadlan.events) { Nadlan.events.track(name, subject, props); } }
+
+  function satelliteView(items, onPick, onMeasured) {
     return Promise.all([google.maps.importLibrary("maps"), google.maps.importLibrary("marker")]).then(function () {
       return Nadlan.presentViews.create2dView(document.getElementById("stage"), items, { onPick: onPick, titleOf: pinTitle,
         setStatus: function (text) { notice(text); }, onMeasuring: function (on) { $("body").toggleClass("measuring", on); },
-        measureButton: document.querySelector("[data-act=measure]"), covered: coveredArea });
+        onMeasured: onMeasured, measureButton: document.querySelector("[data-act=measure]"), covered: coveredArea });
     });
   }
 
@@ -161,11 +164,13 @@
       carousel + factsHtml(it, true);
   }
 
+  // Returns { index, of, kind } of the photo / video now shown.
   function carouselStep($car, by) {
     var $slides = $car.find(".pres-hero"), n = $slides.length;
     var at = (Number($car.attr("data-at")) + by + n) % n;
     $slides.removeClass("on").eq(at).addClass("on");
     $car.attr("data-at", at).find(".pres-car-count").text((at + 1) + " / " + n);
+    return { index: at, of: n, kind: $slides.eq(at).attr("data-view-file") === "video" ? "video" : "image" };
   }
 
   function stripHtml(items) {
@@ -204,8 +209,32 @@
     $strip.html(stripHtml(items));
     var view = null, current = -1, touring = false, tourRun = 0;
 
-    function select(i, fly) {
+    // Analytics (a public link): the card on screen and its visible time, the tour's stops.
+    var shown = -1, cardWatch = null, tourStops = 0;
+    function subject(i) { return items[i] && items[i].assetId ? ["Asset", items[i].assetId] : null; }
+    function cardTime() {
+      var s = shown >= 0 && cardWatch ? cardWatch.seconds() : 0;
+      if (s > 0) { track("asset_time", subject(shown), { seconds: s }); }
+      shown = -1;
+      cardWatch = null;
+    }
+    if (Nadlan.events) {
+      // Hidden or closed with a card open: its time so far (the rest follows when it closes).
+      Nadlan.events.beforeLeave(function () {
+        var s = shown >= 0 && cardWatch ? cardWatch.seconds() : 0;
+        if (s > 0) { track("asset_time", subject(shown), { seconds: s }); cardWatch.reset(); }
+      });
+    }
+
+    // via: what opened the card - chip / pin / plot / tour / keyboard / me.
+    function select(i, fly, via) {
       current = (i + items.length) % items.length;
+      if (shown !== current) {
+        cardTime();
+        shown = current;
+        cardWatch = Nadlan.events ? Nadlan.events.stopwatch() : null;
+        track("asset_viewed", subject(current), { via: via || "tour" });
+      }
       $card.html(cardHtml(items[current], current, items.length)).prop("hidden", false);
       $strip.find(".pres-chip").removeClass("active").eq(current).addClass("active");
       var chip = $strip.find(".pres-chip")[current];
@@ -215,6 +244,7 @@
     }
 
     function stopTour() {
+      if (touring) { track("tour_stopped", current >= 0 ? subject(current) : null, { stops: tourStops }); }
       touring = false;
       tourRun++;
       $tour.text("▶ Tour").removeClass("on");
@@ -227,9 +257,12 @@
       var run = ++tourRun;
       $tour.text("❚❚ Pause").addClass("on");
       var i = current < 0 ? 0 : current;
+      tourStops = 0;
+      track("tour_started", current >= 0 ? subject(current) : null, null);
       (function step() {
         if (!touring || run !== tourRun) { return; }
-        select(i).then(function () {
+        tourStops++;
+        select(i, undefined, "tour").then(function () {
           if (!touring || run !== tourRun) { return null; }
           return view.orbit(i, ORBIT_MS);
         }).then(function () {
@@ -240,7 +273,7 @@
       })();
     }
 
-    function pick(i) { stopTour(); select(i); }
+    function pick(i, via) { stopTour(); select(i, undefined, via || "pin"); }
 
     // "Me": fly to where the viewer stands (a buyer walking the land); the pin then follows them. If they stand on one
     // of the properties, its card opens.
@@ -250,10 +283,12 @@
     function arrive(p) {
       view.showMe(p, true);
       var found = Nadlan.myLocation.standingOn(p, items, function (it) { return it.polygons; });
+      var on = !found.rough && found.hits.length === 1 ? items.indexOf(found.hits[0]) : -1;
+      track("me_used", on >= 0 ? subject(on) : null, { standing_on: on >= 0 }); // never the coordinates
       if (found.rough) {
         notice("Your location is ± " + Math.round(p.accuracy) + " m - too rough to tell which property you're on.");
       } else if (found.hits.length === 1) {
-        select(items.indexOf(found.hits[0]), false);
+        select(on, false, "me");
         notice("You're standing on " + heading(found.hits[0]) + ".");
       } else if (found.hits.length > 1) {
         notice("You're where " + found.hits.length + " of these properties meet: " + found.hits.map(function (it) { return (items.indexOf(it) + 1) + ". " + heading(it); }).join(", ") + ".");
@@ -289,8 +324,11 @@
       document.getElementById("stage").addEventListener(type, function () { if (touring) { stopTour(); } }, { passive: true, capture: true });
     });
 
-    $strip.on("click", ".pres-chip", function () { pick(Number($(this).data("index"))); });
-    $card.on("click", "[data-car]", function (e) { e.stopPropagation(); carouselStep($(this).closest(".pres-carousel"), Number($(this).data("car"))); });
+    $strip.on("click", ".pres-chip", function () { pick(Number($(this).data("index")), "chip"); });
+    $card.on("click", "[data-car]", function (e) {
+      e.stopPropagation();
+      photo(carouselStep($(this).closest(".pres-carousel"), Number($(this).data("car"))), "card", "arrow");
+    });
     // Swipe on a phone: left = next photo, right = previous (a tap still opens the viewer).
     var swipeX = null;
     $card.on("touchstart", ".pres-carousel", function (e) { swipeX = e.originalEvent.touches[0].clientX; });
@@ -298,7 +336,7 @@
       if (swipeX === null) { return; }
       var dx = e.originalEvent.changedTouches[0].clientX - swipeX;
       swipeX = null;
-      if (Math.abs(dx) > 40) { e.preventDefault(); carouselStep($(this), dx < 0 ? 1 : -1); }
+      if (Math.abs(dx) > 40) { e.preventDefault(); photo(carouselStep($(this), dx < 0 ? 1 : -1), "card", "swipe"); }
     });
     // The big viewer shows this property's details in a rail beside its photos.
     Nadlan.mediaViewer.infoFor = function (b) {
@@ -308,14 +346,50 @@
       return it ? "<div class=\"pres-rail\"><div class=\"pres-card-head\"><span class=\"pres-num\">" + (Number(m[1]) + 1) + "</span>" +
         "<h2 class=\"pres-card-title\" title=\"" + esc(heading(it)) + "\">" + esc(heading(it)) + "</h2></div>" + factsHtml(it, true) + "</div>" : "";
     };
-    $("[data-act=overview]").on("click", function () { stopTour(); if (view) { view.highlight(-1); view.showAll(); } $card.prop("hidden", true); });
+
+    // A photo / video shown (index from 1, as "3 / 12"): in the card's carousel, or in the big viewer.
+    // at: the property (default: the card's).
+    function photo(p, where, via, of, at) {
+      var k = at === undefined ? current : at;
+      if (k >= 0) { track("photo_viewed", subject(k), { index: p.index + 1, of: of || p.of, kind: p.kind, where: where, via: via }); }
+    }
+    // A video in the big viewer: 0 / 25 / 50 / 75 / 100 %, each once per showing.
+    function videoProgress(video, i, index) {
+      var sent = {};
+      function mark(percent) { if (!sent[percent]) { sent[percent] = true; track("video_progress", subject(i), { index: index, percent: percent }); } }
+      video.addEventListener("playing", function () { mark(0); });
+      video.addEventListener("timeupdate", function () {
+        if (!video.duration || !isFinite(video.duration)) { return; }
+        var at = video.currentTime / video.duration * 100;
+        [25, 50, 75].forEach(function (p) { if (at >= p) { mark(p); } });
+        if (at >= 99.5) { mark(100); }
+      });
+      video.addEventListener("ended", function () { [25, 50, 75, 100].forEach(mark); });
+    }
+    Nadlan.mediaViewer.onShowFor = function (b) {
+      var m = /^item-(\d+)$/.exec(b.getAttribute("data-view-group") || "");
+      if (!m || !items[Number(m[1])]) { return null; }
+      var i = Number(m[1]);
+      return function (index, item, via, video) {
+        photo({ index: index, kind: item.kind === "video" ? "video" : "image" }, "viewer", via === "open" ? "tap" : via, (items[i].media || []).length, i);
+        if (video) { videoProgress(video, i, index + 1); }
+      };
+    };
+
+    $("[data-act=overview]").on("click", function () {
+      track("all_pressed", null, null);
+      stopTour();
+      if (view) { view.highlight(-1); view.showAll(); }
+      cardTime();
+      $card.prop("hidden", true);
+    });
     $tour.on("click", function () { if (touring) { stopTour(); } else if (view) { tour(); } });
-    $card.on("click", "[data-act=close-card]", function () { $card.prop("hidden", true); });
+    $card.on("click", "[data-act=close-card]", function () { cardTime(); $card.prop("hidden", true); });
     $(document).on("keydown", function (e) {
       if ($(".media-viewer").length || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { return; }
       if (e.ctrlKey || e.metaKey || e.altKey) { return; } // Ctrl+M, Cmd+O... belong to the browser
-      if (e.key === "ArrowRight") { pick(current + 1); }
-      else if (e.key === "ArrowLeft") { pick(current < 0 ? items.length - 1 : current - 1); }
+      if (e.key === "ArrowRight") { pick(current + 1, "keyboard"); }
+      else if (e.key === "ArrowLeft") { pick(current < 0 ? items.length - 1 : current - 1, "keyboard"); }
       else if (e.key === " ") { e.preventDefault(); $tour.trigger("click"); }
       else if (e.key === "o" || e.key === "O") { $("[data-act=overview]").trigger("click"); }
       else if (e.key === "m" || e.key === "M") { showMe(); }
@@ -341,9 +415,10 @@
       switching = true;
       stopTour();
       var old = view;
-      satelliteView(items, pick).then(function (v) {
+      satelliteView(items, pick, measured).then(function (v) {
         try { old.destroy(); } catch (e) { /* already gone */ }
         useView(v);
+        track("view_switched", null, { to: "2d" });
         if (current >= 0) { v.fly(current); } else { v.showAll(); }
         if (message) { notice(message); setTimeout(function () { notice(""); }, 6000); }
       }, function (err) { notice(err.message, true); }).then(function () { switching = false; });
@@ -359,6 +434,7 @@
         try { view.destroy(); } catch (e) { /* already gone */ }
         notice("");
         useView(v);
+        track("view_switched", null, { to: "3d" });
         if (current >= 0) { v.fly(current); }
       }, function (err) {
         notice(err.message, true);
@@ -371,8 +447,19 @@
       if (e.key === "d" || e.key === "D") { $view3d.trigger("click"); }
     });
 
+    // A ruler line finished: its length, and the property it was drawn on (a point of it inside one), if any.
+    function measured(metres, points) {
+      var on = -1;
+      (points || []).some(function (p) {
+        var f = Nadlan.myLocation.standingOn({ lat: p.lat, lng: p.lng, accuracy: 0 }, items, function (it) { return it.polygons; });
+        if (f.hits.length) { on = items.indexOf(f.hits[0]); }
+        return on >= 0;
+      });
+      track("measure_used", on >= 0 ? subject(on) : null, { metres: Math.round(metres), points: (points || []).length });
+    }
+
     withTimeout(loadGoogle(config.googleMapsApiKey, config.maps3dChannel), 30000, "Google Maps").then(function () {
-      return satelliteView(items, pick);
+      return satelliteView(items, pick, measured);
     }).then(function (v) {
       useView(v);
       // No card on arrival (Alon, 2026-11-05): the map alone; a card opens on a click (pin, plot, chip), arrows or the tour.
@@ -407,15 +494,33 @@
       notice(err.status === 404 || !token ? "This link isn't active. Ask the person who sent it for a new one." : err.message + " Check the connection and reload the page.", true);
     };
 
+    // In-house analytics (owner, 2026-11-10): what the visitor does here goes to /api/present-link/events (events.js) -
+    // only on this page, never for signed-in staff on present.html. asked = the password form was shown this visit.
+    var asked = false;
+    var record = function (data) {
+      if (!Nadlan.events) { return; }
+      Nadlan.events.start({ source: "present_public", endpoint: "/api/present-link/events", headers: { "X-Present-Link": token }, scope: token });
+      var onScreen = Nadlan.events.stopwatch();
+      track("presentation_opened", null, { properties: (data.items || []).length, view: "2d", password: asked, title_set: !!data.title });
+      // Hidden or closed: the time on screen since it opened, or since it was last hidden.
+      Nadlan.events.beforeLeave(function () {
+        var s = onScreen.seconds();
+        if (s > 0) { track("presentation_left", null, { seconds: s }); }
+        onScreen.reset();
+      });
+    };
+
     var show = function () {
       call("GET", "/data").then(function (data) {
         $lock.prop("hidden", true);
         $("body").removeClass("present-locked");
         start(data, data);
+        record(data);
       }, function (err) { if (err.status === 401) { askPassword(""); } else { stop(err); } });
     };
 
     var askPassword = function (message) {
+      asked = true;
       $title.text("Presentation");
       $("body").addClass("present-locked");
       $lock.prop("hidden", false).find(".pres-lock-error").text(message || "").prop("hidden", !message);
