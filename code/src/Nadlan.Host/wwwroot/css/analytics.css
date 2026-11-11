@@ -102,3 +102,6 @@
   .ap-side { position: static; max-height: none; }
   .ap-results { max-height: 40vh; }
 }
+.ap-visit-did { margin-top: 4px; font-size: 12px; }
+.ap-visit-did ul { margin: 2px 0 0; padding-left: 16px; }
+.ap-visit-did li { margin: 1px 0; }

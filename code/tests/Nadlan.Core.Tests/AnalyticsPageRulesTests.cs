@@ -122,6 +122,24 @@ public class AnalyticsPageRulesTests
     }
 
     [Fact]
+    public void Each_listed_visit_shows_the_properties_it_opened_and_the_tools_it_used()
+    {
+        var e = Known();
+        var labels = new Dictionary<long, AssetLabel> { [97] = new(97, "Plot", "Skroponeria", "9", "83", null, 501) };
+        var who = AnalyticsPageService.Who(AnalyticsMetrics.Visits, e, Places, Links, e, false, labels);
+        var athens = who.Places.Single(p => p.City == "Athens").VisitList.Single();
+        var plot = athens.Assets.Single();
+        Assert.Equal((97L, "Plot · Skroponeria · OT 9 / Plot 83", 501L, 1, 300.0, 1), (plot.AssetId, plot.Label, plot.ParcelId!.Value, plot.Clicks, plot.Seconds, plot.Photos));
+        Assert.Equal(new[] { "3D" }, athens.Used);
+
+        // The whole visit is listed even from a bar that holds only part of it; an unnamed property keeps its number.
+        var tourBar = AnalyticsPageService.Who(AnalyticsMetrics.TourStarts, e.Where(x => x.Event == EventNames.TourStarted).ToList(), Places, Links, e, false, labels);
+        var toured = tourBar.Places.Single().VisitList.Single();
+        Assert.Equal(("Property #98", 1), (toured.Assets.Single().Label, toured.Assets.Single().Clicks));
+        Assert.Equal(new[] { "tour", "ruler" }, toured.Used);
+    }
+
+    [Fact]
     public void Days_and_hours_are_Athens_time()
     {
         // 9 Nov 2026 in Athens (UTC+2, winter) starts at 22:00 UTC the day before.

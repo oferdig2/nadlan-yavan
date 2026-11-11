@@ -12,6 +12,18 @@
   var MAX_LINKS = 50;
   var COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#65a30d", "#ea580c", "#475569"];
   var VIEWS = [["metrics", "Totals"], ["assets", "Properties"], ["time", "Over time"], ["path", "Path"], ["hours", "Hours"]];
+  // What one visit did (owner, 2026-11-11): the properties it opened - clicks, time, photos - and the tools it used.
+  function visitDid(v) {
+    var esc = Nadlan.format.escapeHtml;
+    var items = (v.assets || []).map(function (a) {
+      var bits = [a.clicks > 1 ? a.clicks + " clicks" : "", a.seconds ? Nadlan.analyticsReport.duration(a.seconds) : "", a.photos ? a.photos + " photo" + (a.photos === 1 ? "" : "s") : ""]
+        .filter(Boolean).join(", ");
+      return "<li>" + esc(a.label) + (bits ? " <span class=\"muted\">(" + esc(bits) + ")</span>" : "") + "</li>";
+    }).join("");
+    var used = (v.used || []).length ? "<div class=\"muted\">Used: " + esc(v.used.join(", ")) + "</div>" : "";
+    return items || used ? "<div class=\"ap-visit-did\">" + (items ? "<ul>" + items + "</ul>" : "<div class=\"muted\">No property opened</div>") + used + "</div>" : "";
+  }
+
   var SPLITS = [["none", "Aggregated"], ["link", "By link"], ["customer", "By customer"]];
   var ASSET_METRICS = [["asset_clicks", "Asset clicks"], ["card_minutes", "Time on card"], ["photo_opens", "Photo opens"], ["photo_navs", "Photo navs"],
     ["measures", "Measures"], ["tour_stops", "Tour stops"]];
@@ -451,7 +463,7 @@
             p.visitList.map(function (v) {
               return "<button type=\"button\" class=\"ap-visit\" data-visit=\"" + v.contextId + "\">" + esc(when(v.firstUtc)) + " · " +
                 esc(Nadlan.analyticsReport.duration(v.seconds)) + " on screen" + (v.device ? " · " + esc(v.device) : "") + "<br><span class=\"muted\">on " + esc(v.linkName) +
-                (v.customer ? " - a link sent to " + esc(v.customer) : "") + "</span></button>";
+                (v.customer ? " - a link sent to " + esc(v.customer) : "") + "</span>" + visitDid(v) + "</button>";
             }).join("") + "</div></div>";
         }).join(""));
     }, function (err) { $body.html("<div class=\"error\">" + esc(err.message) + "</div>"); });

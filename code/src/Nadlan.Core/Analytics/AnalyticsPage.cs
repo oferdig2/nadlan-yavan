@@ -80,7 +80,18 @@ public sealed record ChartRow(string X, string Series, string Metric, double Val
 public sealed record ChartResult(string View, string Split, string FromDay, string ToDay, string? Bucket, IReadOnlyList<ChartItem> Metrics,
     IReadOnlyList<ChartItem> Xs, IReadOnlyList<ChartItem> Series, IReadOnlyList<ChartRow> Rows, bool Truncated);
 
-public sealed record PlaceVisit(long ContextId, DateTime FirstUtc, double Seconds, string? Device, long LinkId, string LinkName, string? Customer);
+/// <summary>One visit in a bar's place list: when, how long, on which link - and what it did there (owner, 2026-11-11: "which properties he clicked").</summary>
+public sealed record PlaceVisit(long ContextId, DateTime FirstUtc, double Seconds, string? Device, long LinkId, string LinkName, string? Customer)
+{
+    /// <summary>The properties it opened, in the order first opened.</summary>
+    public IReadOnlyList<VisitAsset> Assets { get; init; } = Array.Empty<VisitAsset>();
+
+    /// <summary>The tools it used: "tour", "3D", "ruler", "Me".</summary>
+    public IReadOnlyList<string> Used { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>A property one visit opened: clicks, seconds on its card, photos opened in the big viewer.</summary>
+public sealed record VisitAsset(long AssetId, string Label, long? ParcelId, int Clicks, double Seconds, int Photos);
 
 /// <summary>A place of one bar: "Athens, Greece — 4 visits, 3 devices". Value = its part of the bar.</summary>
 public sealed record PlaceRow(string Label, string? Country, string? Region, string? City, double Value, int Visits, int Devices, string? Org,
@@ -261,7 +272,10 @@ public sealed class AnalyticsPageService
         var contextIds = slice.Select(e => e.ContextId).Distinct().ToList();
         var contexts = contextIds.Count == 0 ? new Dictionary<long, StoredContext>()
             : (await _store.ContextsAsync(contextIds, ct)).ToDictionary(c => c.ContextId);
-        return Who(metric, slice, contexts, data.Links, data.Events, data.Truncated);
+        // The properties each listed visit opened (its whole visit in the range, not only this bar's slice), named for staff.
+        var assetIds = data.Events.Where(e => e.AssetId is not null && contexts.ContainsKey(e.ContextId)).Select(e => e.AssetId!.Value).Distinct().ToList();
+        var labels = assetIds.Count == 0 ? new Dictionary<long, AssetLabel>() : (await _events.AssetLabelsAsync(assetIds, ct)).ToDictionary(l => l.AssetId);
+        return Who(metric, slice, contexts, data.Links, data.Events, data.Truncated, labels);
     }
 
     // ---- pure: the numbers (tested on known events) ---------------------------------------------------------------
@@ -357,8 +371,9 @@ public sealed class AnalyticsPageService
     /// Each place's value is its part of the bar, so the places add up to it (devices: a device seen in two places counts in both).
     /// </summary>
     internal static WhoResult Who(Metric metric, IReadOnlyList<SliceEvent> slice, IReadOnlyDictionary<long, StoredContext> contexts,
-        IReadOnlyDictionary<long, LinkRow> links, IReadOnlyList<SliceEvent> all, bool truncated)
+        IReadOnlyDictionary<long, LinkRow> links, IReadOnlyList<SliceEvent> all, bool truncated, IReadOnlyDictionary<long, AssetLabel>? labels = null)
     {
+        var byVisit = all.GroupBy(e => e.ContextId).ToDictionary(g => g.Key, g => g.OrderBy(e => e.OccurredUtc).ThenBy(e => e.AppEventId).ToList());
         var visits = slice.GroupBy(e => e.ContextId).Select(g => g.ToList()).Where(v => metric.Value(v) > 0).ToList();
         var seconds = all.Where(e => e.Event == EventNames.PresentationLeft).GroupBy(e => e.ContextId).ToDictionary(g => g.Key, g => g.Sum(e => e.Seconds ?? 0));
         var places = visits.GroupBy(v => PlaceKey(contexts.GetValueOrDefault(v[0].ContextId))).Select(g =>
@@ -371,7 +386,11 @@ public sealed class AnalyticsPageService
                 var link = links.GetValueOrDefault(v[0].LinkId);
                 return new PlaceVisit(v[0].ContextId, ctx?.FirstUtc ?? v.Min(e => e.OccurredUtc), Math.Round(seconds.GetValueOrDefault(v[0].ContextId)),
                     ctx is null ? null : string.Join(" · ", new[] { ctx.DeviceType, ctx.DeviceModel, ctx.Browser, ctx.Os }.Where(s => !string.IsNullOrWhiteSpace(s))),
-                    v[0].LinkId, link?.Name ?? "Link #" + v[0].LinkId, link?.ContactName);
+                    v[0].LinkId, link?.Name ?? "Link #" + v[0].LinkId, link?.ContactName)
+                {
+                    Assets = VisitAssets(byVisit.GetValueOrDefault(v[0].ContextId) ?? v, labels),
+                    Used = VisitTools(byVisit.GetValueOrDefault(v[0].ContextId) ?? v),
+                };
             }).OrderByDescending(v => v.FirstUtc).Take(200).ToList();
             var org = g.Select(v => contexts.GetValueOrDefault(v[0].ContextId)?.GeoOrg).Where(o => o is not null).GroupBy(o => o).OrderByDescending(x => x.Count())
                 .Select(x => x.Key).FirstOrDefault();
@@ -380,6 +399,22 @@ public sealed class AnalyticsPageService
         }).OrderByDescending(p => p.Value).ThenByDescending(p => p.Visits).ToList();
         return new WhoResult(metric.Key, metric.Value(slice), places, truncated);
     }
+
+    /// <summary>The properties a visit opened (clicked or a photo opened), in the order first opened.</summary>
+    internal static IReadOnlyList<VisitAsset> VisitAssets(IReadOnlyList<SliceEvent> visit, IReadOnlyDictionary<long, AssetLabel>? labels) =>
+        visit.Where(e => e.AssetId is not null).GroupBy(e => e.AssetId!.Value).Select(g =>
+        {
+            var list = g.ToList();
+            var label = labels?.GetValueOrDefault(g.Key);
+            return new VisitAsset(g.Key, label?.Text ?? "Property #" + g.Key, label?.ParcelId,
+                (int)AnalyticsMetrics.AssetClicks.Value(list), Math.Round(list.Where(e => e.Event == EventNames.AssetTime).Sum(e => e.Seconds ?? 0)),
+                (int)AnalyticsMetrics.PhotoOpens.Value(list));
+        }).Where(a => a.Clicks > 0 || a.Photos > 0).ToList();
+
+    /// <summary>The tools a visit used, by the same definitions as the bars.</summary>
+    internal static IReadOnlyList<string> VisitTools(IReadOnlyList<SliceEvent> visit) =>
+        new (Metric Metric, string Name)[] { (AnalyticsMetrics.TourStarts, "tour"), (AnalyticsMetrics.Views3d, "3D"), (AnalyticsMetrics.Measures, "ruler"), (AnalyticsMetrics.Me, "Me") }
+            .Where(t => t.Metric.Value(visit) > 0).Select(t => t.Name).ToList();
 
     private static string PlaceKey(StoredContext? c) => c is null ? "" : $"{c.GeoCountry}|{c.GeoRegion}|{c.GeoCity}";
 
