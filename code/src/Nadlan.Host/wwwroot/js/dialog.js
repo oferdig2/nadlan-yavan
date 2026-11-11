@@ -6,7 +6,7 @@
 
   /**
    * @param {{ title: string, content: jQuery|string, width?: number, modal?: boolean,
-   *           buttons: Array<{ text: string, primary?: boolean, click: function(): void }>,
+   *           buttons: Array<{ text: string, primary?: boolean, left?: boolean, title?: string, click: function(): void }>,
    *           onClose?: function(): void, position?: object }} options
    * @returns {{ $el: jQuery, close: function(): void, showError: function(string): void, busy: function(boolean): void }}
    */
@@ -22,7 +22,10 @@
       modal: options.modal !== false,
       position: options.position || { my: "center", at: "center", of: window },
       buttons: options.buttons.map(function (b) {
-        return { text: b.text, "class": b.primary ? "btn-primary" : b.danger ? "btn-danger" : "", click: b.click };
+        var cls = (b.primary ? "btn-primary" : b.danger ? "btn-danger" : "") + (b.left ? " btn-left" : "");
+        var button = { text: b.text, "class": cls, click: b.click };
+        if (b.title) { button.title = b.title; }
+        return button;
       }),
       close: function () {
         if (closed) { return; }
@@ -31,6 +34,9 @@
         $el.dialog("destroy").remove();
       }
     });
+
+    // Left buttons (e.g. Show on map / Present) sit at the left end of the button row, the rest stay on the right.
+    if (options.buttons.some(function (b) { return b.left; })) { $el.parent().addClass("dialog-left-buttons"); }
 
     // A <form> in a dialog never submits itself: with a single text field (a type-ahead search) the browser would submit on
     // Enter and reload the whole page.

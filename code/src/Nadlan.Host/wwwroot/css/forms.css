@@ -76,6 +76,9 @@
 .ui-dialog { font-family: inherit; border-radius: 10px; box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25); z-index: 1000; }
 .ui-dialog .ui-dialog-titlebar { background: var(--surface); border: none; border-bottom: 1px solid var(--border); border-radius: 0; font-weight: 600; }
 .ui-dialog .ui-dialog-buttonpane button.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dialog-left-buttons .ui-dialog-buttonpane .ui-dialog-buttonset { float: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.dialog-left-buttons .ui-dialog-buttonpane .ui-dialog-buttonset button { margin: 0; }
+.dialog-left-buttons .ui-dialog-buttonpane .ui-dialog-buttonset button.btn-left + button:not(.btn-left) { margin-left: auto; }
 .ui-autocomplete { max-height: 280px; overflow-y: auto; z-index: 1100 !important; font-family: inherit; font-size: 13px; }
 .ui-autocomplete .ac-detail { display: block; color: var(--muted); font-size: 11px; }
 a.btn { text-decoration: none; display: inline-block; }

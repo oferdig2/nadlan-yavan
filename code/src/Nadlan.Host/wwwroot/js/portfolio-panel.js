@@ -39,7 +39,8 @@
     var timer = null;
     $body.on("input", "input", function () { clearTimeout(timer); timer = setTimeout(search, 250); });
     $body.on("click", "li[data-id]", function () {
-      openPortfolio(Number($(this).data("id")), { onShowOnMap: options.onShowOnMap, onChanged: search })
+      // Show on map closes this list too: the map is what the user wants to see (owner, 2026-11-11).
+      openPortfolio(Number($(this).data("id")), { onShowOnMap: function (pf) { d.close(); options.onShowOnMap(pf); }, onChanged: search })
         .catch(function (err) { Nadlan.dialog.showError("Could not open the portfolio", err); });
     });
     search();
@@ -61,8 +62,6 @@
             Nadlan.reference.optionsHtml(Nadlan.reference.forPicker(ref.portfolioTypes, p.portfolioTypeId), p.portfolioTypeId) + "</select></label>" +
           "<label>Description<textarea class=\"input\" name=\"description\" rows=\"2\">" + esc(p.description || "") + "</textarea></label>" +
           "<div class=\"btn-row\">" +
-            "<button type=\"button\" class=\"btn\" data-act=\"map\">Show on map</button>" +
-            "<button type=\"button\" class=\"btn\" data-act=\"present\" title=\"Customer presentation in 3D, in a new tab - a customer with access to this Portfolio can open the same link\">Present</button>" +
             "<button type=\"button\" class=\"btn\" data-act=\"files\">Files</button>" +
             "<button type=\"button\" class=\"btn\" data-act=\"history\">History</button>" +
           "</div>" +
@@ -117,8 +116,6 @@
         });
       });
 
-      $form.on("click", "[data-act=map]", function () { options.onShowOnMap({ portfolioId: portfolioId, name: p.name }); });
-      $form.on("click", "[data-act=present]", function () { Nadlan.presentLink.open({ portfolioId: portfolioId }); });
       $form.on("click", "[data-act=files]", function () {
         Nadlan.filesDialog.open({ attachedToType: "Portfolio", attachedToId: portfolioId, title: "Portfolio \"" + p.name + "\" - files" });
       });
@@ -131,7 +128,12 @@
         content: $form,
         width: 560,
         modal: false,
-        buttons: (canEdit ? [{ text: "Save", primary: true, click: save }] : []).concat([{ text: "Close", click: function () { d.close(); } }])
+        // Show on map and Present at the bottom left, Save on the right; no Close - the x closes (owner, 2026-11-11).
+        buttons: [
+          { text: "Show on map", left: true, click: function () { d.close(); options.onShowOnMap({ portfolioId: portfolioId, name: p.name }); } },
+          { text: "Present", left: true, title: "Customer presentation in 3D, in a new tab - a customer with access to this Portfolio can open the same link",
+            click: function () { Nadlan.presentLink.open({ portfolioId: portfolioId }); } }
+        ].concat(canEdit ? [{ text: "Save", primary: true, click: save }] : [])
       });
 
       function save() {

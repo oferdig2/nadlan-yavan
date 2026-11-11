@@ -292,6 +292,7 @@
       popups.setView(mode);
       $("[data-view]").removeClass("active").filter("[data-view=" + mode + "]").addClass("active");
       $(".quick-entry-setting, [data-tool=work]").toggleClass("off-view", mode !== "parcels"); // Parcels view only
+      $("[data-tool=portfolios]").toggleClass("off-view", mode !== "assets"); // Assets view only (owner, 2026-11-11)
       if (mode !== "parcels" && workPanel) { workPanel.close(); }
       if (mode !== "parcels") { Nadlan.parcelQuickEntry.close(); }
       parcelOverlay.setVisible(mode === "parcels");
