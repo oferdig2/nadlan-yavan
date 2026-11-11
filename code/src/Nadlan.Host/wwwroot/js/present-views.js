@@ -118,7 +118,7 @@
    * @param {object} lib    google.maps.importLibrary("maps3d")
    * @param {HTMLElement} el
    * @param {Array} items
-   * @param {{ onPick: function(number): void }} options
+   * @param {{ onPick: function(number, string): void - the index, and "pin" or "plot" }} options
    */
   function create3dView(lib, el, items, options) {
     // Ground heights: the properties' centres, then the whole set's centre. Until they arrive (or without them) the
@@ -152,7 +152,7 @@
           var holes = g.coordinates.slice(1).map(ring);
           if ("innerPaths" in poly) { poly.innerPaths = holes; } else { poly.innerCoordinates = holes; }
         }
-        if (lib.Polygon3DInteractiveElement) { poly.addEventListener("gmp-click", function () { options.onPick(i); }); }
+        if (lib.Polygon3DInteractiveElement) { poly.addEventListener("gmp-click", function () { options.onPick(i, "plot"); }); }
         map.append(poly);
         mine.push({ poly: poly, color: color });
       });
@@ -160,7 +160,7 @@
       // A numbered pin above the Parcel, so it can be found (and clicked) from far away.
       var c = centerOf(boundsOf(it.polygons));
       var marker = new Marker({ position: { lat: c.lat, lng: c.lng, altitude: 35 }, altitudeMode: relativeToGround, extruded: true, label: String(i + 1) });
-      if (lib.Marker3DInteractiveElement) { marker.addEventListener("gmp-click", function () { options.onPick(i); }); }
+      if (lib.Marker3DInteractiveElement) { marker.addEventListener("gmp-click", function () { options.onPick(i, "pin"); }); }
       map.append(marker);
       shapes.push(mine);
     });
@@ -274,7 +274,7 @@
       var c = centerOf(boundsOf(it.polygons));
       var marker = new google.maps.Marker({ map: map, position: c, label: { text: String(i + 1), color: "#fff", fontWeight: "700" },
         title: options.titleOf ? options.titleOf(it, i) : "" });
-      marker.addListener("click", function () { options.onPick(i); });
+      marker.addListener("click", function () { options.onPick(i, "pin"); });
       markers.push(marker);
     });
     layer.setStyle(function (f) {
@@ -291,6 +291,7 @@
         setStatus: options.setStatus || function () { },
         button: options.measureButton || null, // the top bar's, left of "All" (owner, 2026-11-05)
         position: "RIGHT_CENTER",
+        onMeasured: options.onMeasured, // a line finished (the public page counts it)
         onActiveChange: function (on) {
           measuring = on;
           layer.setStyle(layer.getStyle());
@@ -299,7 +300,7 @@
         }
       });
     }
-    layer.addListener("click", function (e) { options.onPick(e.feature.getProperty("index")); });
+    layer.addListener("click", function (e) { options.onPick(e.feature.getProperty("index"), "plot"); });
 
     // margin: around the property; options.covered() = what the page's card and bars cover ({ top, right, bottom, left }
     // px) - the property is centred in what stays visible (owner, 2026-11-08: on a phone the card hid the polygon).

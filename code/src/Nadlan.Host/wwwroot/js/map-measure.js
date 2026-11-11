@@ -34,6 +34,7 @@
    * @param {google.maps.Map} map
    * @param {{ setStatus: function(string): void, onActiveChange: function(boolean): void, position?: string }} options
    *        onActiveChange(true) while measuring: the page stops parcel clicks (cards) until it is turned off
+   *        onMeasured (optional): onMeasured(metres, points) when a line is finished
    */
   function createMeasureControl(map, options) {
     // options.button: a button the page already has (the presentation's top bar); else a round one on the map.
@@ -86,6 +87,7 @@
       if (points.length < 2) { return; }
       finished = true;
       draw();
+      if (options.onMeasured) { try { options.onMeasured(length(points), points.slice()); } catch (e) { /* the page's hook never breaks the ruler */ } }
     }
 
     function onKey(e) {

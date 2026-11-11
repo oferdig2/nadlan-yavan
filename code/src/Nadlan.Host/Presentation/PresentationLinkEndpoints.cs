@@ -187,6 +187,9 @@ public static class PresentationLinkEndpoints
                 maps3dChannel = string.IsNullOrWhiteSpace(maps.Maps3dChannel) ? "beta" : maps.Maps3dChannel.Trim(),
             });
         });
+
+        // What the visitor did there (in-house analytics, Nadlan.Host/Analytics): same token, same password cookie.
+        Nadlan.Host.Analytics.AnalyticsEndpoints.MapPublicEvents(open, Link, Pass);
     }
 
     /// <summary>The link as staff see it in the list (never its token: "Copy link" asks for it).</summary>

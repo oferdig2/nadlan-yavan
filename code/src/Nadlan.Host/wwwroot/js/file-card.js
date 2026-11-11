@@ -29,6 +29,8 @@
   // set (optional): { items: [{ kind, url, name, download }], index, info } - several photos / videos (a presentation property, a Files
   // list): "‹" / "›" and the arrow keys step through them without closing (remark 6). One file alone has no arrows.
   // info: HTML the page built (escaped there) shown in a rail at the top right - the presentation's property details (2026-11-08).
+  // onShow (optional): onShow(i, item, via, video) each time a photo / video is shown - via "open" / "arrow" / "key"; video = its
+  // element, or null (the presentation counts what its visitors watch; the viewer itself records nothing).
   function openViewer(mediaKind, url, name, startMs, endMs, set) {
     var esc = Nadlan.format.escapeHtml;
     var items = set && set.items && set.items.length ? set.items : [{ kind: mediaKind, url: url, name: name }];
@@ -63,7 +65,7 @@
         "<a class=\"media-viewer-download\" href=\"" + esc(it.download || it.url) + "\" download>Download the video</a></div>");
     }
 
-    function show(i) {
+    function show(i, via) {
       stopVideo();
       index = i;
       var it = items[i];
@@ -77,6 +79,7 @@
         ? "<video class=\"media-viewer-media\" controls autoplay playsinline src=\"" + esc(it.url) + "\"></video>"
         : "<img class=\"media-viewer-media\" src=\"" + esc(it.url) + "\" alt=\"" + esc(it.name || "") + "\">");
       var video = $stage.find("video")[0];
+      if (set && set.onShow) { try { set.onShow(i, it, via || "open", video || null); } catch (e) { /* the page's hook never breaks the viewer */ } }
       if (!video) { return; }
       video.addEventListener("loadedmetadata", function () {
         if (!video.videoWidth) { cantPlay(it); return; } // sound only: the picture can't be decoded
@@ -91,7 +94,7 @@
       }
     }
 
-    function step(by) { if (items.length > 1) { show((index + by + items.length) % items.length); } }
+    function step(by, via) { if (items.length > 1) { show((index + by + items.length) % items.length, via); } }
 
     function close() {
       stopVideo();
@@ -100,7 +103,7 @@
     }
 
     $viewer.on("click", function (e) {
-      if ($(e.target).closest("[data-step]").length) { step(Number($(e.target).closest("[data-step]").data("step"))); return; }
+      if ($(e.target).closest("[data-step]").length) { step(Number($(e.target).closest("[data-step]").data("step")), "arrow"); return; }
       if ($(e.target).closest(".media-viewer-info").length) { return; }
       if (e.target === this || e.target === $stage[0] || $(e.target).is(".media-viewer-close")) { close(); }
     });
@@ -108,7 +111,7 @@
     function onKey(e) {
       if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); close(); }
       else if (items.length > 1 && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-        e.stopPropagation(); e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1);
+        e.stopPropagation(); e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1, "key");
       }
     }
     document.addEventListener("keydown", onKey, true);
@@ -149,6 +152,8 @@
     var set = viewSet(b) || { items: [viewItem(b)], index: 0 };
     // A page may add details beside the photos (the presentation: the property's card) - Nadlan.mediaViewer.infoFor(button).
     set.info = Nadlan.mediaViewer.infoFor ? Nadlan.mediaViewer.infoFor(b) : "";
+    // ... and follow what is shown - Nadlan.mediaViewer.onShowFor(button) returns an onShow (above), or nothing.
+    set.onShow = Nadlan.mediaViewer.onShowFor ? Nadlan.mediaViewer.onShowFor(b) : null;
     openViewer(b.getAttribute("data-view-file"), b.getAttribute("data-url"), b.getAttribute("data-name"),
       b.hasAttribute("data-start") ? Number(b.getAttribute("data-start")) : undefined, b.hasAttribute("data-end") ? Number(b.getAttribute("data-end")) : undefined,
       set);

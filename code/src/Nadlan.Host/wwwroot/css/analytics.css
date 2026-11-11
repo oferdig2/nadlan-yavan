@@ -1,0 +1,23 @@
+/* In-house analytics reports (analytics-report.js): the line under a public link, and its Details dialog. */
+.public-stats { font-size: 12px; margin-top: 2px; }
+.an-link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+.an-report { max-height: 72vh; overflow: auto; }
+.an-report h4 { margin: 12px 0 6px; }
+.an-report h4:first-child { margin-top: 0; }
+.an-table { width: 100%; border-collapse: collapse; font-size: 13px; border: 1px solid var(--border); }
+.an-table th, .an-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.an-table th { background: color-mix(in srgb, var(--muted) 8%, var(--surface)); font-weight: 600; white-space: nowrap; }
+.an-table .num { text-align: right; white-space: nowrap; }
+.an-visit { cursor: pointer; }
+.an-visit:hover, .an-visit.open { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.an-visit-detail td { background: color-mix(in srgb, var(--accent) 3%, var(--surface)); }
+.an-badge { font-size: 11px; padding: 0 5px; border-radius: 6px; background: #e0e7ff; color: #3730a3; }
+.an-timeline { line-height: 1.6; margin-bottom: 8px; }
+.an-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 12px; }
+.an-facts dt { color: var(--muted); }
+.an-facts dd { margin: 0; overflow-wrap: anywhere; }
+.an-attribution { font-size: 11px; margin-top: 12px; }
+@media (max-width: 640px) {
+  .an-table { font-size: 12px; }
+  .an-visits th:nth-child(5), .an-visits td:nth-child(5) { display: none; }
+}

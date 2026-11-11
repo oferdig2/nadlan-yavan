@@ -8,6 +8,7 @@ public static class Permissions
     public const string UseAssetTable = "USE_ASSET_TABLE";
     public const string ManageWork = "MANAGE_WORK"; // the Work page: work requests for contractors (migration 021)
     public const string SharePresentation = "SHARE_PRESENTATION"; // public presentation links (migration 025)
+    public const string ViewAnalytics = "VIEW_ANALYTICS"; // who opened public links and what they did there (migration 026)
 
     /// <summary>Every geographic area. Without it the user sees only the areas set on their user (app_user_area).</summary>
     public const string AllAreas = "ALL_AREAS";

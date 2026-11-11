@@ -1,5 +1,6 @@
 using Nadlan.Config.MySql;
 using Nadlan.Host.Activity;
+using Nadlan.Host.Analytics;
 using Nadlan.Host.Admin;
 using Nadlan.Host.Assets;
 using Nadlan.Host.Auth;
@@ -68,5 +69,6 @@ app.MapAdminEndpoints();
 app.MapMachineEndpoints();
 app.MapMapLinkEndpoints(); // "paste a Google Maps link": follows a short share link (Google hosts only)
 app.MapWorkEndpoints(); // work requests for contractors (Nadlan.Host/Work)
+app.MapAnalyticsEndpoints(); // in-house analytics: the reports (Nadlan.Host/Analytics); the page sends to /api/present-link/events
 
 app.Run();
