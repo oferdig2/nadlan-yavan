@@ -23,7 +23,11 @@ public static class PresentationLinkEndpoints
     private const string PassItem = "nadlan.present.pass";
 
     /// <summary>Password: the one shown (made up by the page, or typed over it); GeneratePassword = let the server make 6 digits.</summary>
-    public sealed record CreateDto(long? PortfolioId, long[]? AssetIds, string? Title, string? LastDay, bool GeneratePassword, string? Password = null);
+    /// <summary>ContactId: the customer (Admin only - anyone else who sends one gets 403).</summary>
+    public sealed record CreateDto(long? PortfolioId, long[]? AssetIds, string? Title, string? LastDay, bool GeneratePassword, string? Password = null,
+        long? ContactId = null);
+
+    public sealed record ContactDto(long? ContactId);
 
     public sealed record ExpiryDto(string? LastDay);
 
@@ -49,15 +53,25 @@ public static class PresentationLinkEndpoints
 
         // A Portfolio's links (?portfolioId=12), or those of exactly these Assets (?assetIds=5&assetIds=9).
         staff.MapGet("", async (long? portfolioId, long[]? assetIds, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
-            Results.Ok((await links.ListAsync(me, portfolioId, assetIds, ct)).Select(l => View(l, links))));
+            Results.Ok((await links.ListAsync(me, portfolioId, assetIds, ct)).Select(l => View(l, links, me))));
 
         staff.MapPost("", async (CreateDto dto, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
         {
             var typed = string.IsNullOrWhiteSpace(dto.Password) ? null : PresentationLinkService.CleanPassword(dto.Password); // checked before the link exists
+            if (dto.ContactId is not null)
+            {
+                await links.CheckContactAsync(me, dto.ContactId, ct); // 403 for anyone but an Admin, before the link exists - never silently dropped
+            }
+
             var (link, token) = await links.CreateAsync(me, dto.PortfolioId, dto.AssetIds, PresentationEndpoints.CleanTitle(dto.Title), dto.LastDay, ct);
+            if (dto.ContactId is long contactId)
+            {
+                await links.SetContactAsync(me, link.PresentationLinkId, contactId, ct);
+            }
+
             var password = typed is not null ? await links.SetPasswordAsync(me, link.PresentationLinkId, typed, ct)
                 : dto.GeneratePassword ? await links.SetPasswordAsync(me, link.PresentationLinkId, null, ct) : null;
-            return Results.Ok(new { link = View(await links.GetAsync(me, link.PresentationLinkId, ct), links), token, password });
+            return Results.Ok(new { link = View(await links.GetAsync(me, link.PresentationLinkId, ct), links, me), token, password });
         });
 
         staff.MapGet("/{id:long}/token", async (long id, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
@@ -78,17 +92,21 @@ public static class PresentationLinkEndpoints
         staff.MapPut("/{id:long}/title", (long id, TitleDto dto, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
             Done(links, me, id, links.SetTitleAsync(me, id, PresentationEndpoints.CleanTitle(dto.Title), ct), ct));
 
+        // The customer it was sent to (Admin only, for reports): set, change, or clear with { contactId: null }.
+        staff.MapPatch("/{id:long}/contact", (long id, ContactDto dto, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
+            Done(links, me, id, links.SetContactAsync(me, id, dto.ContactId, ct), ct));
+
         // A new address: the old one stops at once.
         staff.MapPost("/{id:long}/renew", async (long id, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
         {
             var token = await links.RenewAsync(me, id, ct);
-            return Results.Ok(new { token, link = View(await links.GetAsync(me, id, ct), links) });
+            return Results.Ok(new { token, link = View(await links.GetAsync(me, id, ct), links, me) });
         });
 
         staff.MapPost("/{id:long}/password", async (long id, PasswordDto dto, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
         {
             var password = await links.SetPasswordAsync(me, id, dto.Generate ? null : dto.Password ?? "", ct);
-            return Results.Ok(new { password, link = View(await links.GetAsync(me, id, ct), links) });
+            return Results.Ok(new { password, link = View(await links.GetAsync(me, id, ct), links, me) });
         });
 
         staff.MapDelete("/{id:long}/password", (long id, UserAccess me, PresentationLinkService links, CancellationToken ct) =>
@@ -193,31 +211,40 @@ public static class PresentationLinkEndpoints
     }
 
     /// <summary>The link as staff see it in the list (never its token: "Copy link" asks for it).</summary>
-    private static object View(PresentationLink l, PresentationLinkService links)
+    /// <remarks>The customer (contactId / contactName) only for VIEW_ANALYTICS_PAGE (Admin): for anyone else the keys aren't there at all.</remarks>
+    private static Dictionary<string, object?> View(PresentationLink l, PresentationLinkService links, UserAccess me)
     {
         var now = DateTime.UtcNow;
-        return new
+        var view = new Dictionary<string, object?>
         {
-            id = l.PresentationLinkId,
-            l.PortfolioId,
-            assetCount = l.PortfolioId is null ? l.AssetIdList.Count : (int?)null,
-            l.Title,
-            state = !l.LinkEnabled ? "disabled" : l.LinkExpiresUtc <= now ? "expired" : links.IsLocked(l) ? "locked" : "active",
-            enabled = l.LinkEnabled,
-            expiresUtc = l.LinkExpiresUtc,
-            hasPassword = l.PasswordHash is not null,
-            lockedUntilUtc = links.IsLocked(l) ? l.LockedUntilUtc : null,
-            l.OpenCount,
-            l.LastOpenedUtc,
-            createdBy = l.CreatedByName,
-            l.CreatedUtc,
+            ["id"] = l.PresentationLinkId,
+            ["portfolioId"] = l.PortfolioId,
+            ["assetCount"] = l.PortfolioId is null ? l.AssetIdList.Count : null,
+            ["title"] = l.Title,
+            ["state"] = !l.LinkEnabled ? "disabled" : l.LinkExpiresUtc <= now ? "expired" : links.IsLocked(l) ? "locked" : "active",
+            ["enabled"] = l.LinkEnabled,
+            ["expiresUtc"] = l.LinkExpiresUtc,
+            ["hasPassword"] = l.PasswordHash is not null,
+            ["lockedUntilUtc"] = links.IsLocked(l) ? l.LockedUntilUtc : null,
+            ["openCount"] = l.OpenCount,
+            ["lastOpenedUtc"] = l.LastOpenedUtc,
+            ["createdBy"] = l.CreatedByName,
+            ["createdUtc"] = l.CreatedUtc,
         };
+        if (me.Has(Permissions.ViewAnalyticsPage))
+        {
+            view["contactId"] = l.ContactId;
+            view["contactName"] = l.ContactName;
+            view["contactIsActive"] = l.ContactIsActive;
+        }
+
+        return view;
     }
 
     private static async Task<IResult> Done(PresentationLinkService links, UserAccess me, long id, Task change, CancellationToken ct)
     {
         await change;
-        return Results.Ok(View(await links.GetAsync(me, id, ct), links));
+        return Results.Ok(View(await links.GetAsync(me, id, ct), links, me));
     }
 
     private static PresentationLink Link(HttpContext http) => (PresentationLink)http.Items[LinkItem]!;

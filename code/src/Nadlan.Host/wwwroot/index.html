@@ -32,6 +32,7 @@
     </span>
     <!-- Map drop (map-drop.js) is placed here, after the quick-entry box. Admin sits on the right, before the user menu. -->
     <span id="map-status" class="map-status"></span>
+    <a class="btn" href="/analytics.html" data-requires="VIEW_ANALYTICS_PAGE" title="Visits on public links: bars, hot properties, places" hidden>Analytics</a>
     <a class="btn header-admin" href="/admin.html" data-requires="MANAGE_USERS MANAGE_METADATA MANAGE_CONTACTS VIEW_ALL_CONTACTS" hidden>Admin</a>
   </header>
 
@@ -84,6 +85,7 @@
   <script src="/js/results-panel.js"></script>
   <script src="/js/map-entity-popup.js"></script>
   <script src="/js/analytics-report.js"></script> <!-- in-house analytics: who opened public links (VIEW_ANALYTICS) -->
+  <script src="/js/link-customer.js"></script> <!-- a public link's customer: Admin only (VIEW_ANALYTICS_PAGE) -->
   <script src="/js/present-link.js"></script>
   <script src="/js/my-location.js"></script>
   <script src="/js/map-link-pin.js"></script>

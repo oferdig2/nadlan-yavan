@@ -629,6 +629,9 @@
     results.setMode("parcels");
     // Without all Parcels (Attorney, Buyer, ...) the Parcels view shows little: start where their Assets are.
     if (!Nadlan.session.canAny(["VIEW_ALL_PARCELS", "EDIT_ALL_PARCELS"])) { setMode("assets"); }
+    // A deep link (the analytics page's "on the map"): /?parcel=12 opens that Parcel's card.
+    var deepParcel = Number(new URLSearchParams(window.location.search).get("parcel"));
+    if (deepParcel > 0) { showParcelById(deepParcel); }
   }
 
   // Phones and tablets (N7, owner 2026-10-31): "Hide search" folds the panel away so the map gets the screen; it always

@@ -33,8 +33,10 @@ public sealed class AnalyticsAppFixture : IAsyncLifetime
 
     public long AdminId { get; private set; }
     public long SalesId { get; private set; }
+    public long DataPersonId { get; private set; }
     public string AdminEmail { get; private set; } = "";
     public string SalesEmail { get; private set; } = "";
+    public string DataPersonEmail { get; private set; } = "";
     public long[] AssetIds { get; private set; } = Array.Empty<long>();
     public string AreaName { get; private set; } = "";
 
@@ -67,6 +69,9 @@ public sealed class AnalyticsAppFixture : IAsyncLifetime
             new { e = AdminEmail, hash });
         SalesId = await Id("INSERT INTO app_user (email, display_name, security_role_id, password_hash) SELECT @e, 'Sales S', security_role_id, @hash FROM security_role WHERE code = 'SALES'",
             new { e = SalesEmail, hash });
+        DataPersonEmail = "data-an@example.gr";
+        DataPersonId = await Id("INSERT INTO app_user (email, display_name, security_role_id, password_hash) SELECT @e, 'Data D', security_role_id, @hash FROM security_role WHERE code = 'DATA_PERSON'",
+            new { e = DataPersonEmail, hash });
 
         var gr = await c.ExecuteScalarAsync<int>("SELECT country_id FROM country WHERE code = 'GR'");
         AreaName = "Skroponeria AN";
@@ -104,7 +109,7 @@ public sealed class AnalyticsAppFixture : IAsyncLifetime
     }
 }
 
-public class AnalyticsEndpointTests : IClassFixture<AnalyticsAppFixture>
+public partial class AnalyticsEndpointTests : IClassFixture<AnalyticsAppFixture>
 {
     private const string IPhone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
     private const string Edge = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";
@@ -432,14 +437,23 @@ public class AnalyticsEndpointTests : IClassFixture<AnalyticsAppFixture>
     }
 
     [Fact]
-    public async Task Deleting_a_link_keeps_its_events()
+    public async Task Deleting_a_link_keeps_its_row_and_events_and_its_token_opens_nothing()
     {
         if (Off) { return; }
 
         var (link, token) = await LinkAsync();
         var session = Id("s");
         await SendAsync("POST", "/api/present-link/events", Batch(session, Id("v"), new[] { E("presentation_opened") }), token);
-        await _f.Services.GetRequiredService<PresentationLinkService>().DeleteAsync(Admin(_f), link);
-        Assert.Equal(1, await ScalarAsync<int>("SELECT COUNT(*) FROM app_event WHERE session_id = @session AND presentation_link_id IS NULL", new { session }));
+        var admin = await SignInAsync(_f.AdminEmail);
+        Assert.Equal(200, (await SendAsync("DELETE", $"/api/presentation/links/{link}", cookie: admin)).Status);
+        // Soft delete (migration 027): the row and its events stay, with their link.
+        Assert.Equal(1, await ScalarAsync<int>("SELECT COUNT(*) FROM app_event WHERE session_id = @session AND presentation_link_id = @link", new { session, link }));
+        Assert.Equal(1, await ScalarAsync<int>("SELECT COUNT(*) FROM presentation_link WHERE presentation_link_id = @link AND deleted_utc IS NOT NULL AND deleted_by_user_id = @admin",
+            new { link, admin = _f.AdminId }));
+        // ... but it opens nothing, as an unknown token: 404 and no hint it ever existed.
+        var (status, body, _) = await SendAsync("GET", "/api/present-link/state", token: token, csrf: false);
+        Assert.Equal((404, "PRESENT_LINK_INACTIVE"), (status, body.GetProperty("error").GetString()));
+        Assert.Equal(404, (await SendAsync("POST", "/api/present-link/events", Batch(Id("s"), Id("v"), new[] { E("presentation_opened") }), token)).Status);
+        Assert.Equal(404, (await SendAsync("GET", $"/api/presentation/links/{link}/token", cookie: admin, csrf: false)).Status);
     }
 }

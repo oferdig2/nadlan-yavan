@@ -347,7 +347,8 @@
         "<h2 class=\"pres-card-title\" title=\"" + esc(heading(it)) + "\">" + esc(heading(it)) + "</h2></div>" + factsHtml(it, true) + "</div>" : "";
     };
 
-    // A photo / video shown (index from 1, as "3 / 12"): in the card's carousel, or in the big viewer.
+    // A photo / video shown (index from 1, as "3 / 12"). via "open" = the big viewer opened on it (a click on a photo, a "photo
+    // open"); arrow / swipe / key = a move to another photo in the card or the viewer (a "photo nav") - design 2026-11-10.
     // at: the property (default: the card's).
     function photo(p, where, via, of, at) {
       var k = at === undefined ? current : at;
@@ -371,7 +372,7 @@
       if (!m || !items[Number(m[1])]) { return null; }
       var i = Number(m[1]);
       return function (index, item, via, video) {
-        photo({ index: index, kind: item.kind === "video" ? "video" : "image" }, "viewer", via === "open" ? "tap" : via, (items[i].media || []).length, i);
+        photo({ index: index, kind: item.kind === "video" ? "video" : "image" }, "viewer", via, (items[i].media || []).length, i);
         if (video) { videoProgress(video, i, index + 1); }
       };
     };
