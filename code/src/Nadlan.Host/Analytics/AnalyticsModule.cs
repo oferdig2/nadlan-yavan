@@ -18,6 +18,8 @@ public static class AnalyticsModule
         services.AddSingleton<EventRateLimiter>();
         services.AddSingleton<AnalyticsService>();
         services.AddSingleton<AnalyticsReportService>();
+        services.AddSingleton<IAnalyticsPageStore, MySqlAnalyticsPageStore>(); // the analytics page (Admin only)
+        services.AddSingleton<AnalyticsPageService>();
         services.AddHostedService<GeoBackfill>(); // daily: a place for visits recorded before the geo files were there
         return services;
     }

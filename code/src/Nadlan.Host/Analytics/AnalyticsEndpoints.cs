@@ -97,6 +97,58 @@ public static class AnalyticsEndpoints
         // One visit: everything known about it, the IP too, and its timeline.
         g.MapGet("/visits/{id:long}", async (long id, UserAccess me, AnalyticsReportService reports, CancellationToken ct) =>
             Results.Ok(await reports.VisitAsync(me, id, ct)));
+
+        // ---- the analytics page (analytics.html): Admin only, VIEW_ANALYTICS_PAGE ----
+
+        // The link finder - deleted links too (their visits still count). Dates are Athens days (yyyy-MM-dd).
+        g.MapGet("/links/search", async (string? q, string? createdFrom, string? createdTo, string? visitedFrom, string? visitedTo, string? kind, string? state,
+            long? createdBy, long? contactId, long[]? ids, int? page, UserAccess me, AnalyticsPageService pageService, ILoggerFactory logs, CancellationToken ct) =>
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var found = await pageService.SearchAsync(me, new LinkSearch
+            {
+                Text = q, CreatedFrom = createdFrom, CreatedTo = createdTo, VisitedFrom = visitedFrom, VisitedTo = visitedTo, Kind = kind, State = state,
+                CreatedBy = createdBy, ContactId = contactId, Ids = ids, Page = page ?? 1,
+            }, ct);
+            Slow(logs, "search", watch);
+            var now = DateTime.UtcNow;
+            return Results.Ok(new
+            {
+                found.Total, found.Page, found.PageSize,
+                rows = found.Rows.Select(r => new
+                {
+                    r.Id, r.Name, r.Title, r.PortfolioId, r.PortfolioName, r.AssetCount, r.CreatedUtc, r.CreatedByUserId, r.CreatedByName,
+                    state = r.State(now), r.Visits, r.LastVisitUtc, r.ContactId, r.ContactName, r.ContactIsActive,
+                }),
+            });
+        });
+
+        // The numbers of one chart; the same definitions (AnalyticsMetrics) as /who, so a bar and its places agree.
+        g.MapPost("/chart", async (ChartRequest dto, UserAccess me, AnalyticsPageService pageService, ILoggerFactory logs, CancellationToken ct) =>
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var result = await pageService.ChartAsync(me, dto, ct);
+            Slow(logs, "chart " + result.View + "/" + result.Split, watch);
+            return Results.Ok(result);
+        });
+
+        // One bar: the places (city level) of its visits, each with its visits.
+        g.MapPost("/who", async (WhoRequest dto, UserAccess me, AnalyticsPageService pageService, ILoggerFactory logs, CancellationToken ct) =>
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var result = await pageService.WhoAsync(me, dto, ct);
+            Slow(logs, "who " + dto.Metric, watch);
+            return Results.Ok(result);
+        });
+    }
+
+    /// <summary>A query over a second goes to the log (design: measure before adding indexes).</summary>
+    private static void Slow(ILoggerFactory logs, string what, System.Diagnostics.Stopwatch watch)
+    {
+        if (watch.ElapsedMilliseconds > 1000)
+        {
+            logs.CreateLogger("Nadlan.Analytics").LogWarning("Analytics page: {What} took {Ms} ms.", what, watch.ElapsedMilliseconds);
+        }
     }
 
     /// <summary>The client's IP as text (behind nginx: from X-Forwarded-For, see AuthRegistration); "::ffff:1.2.3.4" as 1.2.3.4.</summary>

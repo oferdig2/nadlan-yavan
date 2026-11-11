@@ -33,6 +33,16 @@ public sealed record PresentationLink
     public string CreatedByName { get; init; } = "";
     public DateTime CreatedUtc { get; init; }
 
+    /// <summary>Deleted (migration 027): opens nothing and leaves the Present dialog; its visits stay for the analytics page.</summary>
+    public DateTime? DeletedUtc { get; init; }
+
+    /// <summary>The customer it was sent to (migration 027) - Admin only (VIEW_ANALYTICS_PAGE): never sent to anyone else.</summary>
+    public long? ContactId { get; init; }
+
+    public string? ContactName { get; init; }
+
+    public bool? ContactIsActive { get; init; }
+
     /// <summary>The chosen Assets in their order (empty for a Portfolio link).</summary>
     public IReadOnlyList<long> AssetIdList => (AssetIds ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
         .Select(s => long.TryParse(s, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : 0).Where(id => id > 0).ToList();
@@ -73,7 +83,14 @@ public interface IPresentationLinkStore
 
     Task RecordOpenAsync(long id, CancellationToken ct = default);
 
-    Task DeleteAsync(long id, CancellationToken ct = default);
+    /// <summary>Soft delete (migration 027): the row stays, so its visits keep their link.</summary>
+    Task DeleteAsync(long id, long byUserId, CancellationToken ct = default);
+
+    /// <summary>Sets or clears the customer (a Contact).</summary>
+    Task SetContactAsync(long id, long? contactId, CancellationToken ct = default);
+
+    /// <summary>Whether this Contact exists (null = no) and is active.</summary>
+    Task<bool?> ContactIsActiveAsync(long contactId, CancellationToken ct = default);
 }
 
 /// <summary>Seals the token so staff can copy the link again (the database keeps only its hash for lookups).</summary>
@@ -246,10 +263,47 @@ public sealed class PresentationLinkService
         await _store.SetTitleAsync(id, title, ct);
     }
 
+    /// <summary>Deleted for good as far as anyone sees it; the row stays (soft delete) so the analytics page keeps its visits.</summary>
     public async Task DeleteAsync(UserAccess me, long id, CancellationToken ct = default)
     {
         await GetAsync(me, id, ct);
-        await _store.DeleteAsync(id, ct);
+        await _store.DeleteAsync(id, me.UserId, ct);
+    }
+
+    /// <summary>
+    /// The customer is an Admin-only reporting field (owner, 2026-11-10: "no one except Admin sees it"): seeing or setting it
+    /// needs VIEW_ANALYTICS_PAGE. Anyone else who sends one is refused, never silently ignored.
+    /// </summary>
+    public static void RequireCustomerRights(UserAccess me)
+    {
+        if (!me.Has(Permissions.ViewAnalyticsPage))
+        {
+            throw new ForbiddenException("PRESENTATION_LINK_CUSTOMER_FORBIDDEN", "Only Admins set the customer of a link.");
+        }
+    }
+
+    /// <summary>Sets (an active Contact) or clears (null) the customer of any link - an Admin may tag links others made.</summary>
+    public async Task SetContactAsync(UserAccess me, long id, long? contactId, CancellationToken ct = default)
+    {
+        await GetAsync(me, id, ct);
+        await CheckContactAsync(me, contactId, ct);
+        await _store.SetContactAsync(id, contactId, ct);
+    }
+
+    /// <summary>A customer to set: an existing, active Contact (null = none). Checked before a new link is made.</summary>
+    public async Task CheckContactAsync(UserAccess me, long? contactId, CancellationToken ct = default)
+    {
+        RequireCustomerRights(me);
+        if (contactId is long cid)
+        {
+            switch (await _store.ContactIsActiveAsync(cid, ct))
+            {
+                case null:
+                    throw new EntityNotFoundException("Contact", cid);
+                case false:
+                    throw new DomainValidationException("PRESENTATION_LINK_CUSTOMER_INACTIVE", "This contact is deactivated: choose an active one.");
+            }
+        }
     }
 
     // ---- the customer's side --------------------------------------------------------------------------------------

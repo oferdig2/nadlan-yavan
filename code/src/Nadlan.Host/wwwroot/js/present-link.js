@@ -93,6 +93,12 @@
     var target = what.portfolioId ? { portfolioId: what.portfolioId } : { assetIds: what.assetIds };
     var $list = $form.find(".public-list"), $made = $form.find(".public-made");
     var links = [];
+    // The customer of a new link: Admins only (the server refuses it from anyone else).
+    var customer = Nadlan.linkCustomer && Nadlan.linkCustomer.canSet() ? Nadlan.linkCustomer.field({}) : null;
+    if (customer) {
+      $("<div class=\"public-customer\"><div class=\"public-customer-head\">Customer <span class=\"muted\">(for reports, only Admins see it)</span></div></div>")
+        .append(customer.$el).insertBefore($made);
+    }
 
     function publicUrl(token) { return window.location.origin + "/show.html#" + token; }
 
@@ -110,6 +116,8 @@
             (analytics ? "" : " · opened " + l.openCount + " time" + (l.openCount === 1 ? "" : "s") + (l.lastOpenedUtc ? ", last " + esc(day(l.lastOpenedUtc)) : "")) +
             " · by " + esc(l.createdBy) + "</div>" +
           (analytics ? "<div class=\"public-stats muted\"></div>" : "") +
+          // "contactId" is in the answer only for Admins (VIEW_ANALYTICS_PAGE).
+          (customer && "contactId" in l ? "<div class=\"public-customer-line muted\">" + Nadlan.linkCustomer.lineHtml(l) + "</div>" : "") +
           (!SHOW_ROW_ACTIONS ? "" : "<div class=\"btn-row public-actions\">" +
             (l.enabled ? "<button type=\"button\" class=\"btn btn-small\" data-act=\"copy\">Copy link</button>" : "") +
             "<button type=\"button\" class=\"btn btn-small\" data-act=\"extend\">+1 week</button>" +
@@ -134,6 +142,10 @@
         $list.find("li").each(function () { $(this).find(".public-stats").html(report.lineHtml(byId[Number($(this).data("id"))])); });
       }, function () { $list.find(".public-stats").text(""); });
     }
+    $form.on("click", "[data-lc-change]", function () {
+      var id = idOf(this), l = links.filter(function (x) { return x.id === id; })[0];
+      if (l) { Nadlan.linkCustomer.change(l).then(function (saved) { if (saved) { load(); } }); }
+    });
     $form.on("click", "[data-an-details]", function () {
       var id = idOf(this), l = links.filter(function (x) { return x.id === id; })[0];
       if (l) { Nadlan.analyticsReport.open(l); }
@@ -160,6 +172,7 @@
         title: $.trim($form.find("[name=title]").val()) || null, lastDay: $form.find("[name=lastDay]").val() || null,
         password: $form.find("[name=protect]").prop("checked") ? ($.trim($form.find("[name=password]").val()) || madeUpPassword()) : null
       });
+      if (customer && customer.value()) { body.contactId = customer.value(); } // never sent by anyone else
       var settings = JSON.stringify(body);
       if (lastMade && lastMade.settings === settings) { copyText(lastMade.url, function () { }); shown(lastMade, "Copied again"); return; }
       d.busy(true);

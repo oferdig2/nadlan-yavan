@@ -6,7 +6,7 @@ namespace Nadlan.Persistence.MySql.Analytics;
 /// <summary>In-house analytics (migration 026): app_event, app_event_context, app_event_batch.</summary>
 public sealed class MySqlEventStore : IEventStore
 {
-    private const string ContextColumns = """
+    internal const string ContextColumns = """
         c.context_id, c.session_id, c.visitor_id, c.source, c.presentation_link_id, c.first_utc, c.last_utc, c.ip,
         c.geo_country, c.geo_region, c.geo_city, c.geo_lat, c.geo_lng, c.geo_accuracy_km, c.geo_asn, c.geo_org,
         c.user_agent, c.browser, c.browser_version, c.os, c.os_version, c.device_type, c.device_model,
@@ -168,7 +168,8 @@ public sealed class MySqlEventStore : IEventStore
             SELECT a.asset_id AS AssetId, pt.name AS PropertyType, ga.name AS Area,
                    CASE WHEN p.ot IS NULL THEN NULL ELSE CONCAT(p.ot, COALESCE(p.ot_ext, '')) END AS Ot,
                    CASE WHEN p.plot_number IS NULL THEN NULL ELSE CONCAT(p.plot_number, COALESCE(p.plot_ext, '')) END AS Plot,
-                   CASE WHEN p.registry_id_is_provisional = 0 THEN p.registry_id END AS Kaek
+                   CASE WHEN p.registry_id_is_provisional = 0 THEN p.registry_id END AS Kaek,
+                   p.parcel_id AS ParcelId
             FROM asset a
             LEFT JOIN property_type pt ON pt.property_type_id = a.property_type_id
             LEFT JOIN parcel p ON p.parcel_id = (SELECT ap.parcel_id FROM asset_parcel ap WHERE ap.asset_id = a.asset_id

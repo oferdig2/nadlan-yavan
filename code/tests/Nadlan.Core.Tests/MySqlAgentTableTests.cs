@@ -188,6 +188,8 @@ public class MySqlAgentTableTests : IClassFixture<ScratchMySql>
 
             // Back to version 17 - what production has - plus a role an Admin made there, then 018 again.
             await c.ExecuteAsync("""
+                DELETE FROM permission WHERE code = 'VIEW_ANALYTICS_PAGE';
+                DELETE FROM schema_version WHERE version = 27;
                 DROP TABLE app_event, app_event_context, app_event_batch;
                 DELETE rp FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE p.code = 'VIEW_ANALYTICS';
                 DELETE FROM permission WHERE code = 'VIEW_ANALYTICS';
@@ -218,7 +220,7 @@ public class MySqlAgentTableTests : IClassFixture<ScratchMySql>
             var before = await RolePermissionsAsync(c);
 
             Assert.Equal(new[] { "018_agent_table_areas" }, (await migrator.MigrateAsync()).Take(1).ToArray()); // later ones follow
-            var after = (await RolePermissionsAsync(c)).ToDictionary(x => x.Key, x => x.Value.Where(code => code != Permissions.ManageWork && code != Permissions.SharePresentation && code != Permissions.ViewAnalytics).ToHashSet()); // 021, 025 and 026 add those
+            var after = (await RolePermissionsAsync(c)).ToDictionary(x => x.Key, x => x.Value.Where(code => code != Permissions.ManageWork && code != Permissions.SharePresentation && code != Permissions.ViewAnalytics && code != Permissions.ViewAnalyticsPage).ToHashSet()); // 021, 025, 026, 027 add those
 
             Assert.Equal(before.Keys.Order(), after.Keys.Order());
             foreach (var (role, had) in before)

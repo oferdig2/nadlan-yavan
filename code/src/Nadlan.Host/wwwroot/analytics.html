@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GreekPlot — Analytics</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/themes/base/jquery-ui.min.css" integrity="sha384-zR/jkclV8JzpZv6ONtyAg2c/SJQRL8k3ZYyDf2O9XGHO16FV9l6/kEdN4IGkspLj" crossorigin="anonymous" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="/css/forms.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
+  <link rel="stylesheet" href="/css/auth.css" />
+  <link rel="stylesheet" href="/css/analytics.css" />
+</head>
+<!-- The analytics page of public links (owner, 2026-11-10): Admin only (VIEW_ANALYTICS_PAGE). Find links on the left; bars,
+     hot properties and usage on the right; hover or click a bar for the places its visits came from. Read only. -->
+<body class="admin-body ap-body">
+  <header class="app-header">
+    <span class="app-title">GreekPlot</span>
+    <a class="btn" href="/" data-requires="USE_MAP" hidden>← Map</a>
+    <span class="ap-heading">Analytics <span class="muted">- visits on public links</span></span>
+    <span id="ap-status" class="work-status" role="status" aria-live="polite"></span>
+  </header>
+
+  <main class="ap-main" id="ap-main"><div class="muted">Loading…</div></main>
+
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js" integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jquery-ui@1.14.1/dist/jquery-ui.min.js" integrity="sha384-SStJQoPipVtHHnIgUfDI+jTAbSyU+HMbhwt2XRRNpLIRFg9VguopT6Y4+cdOlkqg" crossorigin="anonymous"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/formatters.js"></script>
+  <script src="/js/session.js"></script>
+  <script src="/js/reference-data.js"></script>
+  <script src="/js/dialog.js"></script>
+  <!-- "+ New" customer (read-only use of the existing contact dialog) -->
+  <script src="/js/contact-editor.js"></script>
+  <script src="/js/analytics-report.js"></script>
+  <script src="/js/link-customer.js"></script>
+  <script src="/js/analytics-page.js"></script>
+</body>
+</html>

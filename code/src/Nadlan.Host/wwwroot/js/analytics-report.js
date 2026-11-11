@@ -77,6 +77,7 @@
       }).join("") + "</tbody></table>";
   }
 
+  /** A visit: its timeline and everything known about it (the IP too). Also used by the analytics page. */
   function visitDetailHtml(d) {
     var c = d.context;
     var facts = [
@@ -117,5 +118,5 @@
     return d;
   }
 
-  Nadlan.analyticsReport = { canSee: canSee, summaries: summaries, lineHtml: lineHtml, open: open };
+  Nadlan.analyticsReport = { canSee: canSee, summaries: summaries, lineHtml: lineHtml, open: open, visitHtml: visitDetailHtml, duration: duration, attribution: ATTRIBUTION };
 })(window, jQuery);

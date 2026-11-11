@@ -24,6 +24,25 @@ Signed-in staff are not recorded. Kept forever (no clean-up job). No notice on t
 - `GET /api/analytics/links?ids=1&ids=2` - the line under each link; `GET /api/analytics/links/{id}` - visits (no IP) and
   per-property numbers; `GET /api/analytics/visits/{id}` - one visit with its IP, context and timeline. `VIEW_ANALYTICS`.
 
+## The analytics page (migration 027, Admin only)
+
+`analytics.html` (top-bar button **Analytics**), permission `VIEW_ANALYTICS_PAGE` - Admin only; `VIEW_ANALYTICS` (Admin, Data
+person) still covers the Present dialog's line and Details. Design: `AI/Remarks/Design-Analytics-Page-2026-11-10.md`.
+
+- **Finder:** all public links, deleted ones too (text over title, Portfolio, creator and customer; made / visited dates;
+  kind; state; made by; customer). Tick up to 50; the choice and filters live in the page address.
+- **Bars** (plain HTML, no chart library): Totals, Properties (hot = opened on N devices, link to the map: `/?parcel=ID`),
+  Over time (days, weeks past 60 days), Path (% of visits), Hours - Aggregated, By link or By customer. Days in Athens time.
+- **Places of a bar:** hover = top 5 cities, click = all of them, then a place's visits, then a visit's timeline (and IP).
+  The metric definitions live in one place (`Nadlan.Core/Analytics/AnalyticsMetrics.cs`), so a bar and its places agree.
+- `GET /api/analytics/links/search`, `POST /api/analytics/chart`, `POST /api/analytics/who` - a query over 1 s is logged.
+- **Soft delete:** deleting a link sets `deleted_utc` / `deleted_by_user_id`; it then opens nothing (404 as an unknown token)
+  and leaves the Present dialog, but its visits still count on the page.
+- **Customer** (`presentation_link.contact_id`, optional): an Admin-only reporting field. Every link answer leaves
+  `contactId` / `contactName` out for anyone without `VIEW_ANALYTICS_PAGE`; anyone else sending one gets 403. Set in the
+  Present dialog (Admins) or on the page's finder rows (`PATCH /api/presentation/links/{id}/contact`). Never in the
+  title, never to the visitor.
+
 ## The IP and its place (MaxMind GeoLite2)
 
 The IP is the client's real one: behind nginx the app reads `X-Forwarded-For` (`Nadlan:Auth:TrustForwardedHeaders` = true,

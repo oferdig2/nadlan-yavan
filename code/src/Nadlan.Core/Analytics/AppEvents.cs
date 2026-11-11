@@ -187,7 +187,8 @@ public sealed record LinkSummary
 /// reports - review 2026-11-10: every row read "Plot · Skroponeria"): "Plot · Skroponeria · OT 9 / Plot 83", else its KAEK,
 /// else its number.
 /// </summary>
-public sealed record AssetLabel(long AssetId, string? PropertyType, string? Area, string? Ot = null, string? Plot = null, string? Kaek = null)
+public sealed record AssetLabel(long AssetId, string? PropertyType, string? Area, string? Ot = null, string? Plot = null, string? Kaek = null,
+    long? ParcelId = null)
 {
     public string Text => (PropertyType ?? "Property") + (string.IsNullOrWhiteSpace(Area) ? "" : " · " + Area) + " · " +
         (Ot is not null || Plot is not null ? "OT " + (Ot ?? "—") + " / Plot " + (Plot ?? "—")
