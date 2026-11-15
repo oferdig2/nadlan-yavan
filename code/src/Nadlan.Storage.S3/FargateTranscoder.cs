@@ -56,10 +56,7 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
         """;
 
     /// <summary>The script as Linux reads it: a Windows checkout may give the source file CRLF line ends, which sh would choke on.</summary>
-    internal static string ShellScript => Script.Replace("
-", "
-").Replace("", "
-");
+    internal static string ShellScript => Script.Replace("\r\n", "\n").Replace('\r', '\n');
 
     private readonly StorageOptions _storage;
     private readonly VideoSettings _settings;
