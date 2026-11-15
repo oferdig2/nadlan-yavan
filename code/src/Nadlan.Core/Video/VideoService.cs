@@ -38,7 +38,8 @@ public sealed class VideoService
 
     public VideoSettings Settings => _settings;
 
-    public bool IsActive => _settings.Enabled && _storage.IsConfigured && !string.IsNullOrWhiteSpace(_settings.RoleArn);
+    public bool IsActive => _settings.Enabled && _storage.IsConfigured && !string.IsNullOrWhiteSpace(_settings.Cluster)
+                            && !string.IsNullOrWhiteSpace(_settings.TaskDefinition) && !string.IsNullOrWhiteSpace(_settings.Subnets);
 
     private DateTime Now => _clock.GetUtcNow().UtcDateTime;
 
@@ -104,7 +105,7 @@ public sealed class VideoService
     {
         if (!IsActive)
         {
-            throw new DomainValidationException("VIDEO_OFF", "Video optimization is off (Admin > Settings > Videos: on, role, region).");
+            throw new DomainValidationException("VIDEO_OFF", "Video optimization is off (Admin > Settings > Videos: on, cluster, subnets).");
         }
     }
 
@@ -160,6 +161,7 @@ public sealed class VideoService
         {
             var jobId = await _transcoder.SubmitAsync(new VideoJobSpec(c.StorageKey, VideoKeys.Prefix(c.FileAttachmentId), r.WithAudio, c.Width, c.Height), ct);
             await _store.MarkSubmittedAsync(r.FileAttachmentId, jobId, r.WithAudio, ct);
+            await _store.StartRunAsync(jobId, r.FileAttachmentId, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, ct);
             return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -186,6 +188,11 @@ public sealed class VideoService
         }
 
         var state = await _transcoder.GetAsync(r.JobId, ct);
+        if (state.Status is "COMPLETE" or "ERROR" or "CANCELED")
+        {
+            await EndRunAsync(r.JobId, state, state.Status == "COMPLETE" ? "finished" : "failed", ct);
+        }
+
         switch (state.Status)
         {
             case "COMPLETE":
@@ -208,6 +215,62 @@ public sealed class VideoService
             default:
                 return false; // still working
         }
+    }
+
+    private Task EndRunAsync(string jobId, VideoJobState state, string stoppedBy, CancellationToken ct)
+    {
+        decimal? cost = state.StartedUtc is { } a && state.StoppedUtc is { } b
+            ? VideoRules.RunCost(a, b, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, _settings) : null;
+        return _store.EndRunAsync(jobId, state.StartedUtc, state.StoppedUtc, state.Status, stoppedBy, cost, ct);
+    }
+
+    /// <summary>
+    /// Every few minutes: no worker may be left running (owner, 2026-11-15). A worker no job waits for, or one running longer than
+    /// <see cref="VideoSettings.MaxRunMinutes"/>, is stopped (its video is marked failed); a run whose worker is gone is closed.
+    /// Returns how many workers were stopped.
+    /// </summary>
+    public async Task<int> CheckWorkersAsync(CancellationToken ct = default)
+    {
+        if (!IsActive)
+        {
+            return 0;
+        }
+
+        var waiting = (await _store.ListByStatusAsync(VideoStatuses.Submitted, 500, ct)).Where(r => !string.IsNullOrEmpty(r.JobId))
+            .ToDictionary(r => r.JobId!, r => r);
+        var running = await _transcoder.ListRunningAsync(ct);
+        var stopped = 0;
+        foreach (var w in running)
+        {
+            var tooLong = w.StartedUtc is { } s && Now - s > TimeSpan.FromMinutes(Math.Max(5, _settings.MaxRunMinutes));
+            var orphan = !waiting.ContainsKey(w.JobId);
+            if (!tooLong && !orphan)
+            {
+                continue;
+            }
+
+            var reason = orphan ? "checker: no video waits for this worker" : $"checker: ran over {_settings.MaxRunMinutes} minutes";
+            await _transcoder.StopAsync(w.JobId, reason, ct);
+            await EndRunAsync(w.JobId, new VideoJobState("STOPPED", reason, null, w.StartedUtc, Now), reason, ct);
+            if (waiting.TryGetValue(w.JobId, out var r))
+            {
+                await _store.MarkFailedAsync(r.FileAttachmentId, reason, ct);
+            }
+
+            stopped++;
+        }
+
+        // Runs still open whose worker is no longer running and no video waits for (e.g. the file was deleted meanwhile).
+        var live = running.Select(w => w.JobId).ToHashSet();
+        foreach (var run in await _store.ListOpenRunsAsync(ct))
+        {
+            if (!live.Contains(run.JobId) && !waiting.ContainsKey(run.JobId))
+            {
+                await EndRunAsync(run.JobId, await _transcoder.GetAsync(run.JobId, ct), "closed by the checker", ct);
+            }
+        }
+
+        return stopped;
     }
 
     /// <summary>Verifies the outputs, picks the poster and the offered photos, and puts the poster on the file's card.</summary>

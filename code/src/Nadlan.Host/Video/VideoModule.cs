@@ -21,7 +21,7 @@ public static class VideoModule
         var settings = options.ToSettings();
         services.AddSingleton(settings);
         services.AddSingleton<IVideoStore, MySqlVideoStore>();
-        services.AddSingleton<IVideoTranscoder>(sp => new MediaConvertTranscoder(sp.GetRequiredService<StorageOptions>(), settings));
+        services.AddSingleton<IVideoTranscoder>(sp => new FargateTranscoder(sp.GetRequiredService<StorageOptions>(), settings, sp.GetRequiredService<IObjectStorage>()));
         services.AddSingleton<VideoService>();
         services.AddHostedService<VideoWorker>();
         return services;
@@ -102,6 +102,32 @@ public static class VideoModule
             return Results.NoContent();
         });
 
+        // Admin > Costs: every worker run - when, how big, how long, what it cost (owner: "so Alon can know").
+        app.MapGet("/api/video/runs", async (UserAccess me, IVideoStore store, VideoService video, CancellationToken ct) =>
+        {
+            if (!me.IsAdmin)
+            {
+                throw new ForbiddenException("VIDEO_ADMIN_ONLY", "Only an Admin sees the video worker's runs.");
+            }
+
+            var runs = await store.ListRunsAsync(500, ct);
+            var month = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            return Results.Ok(new
+            {
+                active = video.IsActive,
+                cpu = video.Settings.Cpu,
+                memoryMb = video.Settings.MemoryMb,
+                thisMonthUsd = runs.Where(r => r.SubmittedUtc >= month).Sum(r => r.CostUsd ?? 0),
+                totalUsd = runs.Sum(r => r.CostUsd ?? 0),
+                running = runs.Count(r => r.StoppedBy is null),
+                runs = runs.Select(r => new
+                {
+                    r.JobId, r.FileAttachmentId, r.FileName, r.SubmittedUtc, r.StartedUtc, r.StoppedUtc, r.Cpu, r.MemoryMb, r.StorageGb, r.Status, r.StoppedBy, r.CostUsd,
+                    seconds = r.StartedUtc is { } a && r.StoppedUtc is { } b ? Math.Round((b - a).TotalSeconds) : (double?)null,
+                }),
+            });
+        });
+
         // Admin: convert every video not converted yet (those uploaded before the feature).
         app.MapPost("/api/video/optimize-all", async (UserAccess me, VideoService video, CancellationToken ct) =>
         {
@@ -129,12 +155,16 @@ public static class VideoModule
     }
 }
 
-/// <summary>Every 30 s: queue, send and collect conversions. Once a day: delete originals whose waiting period is over.</summary>
+/// <summary>
+/// Every 30 s: queue, send and collect conversions. Every 5 minutes: no worker left running (owner, 2026-11-15). Once a day: delete
+/// originals whose waiting period is over.
+/// </summary>
 public sealed class VideoWorker : BackgroundService
 {
     private static readonly TimeSpan FirstRunDelay = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SweepEvery = TimeSpan.FromHours(24);
+    private static readonly TimeSpan CheckEvery = TimeSpan.FromMinutes(5);
 
     private readonly VideoService _video;
     private readonly ILogger<VideoWorker> _log;
@@ -156,6 +186,7 @@ public sealed class VideoWorker : BackgroundService
         {
             await Task.Delay(FirstRunDelay, stoppingToken);
             var nextSweep = DateTime.UtcNow.AddMinutes(10);
+            var nextCheck = DateTime.UtcNow;
             using var timer = new PeriodicTimer(Interval);
             do
             {
@@ -165,6 +196,16 @@ public sealed class VideoWorker : BackgroundService
                     if (did is not null)
                     {
                         _log.LogInformation("Videos: {What}.", did);
+                    }
+
+                    if (DateTime.UtcNow >= nextCheck)
+                    {
+                        nextCheck = DateTime.UtcNow.Add(CheckEvery);
+                        var stopped = await _video.CheckWorkersAsync(stoppingToken);
+                        if (stopped > 0)
+                        {
+                            _log.LogWarning("Videos: stopped {Count} leftover worker(s).", stopped);
+                        }
                     }
 
                     if (DateTime.UtcNow >= nextSweep)

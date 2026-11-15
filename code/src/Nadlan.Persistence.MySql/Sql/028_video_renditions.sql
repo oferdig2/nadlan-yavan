@@ -33,3 +33,24 @@ CREATE TABLE video_rendition (
   KEY ix_video_rendition_completed (completed_utc),
   CONSTRAINT fk_video_rendition_file FOREIGN KEY (file_attachment_id) REFERENCES file_attachment (file_attachment_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Each run of the conversion worker (ffmpeg on AWS Fargate, started only while a video is converted): when, how big, how long,
+-- what it cost - for the Admin (owner, 2026-11-15: "register the times of operation of this worker + costs so Alon can know").
+CREATE TABLE video_worker_run (
+  job_id VARCHAR(200) NOT NULL COMMENT 'the Fargate task ARN',
+  file_attachment_id BIGINT NULL COMMENT 'the video (NULL once the file is deleted: the run and its cost stay)',
+  file_name VARCHAR(255) NULL,
+  submitted_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
+  started_utc DATETIME(3) NULL COMMENT 'billing start: the image pull',
+  stopped_utc DATETIME(3) NULL,
+  cpu INT NOT NULL COMMENT 'vCPU units, 1024 = 1 vCPU',
+  memory_mb INT NOT NULL,
+  storage_gb INT NOT NULL,
+  status VARCHAR(40) NOT NULL DEFAULT 'RUNNING',
+  stopped_by VARCHAR(200) NULL COMMENT 'finished | failed | checker: ...',
+  cost_usd DECIMAL(10,5) NULL COMMENT 'at the list prices in the settings',
+  PRIMARY KEY (job_id),
+  KEY ix_video_worker_run_submitted (submitted_utc),
+  KEY ix_video_worker_run_open (stopped_by, submitted_utc),
+  CONSTRAINT fk_video_worker_run_file FOREIGN KEY (file_attachment_id) REFERENCES file_attachment (file_attachment_id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

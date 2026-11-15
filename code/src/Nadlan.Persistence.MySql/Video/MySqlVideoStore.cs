@@ -123,7 +123,45 @@ public sealed class MySqlVideoStore : IVideoStore
     public Task MarkOriginalDeletedAsync(long fileAttachmentId, CancellationToken ct = default) =>
         UpdateAsync("original_deleted_utc = UTC_TIMESTAMP(3), frames_deleted_utc = UTC_TIMESTAMP(3)", new { fileAttachmentId }, ct);
 
-    private static string Cut(string message) => message.Length <= 1000 ? message : message[..1000];
+    private const string RunColumns = """
+        job_id, file_attachment_id, file_name, submitted_utc, started_utc, stopped_utc, cpu, memory_mb, storage_gb, status, stopped_by, cost_usd
+        """;
+
+    public async Task StartRunAsync(string jobId, long fileAttachmentId, int cpu, int memoryMb, int storageGb, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            INSERT IGNORE INTO video_worker_run (job_id, file_attachment_id, file_name, cpu, memory_mb, storage_gb)
+            SELECT @jobId, @fileAttachmentId, f.original_file_name, @cpu, @memoryMb, @storageGb FROM file_attachment f WHERE f.file_attachment_id = @fileAttachmentId
+            """, new { jobId, fileAttachmentId, cpu, memoryMb, storageGb }, cancellationToken: ct));
+    }
+
+    public async Task EndRunAsync(string jobId, DateTime? startedUtc, DateTime? stoppedUtc, string status, string stoppedBy, decimal? costUsd, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE video_worker_run
+            SET started_utc = COALESCE(@startedUtc, started_utc), stopped_utc = COALESCE(@stoppedUtc, UTC_TIMESTAMP(3)), status = @status,
+                stopped_by = @stoppedBy, cost_usd = @costUsd
+            WHERE job_id = @jobId AND stopped_by IS NULL
+            """, new { jobId, startedUtc, stoppedUtc, status, stoppedBy = Cut(stoppedBy, 200), costUsd }, cancellationToken: ct));
+    }
+
+    public async Task<IReadOnlyList<VideoWorkerRun>> ListRunsAsync(int limit, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return (await conn.QueryAsync<VideoWorkerRun>(new CommandDefinition(
+            $"SELECT {RunColumns} FROM video_worker_run ORDER BY submitted_utc DESC LIMIT @limit", new { limit }, cancellationToken: ct))).ToList();
+    }
+
+    public async Task<IReadOnlyList<VideoWorkerRun>> ListOpenRunsAsync(CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return (await conn.QueryAsync<VideoWorkerRun>(new CommandDefinition(
+            $"SELECT {RunColumns} FROM video_worker_run WHERE stopped_by IS NULL ORDER BY submitted_utc LIMIT 200", cancellationToken: ct))).ToList();
+    }
+
+    private static string Cut(string message, int max = 1000) => message.Length <= max ? message : message[..max];
 
     private async Task UpdateAsync(string set, object args, CancellationToken ct)
     {

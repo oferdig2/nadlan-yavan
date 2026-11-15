@@ -11,7 +11,7 @@ namespace Nadlan.Core.Tests;
 /// <summary>Large videos made light (migration 028): the rules, and the whole flow against the throwaway MySQL with a fake MediaConvert.</summary>
 public class VideoTests
 {
-    private static readonly VideoSettings Settings = new() { Enabled = true, RoleArn = "arn:aws:iam::1:role/mc", FrameCount = 10, OriginalRetentionDays = 7, QueueUploadedAfterUtc = DateTime.MinValue };
+    private static readonly VideoSettings Settings = new() { Enabled = true, Subnets = "subnet-1", FrameCount = 10, OriginalRetentionDays = 7, QueueUploadedAfterUtc = DateTime.MinValue };
 
     // ---- rules ----------------------------------------------------------------------------------------------------------
 
@@ -61,13 +61,25 @@ public class VideoTests
     }
 
     [Fact]
-    public void Outputs_are_never_blown_up()
+    public void A_worker_run_costs_its_seconds_at_the_list_prices_at_least_a_minute()
     {
-        Assert.Null(MediaConvertTranscoder.Size(1080, new VideoJobSpec("a", "b", true, 1920, 1080))); // 1080p source: its own size
-        Assert.Equal(720, MediaConvertTranscoder.Size(720, new VideoJobSpec("a", "b", true, 1920, 1080)));
-        Assert.Null(MediaConvertTranscoder.Size(720, new VideoJobSpec("a", "b", true, 424, 240)));
-        Assert.Equal(1080, MediaConvertTranscoder.Size(1080, new VideoJobSpec("a", "b", true, null, null))); // unknown: the target
-        Assert.Equal(1080, MediaConvertTranscoder.Size(1080, new VideoJobSpec("a", "b", true, 3840, 2160)));
+        var t = new DateTime(2026, 11, 15, 10, 0, 0, DateTimeKind.Utc);
+        // 4 vCPU + 8 GB + 30 GB disk above the 20 included, 5 minutes: (4*0.0356 + 8*0.00392 + 30*0.000111) / 12
+        Assert.Equal(0.01476m, VideoRules.RunCost(t, t.AddMinutes(5), 4096, 8192, 50, Settings));
+        Assert.Equal(VideoRules.RunCost(t, t.AddSeconds(60), 4096, 8192, 50, Settings), VideoRules.RunCost(t, t.AddSeconds(5), 4096, 8192, 50, Settings));
+    }
+
+    [Fact]
+    public void The_worker_script_never_runs_unbounded_and_says_complete_last()
+    {
+        var script = FargateTranscoder.Script;
+        Assert.Contains("timeout \"$MAX_SECONDS\" ffmpeg", script);
+        Assert.Contains("-movflags +faststart", script); // plays at once
+        Assert.Contains("min(720,ih)", script); // never blown up
+        Assert.Contains("-map \"0:a:0?\"", script); // sound when there is some, no failure when not
+        Assert.EndsWith("say \"done in $(( $(date +%s) - t0 )) s\"", script.TrimEnd());
+        Assert.True(script.IndexOf("result.json\" --content-type", StringComparison.Ordinal) > script.IndexOf("frames/\" --recursive", StringComparison.Ordinal));
+        Assert.DoesNotContain("\r", script);
     }
 
     [Fact]
@@ -83,7 +95,7 @@ public class VideoTests
 
     private static string T(int ms) => TimeSpan.FromMilliseconds(ms).ToString(@"hh\:mm\:ss\,fff", System.Globalization.CultureInfo.InvariantCulture);
 
-    // ---- the flow, end to end (fake MediaConvert, recording storage) ---------------------------------------------------
+    // ---- the flow, end to end (fake worker, recording storage) -------- ---------------------------------------------------
 
     private sealed class MemStorage : IObjectStorage
     {
@@ -115,7 +127,19 @@ public class VideoTests
             return Task.FromResult(id);
         }
 
-        public Task<VideoJobState> GetAsync(string jobId, CancellationToken ct = default) => Task.FromResult(States[jobId]);
+        public Task<VideoJobState> GetAsync(string jobId, CancellationToken ct = default) =>
+            Task.FromResult(States.TryGetValue(jobId, out var s) ? s : new VideoJobState("ERROR", "gone", null));
+
+        public List<RunningWorker> Running { get; } = new();
+        public List<string> Stopped { get; } = new();
+        public Task<IReadOnlyList<RunningWorker>> ListRunningAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<RunningWorker>>(Running.ToList());
+
+        public Task StopAsync(string jobId, string reason, CancellationToken ct = default)
+        {
+            Stopped.Add(jobId);
+            Running.RemoveAll(w => w.JobId == jobId);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class Clock(DateTime now) : TimeProvider
@@ -179,8 +203,15 @@ public class VideoTests
                 storage.Objects[VideoKeys.Frame(vid, i, small: true)] = 1;
             }
 
-            mc.States["job-2"] = new VideoJobState("COMPLETE", null, 120_000);
+            mc.States["job-2"] = new VideoJobState("COMPLETE", null, 120_000, clock.Now, clock.Now.AddMinutes(5));
             Assert.Equal("queued 0, sent 0, finished 1", await video.TickAsync());
+
+            // Every worker run is kept for the Admin: the failed one and the finished one with its time and cost.
+            var runs = await store.ListRunsAsync(10);
+            Assert.Equal(new[] { ("job-1", "failed", (decimal?)null), ("job-2", "finished", (decimal?)0.01476m) },
+                runs.OrderBy(x => x.JobId).Select(x => (x.JobId, x.StoppedBy!, x.CostUsd)));
+            Assert.Equal(("DJI_0948.MP4", 4096, 8192, 50), (runs[0].FileName, runs[0].Cpu, runs[0].MemoryMb, runs[0].StorageGb));
+            Assert.Empty(await store.ListOpenRunsAsync());
             r = (await store.GetAsync(vid))!;
             Assert.Equal((VideoStatuses.Ready, 60, 30, 120_000), (r.Status, r.FrameCount!.Value, r.PosterIndex!.Value, r.DurationMs!.Value));
             Assert.Equal(VideoRules.OfferedFrames(60, 10), r.OfferedFrames);
@@ -245,17 +276,71 @@ public class VideoTests
                 AttachedToId = 3, StorageKey = "asset/3/x.mov", OriginalFileName = "x.MOV", MimeType = "video/quicktime", FileSize = 9 });
             await files.MarkReadyAsync(id);
 
-            var off = new VideoService(new MySqlVideoStore(db), mc, storage, files, new MySqlMapDropStore(db), new VideoSettings { Enabled = false, RoleArn = "r" });
+            var off = new VideoService(new MySqlVideoStore(db), mc, storage, files, new MySqlMapDropStore(db), new VideoSettings { Enabled = false, Subnets = "subnet-1" });
             Assert.Null(await off.TickAsync());
             Assert.Equal(0, await off.SweepAsync());
 
             var later = new VideoService(new MySqlVideoStore(db), mc, storage, files, new MySqlMapDropStore(db),
-                new VideoSettings { Enabled = true, RoleArn = "r", QueueUploadedAfterUtc = DateTime.UtcNow.AddDays(1) });
+                new VideoSettings { Enabled = true, Subnets = "subnet-1", QueueUploadedAfterUtc = DateTime.UtcNow.AddDays(1) });
             Assert.Null(await later.TickAsync()); // uploaded before the date: not by itself...
             Assert.True(await later.QueueOneAsync(id)); // ...but "Optimize" does
             Assert.False(await later.QueueOneAsync(id));
             Assert.Equal("queued 0, sent 1, finished 0", await later.TickAsync());
             Assert.Empty(mc.Jobs.Where(j => !j.WithAudio)); // a phone video: with sound
+        }
+        finally
+        {
+            await ScratchMySql.DropAsync(db);
+        }
+    }
+
+    [Fact]
+    public async Task No_worker_is_left_running()
+    {
+        if (ScratchMySql.ServerConnectionString is null) { return; }
+
+        var db = ScratchMySql.NewDatabase("nadlan_v_");
+        try
+        {
+            await new SchemaMigrator(db).MigrateAsync();
+            var files = new MySqlFileAttachmentStore(db);
+            var store = new MySqlVideoStore(db);
+            var mc = new FakeTranscoder();
+            var clock = new Clock(DateTime.UtcNow);
+            var video = new VideoService(store, mc, new MemStorage(), files, new MySqlMapDropStore(db), Settings with { MaxRunMinutes = 90 }, clock);
+            async Task<long> VideoAsync(string key)
+            {
+                var id = await files.InsertPendingAsync(new FileAttachment { FileTypeId = (await files.ListTypesAsync()).First().Id, AttachedToType = FileTargetTypes.Parcel,
+                    AttachedToId = 9, StorageKey = key, OriginalFileName = key, MimeType = "video/mp4", FileSize = 5 });
+                await files.MarkReadyAsync(id);
+                return id;
+            }
+
+            var quick = await VideoAsync("a.mp4");
+            var stuck = await VideoAsync("b.mp4");
+            Assert.Equal("queued 2, sent 2, finished 0", await video.TickAsync());
+            mc.Running.Add(new RunningWorker("job-1", clock.Now.AddMinutes(-3)));    // working, fine
+            mc.Running.Add(new RunningWorker("job-2", clock.Now.AddMinutes(-120)));  // running for 2 hours
+            mc.Running.Add(new RunningWorker("job-x", clock.Now.AddMinutes(-1)));    // no video waits for it
+
+            Assert.Equal(2, await video.CheckWorkersAsync());
+            Assert.Equal(new[] { "job-2", "job-x" }, mc.Stopped.Order());
+            Assert.Equal(VideoStatuses.Submitted, (await store.GetAsync(quick))!.Status);
+            var failed = (await store.GetAsync(stuck))!;
+            Assert.Equal((VideoStatuses.Failed, "checker: ran over 90 minutes"), (failed.Status, failed.ErrorMessage));
+            var run = (await store.ListRunsAsync(10)).Single(r => r.JobId == "job-2");
+            Assert.Equal("checker: ran over 90 minutes", run.StoppedBy);
+            Assert.True(run.CostUsd > 0.05m); // two hours of a 4 vCPU worker
+
+            // A run whose video went away (file deleted) is closed by the next check, never left open.
+            mc.Running.Clear();
+            await using (var c = await db.OpenAsync())
+            {
+                await c.ExecuteAsync("DELETE FROM file_attachment WHERE file_attachment_id = @quick", new { quick });
+            }
+
+            Assert.Equal(0, await video.CheckWorkersAsync());
+            Assert.Empty(await store.ListOpenRunsAsync());
         }
         finally
         {

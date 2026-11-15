@@ -466,7 +466,7 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
 
             // Back to version 20 - what production had - with some data there, then 021 again (and 025-027 after it).
             await c.ExecuteAsync("""
-                DROP TABLE video_rendition;
+                DROP TABLE video_worker_run, video_rendition;
                 DELETE FROM schema_version WHERE version = 28;
                 DELETE FROM permission WHERE code = 'VIEW_ANALYTICS_PAGE';
                 DELETE FROM schema_version WHERE version = 27;
@@ -511,7 +511,7 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
                 await migrator.MigrateAsync());
             var after = await TablesAsync();
 
-            Assert.Equal(before.Keys.Concat(WorkTables).Append("presentation_link").Concat(new[] { "app_event", "app_event_context", "app_event_batch", "video_rendition" }).Order(), after.Keys.Order()); // the new tables, nothing dropped
+            Assert.Equal(before.Keys.Concat(WorkTables).Append("presentation_link").Concat(new[] { "app_event", "app_event_context", "app_event_batch", "video_rendition", "video_worker_run" }).Order(), after.Keys.Order()); // the new tables, nothing dropped
             foreach (var (table, was) in before)
             {
                 Assert.True(was.Columns == after[table].Columns, $"{table}: columns changed");

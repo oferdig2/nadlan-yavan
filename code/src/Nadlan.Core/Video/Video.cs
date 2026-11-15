@@ -5,10 +5,11 @@ using Nadlan.Core.Files;
 
 namespace Nadlan.Core.Video;
 
-// Large drone / phone videos (owner, 2026-11-10/11/15; AI/Remarks/Design-Video-2026-11-10.md): AWS MediaConvert makes a 720p and
-// a 1080p MP4 that start at once (index first), plus a frame every 2 s from the original - the poster and the photos offered under
-// the video. The 1080p becomes the kept file and the original is deleted after a few days. Heights above take-off (from the
-// DJI .srt flight track) show as subtitles. Jobs run in Frankfurt: the project's Organization rule blocks MediaConvert in Stockholm.
+// Large drone / phone videos (owner, 2026-11-10/11/15; AI/Remarks/Design-Video-2026-11-10.md): a worker - ffmpeg in a container on
+// AWS Fargate, started only while a video is converted - makes a 720p and a 1080p MP4 that start at once (index first), plus a frame
+// every 2 s from the original: the poster and the photos offered under the video. The 1080p becomes the kept file and the original
+// is deleted after a few days. Heights above take-off (from the DJI .srt flight track) show as subtitles. Not MediaConvert: the
+// account's AWS plan (projects, "new experience") does not offer it without "advanced features" (owner chose Fargate, 2026-11-15).
 
 public static class VideoStatuses
 {
@@ -19,16 +20,38 @@ public static class VideoStatuses
 }
 
 /// <summary>Settings (Nadlan:Video), read at startup.</summary>
-public sealed class VideoSettings
+public sealed record VideoSettings
 {
     /// <summary>Off = nothing is queued or sent; videos play as uploaded.</summary>
     public bool Enabled { get; init; }
 
-    /// <summary>Where the MediaConvert jobs run (the files stay in the bucket's own region).</summary>
-    public string Region { get; init; } = "eu-central-1";
+    /// <summary>The ECS cluster and task definition of the worker (made once with the CloudShell setup script).</summary>
+    public string Cluster { get; init; } = "nadlan-video";
 
-    /// <summary>The role MediaConvert works as (reads originals, writes under _renditions/).</summary>
-    public string RoleArn { get; init; } = "";
+    public string TaskDefinition { get; init; } = "nadlan-video-worker";
+
+    /// <summary>Subnets (comma separated) and security group the worker runs in: the default VPC, outbound only.</summary>
+    public string Subnets { get; init; } = "";
+
+    public string SecurityGroup { get; init; } = "";
+
+    /// <summary>Worker size: vCPU units (1024 = 1 vCPU), memory MB, disk GB. ffmpeg uses every core; 4 vCPU / 8 GB / 50 GB by default.</summary>
+    public int Cpu { get; init; } = 4096;
+
+    public int MemoryMb { get; init; } = 8192;
+
+    public int StorageGb { get; init; } = 50;
+
+    /// <summary>A worker running longer is stopped by the checker (and the script stops itself a bit before).</summary>
+    public int MaxRunMinutes { get; init; } = 90;
+
+    /// <summary>Fargate ARM (Graviton) list prices, EU (Stockholm), USD - for the cost of each run shown to the Admin.</summary>
+    public double CostPerVcpuHour { get; init; } = 0.0356;
+
+    public double CostPerGbHour { get; init; } = 0.00392;
+
+    /// <summary>Disk above the 20 GB included, per GB-hour.</summary>
+    public double CostPerStorageGbHour { get; init; } = 0.000111;
 
     /// <summary>Photos offered per video under it (0-30).</summary>
     public int FrameCount { get; init; } = 10;
@@ -136,19 +159,54 @@ public interface IVideoStore
     Task<bool> SwitchToLargeAsync(long fileAttachmentId, string originalKey, string largeKey, long largeSize, string fileName, CancellationToken ct = default);
 
     Task MarkOriginalDeletedAsync(long fileAttachmentId, CancellationToken ct = default);
+
+    Task StartRunAsync(string jobId, long fileAttachmentId, int cpu, int memoryMb, int storageGb, CancellationToken ct = default);
+
+    /// <summary>The run's end, once (a run already ended is left as it is).</summary>
+    Task EndRunAsync(string jobId, DateTime? startedUtc, DateTime? stoppedUtc, string status, string stoppedBy, decimal? costUsd, CancellationToken ct = default);
+
+    Task<IReadOnlyList<VideoWorkerRun>> ListRunsAsync(int limit, CancellationToken ct = default);
+
+    /// <summary>Runs started but not ended (the leftover check, and runs whose job vanished).</summary>
+    Task<IReadOnlyList<VideoWorkerRun>> ListOpenRunsAsync(CancellationToken ct = default);
 }
 
 public sealed record VideoJobSpec(string InputKey, string OutputPrefix, bool WithAudio, int? SourceWidth, int? SourceHeight);
 
-public sealed record VideoJobState(string Status, string? ErrorMessage, int? DurationMs);
+/// <summary>A job's state; StartedUtc / StoppedUtc = what the worker is billed for (from the image pull to its stop).</summary>
+public sealed record VideoJobState(string Status, string? ErrorMessage, int? DurationMs, DateTime? StartedUtc = null, DateTime? StoppedUtc = null);
 
-/// <summary>MediaConvert (or a fake in tests). Keys are relative to the storage root folder, like every key in the app.</summary>
+/// <summary>A worker the cloud says is running (the leftover check compares them with the jobs we wait for).</summary>
+public sealed record RunningWorker(string JobId, DateTime? StartedUtc);
+
+/// <summary>The worker (Fargate, or a fake in tests). Keys are relative to the storage root folder, like every key in the app.</summary>
 public interface IVideoTranscoder
 {
     Task<string> SubmitAsync(VideoJobSpec spec, CancellationToken ct = default);
 
-    /// <summary>Status: SUBMITTED / PROGRESSING / COMPLETE / ERROR / CANCELED.</summary>
+    /// <summary>Status: PROGRESSING / COMPLETE / ERROR.</summary>
     Task<VideoJobState> GetAsync(string jobId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<RunningWorker>> ListRunningAsync(CancellationToken ct = default);
+
+    Task StopAsync(string jobId, string reason, CancellationToken ct = default);
+}
+
+/// <summary>One worker run, kept for the Admin: when, how big, how long, what it cost (migration 028, video_worker_run).</summary>
+public sealed record VideoWorkerRun
+{
+    public string JobId { get; init; } = "";
+    public long FileAttachmentId { get; init; }
+    public string? FileName { get; init; }
+    public DateTime SubmittedUtc { get; init; }
+    public DateTime? StartedUtc { get; init; }
+    public DateTime? StoppedUtc { get; init; }
+    public int Cpu { get; init; }
+    public int MemoryMb { get; init; }
+    public int StorageGb { get; init; }
+    public string Status { get; init; } = "";
+    public string? StoppedBy { get; init; }
+    public decimal? CostUsd { get; init; }
 }
 
 public sealed record VideoResult(string SmallKey, long SmallSize, string LargeKey, long LargeSize, int? DurationMs, int FrameCount,
@@ -215,6 +273,17 @@ public static class VideoRules
         var longest = segmentsOnHome?.OrderByDescending(s => s.EndMs - s.StartMs).FirstOrDefault();
         var ms = longest is null ? frameCount * VideoSettings.FrameIntervalMs / 2 : (longest.StartMs + longest.EndMs) / 2;
         return Math.Clamp((int)Math.Round(ms / (double)VideoSettings.FrameIntervalMs), 0, frameCount - 1);
+    }
+
+    /// <summary>
+    /// What a worker run cost: Fargate bills per second from the image pull to the stop, at least one minute, for vCPU, memory and
+    /// the disk above the 20 GB included.
+    /// </summary>
+    public static decimal RunCost(DateTime startedUtc, DateTime stoppedUtc, int cpu, int memoryMb, int storageGb, VideoSettings s)
+    {
+        var hours = Math.Max(60, (stoppedUtc - startedUtc).TotalSeconds) / 3600.0;
+        var perHour = cpu / 1024.0 * s.CostPerVcpuHour + memoryMb / 1024.0 * s.CostPerGbHour + Math.Max(0, storageGb - 20) * s.CostPerStorageGbHour;
+        return Math.Round((decimal)(hours * perHour), 5);
     }
 
     /// <summary>A job that failed because the video has no sound: try again without audio.</summary>
