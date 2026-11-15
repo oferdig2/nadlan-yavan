@@ -160,7 +160,8 @@ public interface IVideoStore
 
     Task MarkOriginalDeletedAsync(long fileAttachmentId, CancellationToken ct = default);
 
-    Task StartRunAsync(string jobId, long fileAttachmentId, int cpu, int memoryMb, int storageGb, CancellationToken ct = default);
+    /// <summary>Records a run once (a known job id is left as it is). No file: a worker the checker found without a record.</summary>
+    Task StartRunAsync(string jobId, long? fileAttachmentId, int cpu, int memoryMb, int storageGb, CancellationToken ct = default);
 
     /// <summary>The run's end, once (a run already ended is left as it is).</summary>
     Task EndRunAsync(string jobId, DateTime? startedUtc, DateTime? stoppedUtc, string status, string stoppedBy, decimal? costUsd, CancellationToken ct = default);
@@ -360,7 +361,12 @@ public static class VideoRules
     public static string HeightLabel(double metres, VideoSettings s)
     {
         var m = (int)Math.Round(metres);
-        if (metres < -0.5 || metres > 40)
+        if (metres < -0.5)
+        {
+            return (-m).ToString(CultureInfo.InvariantCulture) + " m below take-off"; // flying down a slope, below where it took off
+        }
+
+        if (metres > 40)
         {
             return m.ToString(CultureInfo.InvariantCulture) + " m";
         }

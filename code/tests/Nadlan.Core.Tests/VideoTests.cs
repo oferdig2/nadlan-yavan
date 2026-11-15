@@ -44,7 +44,7 @@ public class VideoTests
         Assert.Equal(new object[] { 2000, 10_000, "18 m · ≈ 5th floor view" }, cues[2]);
         Assert.Equal("23 m · ≈ 7th floor view", VideoRules.HeightCues(heights, 5m, Settings, null)[^1][2]); // took off 5 m above the plot
         Assert.Equal("52 m", VideoRules.HeightLabel(52, Settings));
-        Assert.Equal("-4 m", VideoRules.HeightLabel(-4, Settings));
+        Assert.Equal("4 m below take-off", VideoRules.HeightLabel(-4, Settings));
         Assert.Equal("6 m · ≈ 1st floor view", VideoRules.HeightLabel(6, Settings));
         Assert.Equal("37 m · ≈ 12th floor view", VideoRules.HeightLabel(37, Settings));
         Assert.Null(VideoRules.HeightsFromTrack(null));
@@ -118,11 +118,12 @@ public class VideoTests
     private sealed class FakeTranscoder : IVideoTranscoder
     {
         public List<VideoJobSpec> Jobs { get; } = new();
+        public string IdPrefix { get; set; } = "job-";
         public Dictionary<string, VideoJobState> States { get; } = new();
         public Task<string> SubmitAsync(VideoJobSpec spec, CancellationToken ct = default)
         {
             Jobs.Add(spec);
-            var id = "job-" + Jobs.Count;
+            var id = IdPrefix + Jobs.Count;
             States[id] = new VideoJobState("PROGRESSING", null, null);
             return Task.FromResult(id);
         }
@@ -214,7 +215,7 @@ public class VideoTests
             Assert.Empty(await store.ListOpenRunsAsync());
             r = (await store.GetAsync(vid))!;
             Assert.Equal((VideoStatuses.Ready, 60, 30, 120_000), (r.Status, r.FrameCount!.Value, r.PosterIndex!.Value, r.DurationMs!.Value));
-            Assert.Equal(VideoRules.OfferedFrames(60, 10), r.OfferedFrames);
+            Assert.Equal(VideoRules.OfferedFrames(60, 10).Append(30).Order(), r.OfferedFrames); // the poster (30) is always offered too
             Assert.True(storage.Objects.ContainsKey("parcel/7/a.mp4.thumb.jpg")); // the poster on every card
             var listed = (await files.ListReadyAsync(FileTargetTypes.Parcel, 7)).Single(f => f.FileAttachmentId == vid);
             Assert.Equal((VideoStatuses.Ready, VideoKeys.Small(vid), VideoKeys.Large(vid), true), (listed.VideoStatus, listed.VideoSmallKey, listed.VideoLargeKey, listed.HasThumbnail));
@@ -341,6 +342,36 @@ public class VideoTests
 
             Assert.Equal(0, await video.CheckWorkersAsync());
             Assert.Empty(await store.ListOpenRunsAsync());
+        }
+        finally
+        {
+            await ScratchMySql.DropAsync(db);
+        }
+    }
+
+    [Fact]
+    public async Task A_worker_whose_job_cannot_be_recorded_is_stopped_at_once_and_never_started_again()
+    {
+        if (ScratchMySql.ServerConnectionString is null) { return; }
+
+        var db = ScratchMySql.NewDatabase("nadlan_v_");
+        try
+        {
+            await new SchemaMigrator(db).MigrateAsync();
+            var files = new MySqlFileAttachmentStore(db);
+            var store = new MySqlVideoStore(db);
+            var mc = new FakeTranscoder { IdPrefix = new string('x', 300) }; // too long to store
+            var video = new VideoService(store, mc, new MemStorage(), files, new MySqlMapDropStore(db), Settings);
+            var id = await files.InsertPendingAsync(new FileAttachment { FileTypeId = (await files.ListTypesAsync()).First().Id, AttachedToType = FileTargetTypes.Parcel,
+                AttachedToId = 4, StorageKey = "v.mp4", OriginalFileName = "v.mp4", MimeType = "video/mp4", FileSize = 5 });
+            await files.MarkReadyAsync(id);
+
+            await video.TickAsync();
+            await video.TickAsync();
+            await video.TickAsync();
+            Assert.Single(mc.Jobs); // started once only
+            Assert.Equal(mc.Jobs.Count, mc.Stopped.Count); // ...and stopped at once
+            Assert.Equal(VideoStatuses.Failed, (await store.GetAsync(id))!.Status);
         }
         finally
         {

@@ -5,7 +5,7 @@
 CREATE TABLE video_rendition (
   file_attachment_id BIGINT NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'Queued' COMMENT 'Queued | Submitted | Ready | Failed',
-  job_id VARCHAR(64) NULL COMMENT 'MediaConvert job id',
+  job_id VARCHAR(200) NULL COMMENT 'the worker: Fargate task ARN',
   attempts INT NOT NULL DEFAULT 0,
   with_audio TINYINT(1) NOT NULL DEFAULT 1 COMMENT '0 = the video has no sound track (drone videos): no audio output',
   queued_utc DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),

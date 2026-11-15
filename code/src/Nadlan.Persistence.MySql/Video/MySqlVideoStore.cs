@@ -127,12 +127,13 @@ public sealed class MySqlVideoStore : IVideoStore
         job_id, file_attachment_id, file_name, submitted_utc, started_utc, stopped_utc, cpu, memory_mb, storage_gb, status, stopped_by, cost_usd
         """;
 
-    public async Task StartRunAsync(string jobId, long fileAttachmentId, int cpu, int memoryMb, int storageGb, CancellationToken ct = default)
+    public async Task StartRunAsync(string jobId, long? fileAttachmentId, int cpu, int memoryMb, int storageGb, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT IGNORE INTO video_worker_run (job_id, file_attachment_id, file_name, cpu, memory_mb, storage_gb)
-            SELECT @jobId, @fileAttachmentId, f.original_file_name, @cpu, @memoryMb, @storageGb FROM file_attachment f WHERE f.file_attachment_id = @fileAttachmentId
+            VALUES (@jobId, (SELECT f.file_attachment_id FROM file_attachment f WHERE f.file_attachment_id = @fileAttachmentId),
+                    (SELECT f.original_file_name FROM file_attachment f WHERE f.file_attachment_id = @fileAttachmentId), @cpu, @memoryMb, @storageGb)
             """, new { jobId, fileAttachmentId, cpu, memoryMb, storageGb }, cancellationToken: ct));
     }
 

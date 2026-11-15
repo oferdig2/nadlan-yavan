@@ -157,12 +157,10 @@ public sealed class VideoService
             return false;
         }
 
+        string jobId;
         try
         {
-            var jobId = await _transcoder.SubmitAsync(new VideoJobSpec(c.StorageKey, VideoKeys.Prefix(c.FileAttachmentId), r.WithAudio, c.Width, c.Height), ct);
-            await _store.MarkSubmittedAsync(r.FileAttachmentId, jobId, r.WithAudio, ct);
-            await _store.StartRunAsync(jobId, r.FileAttachmentId, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, ct);
-            return true;
+            jobId = await _transcoder.SubmitAsync(new VideoJobSpec(c.StorageKey, VideoKeys.Prefix(c.FileAttachmentId), r.WithAudio, c.Width, c.Height), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -175,6 +173,29 @@ public sealed class VideoService
                 await _store.CountAttemptAsync(r.FileAttachmentId, "Could not start: " + ex.Message, ct); // tried again next round
             }
 
+            return false;
+        }
+
+        // A worker runs (and costs) from here on: record it first; if that fails, stop it at once and give up on the video - never
+        // start the same video again while a worker we lost track of goes on (review 2026-11-15: three workers per video).
+        try
+        {
+            await _store.StartRunAsync(jobId, r.FileAttachmentId, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, ct);
+            await _store.MarkSubmittedAsync(r.FileAttachmentId, jobId, r.WithAudio, ct);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            try
+            {
+                await _transcoder.StopAsync(jobId, "the app could not record this job", ct);
+            }
+            catch (Exception)
+            {
+                // the checker stops it within 5 minutes
+            }
+
+            await _store.MarkFailedAsync(r.FileAttachmentId, "Could not record the job: " + ex.Message, ct);
             return false;
         }
     }
@@ -251,6 +272,7 @@ public sealed class VideoService
 
             var reason = orphan ? "checker: no video waits for this worker" : $"checker: ran over {_settings.MaxRunMinutes} minutes";
             await _transcoder.StopAsync(w.JobId, reason, ct);
+            await _store.StartRunAsync(w.JobId, null, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, ct); // a worker we had no record of: its cost shows too
             await EndRunAsync(w.JobId, new VideoJobState("STOPPED", reason, null, w.StartedUtc, Now), reason, ct);
             if (waiting.TryGetValue(w.JobId, out var r))
             {
@@ -307,6 +329,11 @@ public sealed class VideoService
                 await _storage.CopyObjectAsync(posterKey, FileAttachment.ThumbnailKey(file.StorageKey), ct);
                 await _files.SetHasThumbnailAsync(id, ct);
             }
+        }
+
+        if (poster is int pi && !offered.Contains(pi))
+        {
+            offered = offered.Append(pi).Order().ToList(); // the poster is always among the photos offered (review 2026-11-15)
         }
 
         await _store.MarkReadyAsync(id, new VideoResult(VideoKeys.Small(id), small.Value, VideoKeys.Large(id), large.Value, state.DurationMs, count, offered, poster), ct);
