@@ -55,6 +55,12 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
         say "done in $(( $(date +%s) - t0 )) s"
         """;
 
+    /// <summary>The script as Linux reads it: a Windows checkout may give the source file CRLF line ends, which sh would choke on.</summary>
+    internal static string ShellScript => Script.Replace("
+", "
+").Replace("", "
+");
+
     private readonly StorageOptions _storage;
     private readonly VideoSettings _settings;
     private readonly IObjectStorage _objects;
@@ -96,7 +102,7 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
                     new()
                     {
                         Name = Container,
-                        Command = new List<string> { "sh", "-c", Script },
+                        Command = new List<string> { "sh", "-c", ShellScript },
                         Environment = new List<Amazon.ECS.Model.KeyValuePair>
                         {
                             new() { Name = "BUCKET", Value = _storage.Bucket },

@@ -72,7 +72,7 @@ public class VideoTests
     [Fact]
     public void The_worker_script_never_runs_unbounded_and_says_complete_last()
     {
-        var script = FargateTranscoder.Script;
+        var script = FargateTranscoder.ShellScript;
         Assert.Contains("timeout \"$MAX_SECONDS\" ffmpeg", script);
         Assert.Contains("-movflags +faststart", script); // plays at once
         Assert.Contains("min(720,ih)", script); // never blown up
