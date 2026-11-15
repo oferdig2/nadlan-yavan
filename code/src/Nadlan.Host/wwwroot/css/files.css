@@ -107,3 +107,19 @@ video.media-viewer-media { width: min(100%, 1600px); }
   .media-viewer-nav { width: 34px; height: 44px; font-size: 26px; border-radius: 8px; background: rgba(15, 23, 42, 0.78);
     border: 1px solid rgba(255, 255, 255, 0.55); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); }
 }
+/* A converted video (migration 028): the Heights toggle in the viewer, subtitles near the top, "Optimizing…" on cards, frames. */
+.media-viewer-heights { flex: 0 0 auto; background: transparent; color: #cbd5e1; border: 1px solid #64748b; border-radius: 6px; padding: 3px 10px; font: inherit; cursor: pointer; }
+.media-viewer-heights.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+.media-viewer-media::cue { background: rgba(15, 23, 42, 0.72); color: #fff; font-size: 0.9em; }
+.file-optimizing { color: #b45309; }
+.video-box { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
+.video-box .video-state { margin: 2px 0 6px; }
+.video-frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; margin: 6px 0; }
+.video-frame { position: relative; display: block; border: 2px solid transparent; border-radius: 6px; overflow: hidden; cursor: pointer; }
+.video-frame img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.video-frame input { position: absolute; top: 4px; left: 4px; }
+.video-frame .video-frame-at { position: absolute; right: 4px; bottom: 3px; font-size: 11px; color: #fff; text-shadow: 0 1px 2px #000; }
+.video-frame.poster { border-color: #f59e0b; }
+.video-frame:has(input:checked) { border-color: #2563eb; }
+.video-offset { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.video-offset input { width: 90px; }

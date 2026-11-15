@@ -1,6 +1,7 @@
 using Nadlan.Config.MySql;
 using Nadlan.Host.Activity;
 using Nadlan.Host.Analytics;
+using Nadlan.Host.Video;
 using Nadlan.Host.Admin;
 using Nadlan.Host.Assets;
 using Nadlan.Host.Auth;
@@ -35,6 +36,7 @@ builder.Services.Configure<NadlanOptions>(builder.Configuration.GetSection(Nadla
 builder.Services.AddNadlanPersistence(db);
 builder.Services.AddNadlanServices();
 builder.Services.AddNadlanFileStorage(builder.Configuration);
+builder.Services.AddNadlanVideo(builder.Configuration); // large videos made light (AWS MediaConvert, migration 028)
 builder.Services.AddNadlanAuth(builder.Configuration, db);
 builder.Services.AddMachineAdmin(); // server pages: workload/restarts, web files + hot patches, app_config
 // A request the endpoint can't bind (malformed JSON, "abc" for a number) throws, so ApiErrorMiddleware answers with the
@@ -60,6 +62,7 @@ app.MapSeaDistanceEndpoints();
 app.MapContactEndpoints();
 app.MapPortfolioEndpoints();
 app.MapFileEndpoints();
+app.MapVideoEndpoints(); // a video's conversion, frames and heights (File details)
 app.MapFileDetailsEndpoints(); // N3: what is inside a photo / video (File details)
 app.MapMapDropEndpoints(); // Map drop: drop media on the map, inspect, assign to Parcels, video time frames
 app.MapPresentationEndpoints();

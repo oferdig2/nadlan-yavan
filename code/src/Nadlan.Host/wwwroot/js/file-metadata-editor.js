@@ -97,6 +97,72 @@
     }, function (err) { $facts.html("<dt></dt><dd class=\"error\">" + Nadlan.format.escapeHtml(err.message) + "</dd>"); });
   }
 
+  function mb(bytes) { return bytes ? Nadlan.formatFileSize(bytes) : "?"; }
+
+  // A video's light versions (migration 028): state, the frames offered as photos, the take-off correction for the heights.
+  // onChanged: photos were added (the Files list reloads when the dialog closes).
+  function showVideo(file, $box, onChanged) {
+    if (!$box.length) { return; }
+    var esc = Nadlan.format.escapeHtml;
+    var url = "/api/files/" + file.fileAttachmentId + "/video";
+    function render(v) {
+      var html = "<div class=\"card-section-head\"><span>Video for playing</span></div>";
+      if (v.status === "Ready") {
+        html += "<div class=\"video-state muted\">Optimized: 720p " + esc(mb(v.smallSize)) + " · 1080p " + esc(mb(v.largeSize)) +
+          (v.originalDeletedUtc ? " · the original was deleted (the 1080p is the file now)."
+            : v.originalDeleteDueUtc ? " · the original (" + esc(mb(v.originalSize)) + ") is kept until " + esc(new Date(v.originalDeleteDueUtc).toLocaleDateString()) + "." : ".") + "</div>";
+      } else if (v.status === "Queued" || v.status === "Submitted") {
+        html += "<div class=\"video-state file-optimizing\">Optimizing for playing… it plays as uploaded meanwhile.</div>";
+      } else if (v.status === "Failed") {
+        html += "<div class=\"video-state error\">Optimizing failed: " + esc(v.error || "") + "</div>" +
+          (v.canEdit && v.active ? "<button type=\"button\" class=\"btn btn-small\" data-video=\"optimize\">Try again</button>" : "");
+      } else if (v.active && v.canEdit) {
+        html += "<div class=\"video-state muted\">Not optimized: it plays as uploaded.</div><button type=\"button\" class=\"btn btn-small\" data-video=\"optimize\">Optimize for playing</button>";
+      } else {
+        $box.prop("hidden", true);
+        return;
+      }
+
+      if (v.frames && v.frames.length) {
+        html += "<div class=\"muted md-small\">Frames from the video - tick the ones to keep as photos" + (v.posterIndex !== null ? " (orange = the poster)" : "") + ":</div>" +
+          "<div class=\"video-frames\">" + v.frames.map(function (f) {
+            return "<label class=\"video-frame" + (f.index === v.posterIndex ? " poster" : "") + "\" title=\"At " + esc(f.at) + "\"><img loading=\"lazy\" src=\"" + esc(f.thumbUrl) +
+              "\" alt=\"\"><input type=\"checkbox\" value=\"" + f.index + "\"" + (v.canEdit ? "" : " disabled") + "><span class=\"video-frame-at\">" + esc(f.at) + "</span></label>";
+          }).join("") + "</div>" +
+          (v.canEdit ? "<button type=\"button\" class=\"btn btn-small\" data-video=\"frames\">Add ticked frames as photos</button>" : "");
+      }
+
+      if (v.hasHeights) {
+        html += "<div class=\"video-offset\"><span>Heights: take-off was</span><input class=\"input\" data-video=\"offset\" inputmode=\"decimal\" value=\"" + esc(String(v.offsetM || 0)) +
+          "\"" + (v.canEdit ? "" : " disabled") + "><span>m above the plot</span>" +
+          (v.canEdit ? "<button type=\"button\" class=\"btn btn-small\" data-video=\"save-offset\">Save</button>" : "") + "</div>" +
+          "<div class=\"muted md-small\">Shown as \"18 m · ≈ 5th floor view\" while the video plays; 0 when it took off from the plot itself.</div>";
+      }
+
+      $box.html(html + "<div class=\"video-msg muted md-small\"></div>").prop("hidden", false);
+    }
+    function load() { Nadlan.api.get(url).then(render, function () { $box.prop("hidden", true); }); }
+    function say(text, isError) { $box.find(".video-msg").toggleClass("error", !!isError).text(text); }
+    $box.on("click", "[data-video=optimize]", function () {
+      Nadlan.api.post(url + "/optimize", {}).then(load, function (err) { say(err.message, true); });
+    });
+    $box.on("click", "[data-video=frames]", function () {
+      var picked = $box.find(".video-frames input:checked").map(function () { return Number(this.value); }).get();
+      if (!picked.length) { say("Tick at least one frame.", true); return; }
+      Nadlan.api.post(url + "/frames", { indexes: picked }).then(function (res) {
+        $box.find(".video-frames input").prop("checked", false);
+        say(res.added + " photo" + (res.added === 1 ? "" : "s") + " added to the files.");
+        onChanged();
+      }, function (err) { say(err.message, true); });
+    });
+    $box.on("click", "[data-video=save-offset]", function () {
+      var m = Number(String($box.find("[data-video=offset]").val()).replace(",", "."));
+      if (!isFinite(m)) { say("Type a number of metres, e.g. 5 or -3.", true); return; }
+      Nadlan.api.put(url + "/offset", { offsetM: m }).then(function () { say("Saved."); onChanged(); }, function (err) { say(err.message, true); });
+    });
+    load();
+  }
+
   function open(file, fileTypes) {
     return new Promise(function (resolve) {
       var esc = Nadlan.format.escapeHtml;
@@ -115,6 +181,7 @@
             "<div class=\"frame-rows\"><span class=\"muted\">Loading…</span></div>" +
             "<div class=\"btn-row\"><button type=\"button\" class=\"btn btn-small\" data-act=\"add-frame\">+ Time frame</button>" +
             "<button type=\"button\" class=\"btn btn-small\" data-act=\"save-frames\">Save time frames</button></div></fieldset>" : "") +
+          (String(file.mimeType || "").indexOf("video/") === 0 ? "<div class=\"video-box\" hidden></div>" : "") +
           "<div class=\"btn-row\">" +
             "<a class=\"btn\" target=\"_blank\" rel=\"noopener\" href=\"/api/files/" + file.fileAttachmentId + "/content\">Open</a>" +
             "<button type=\"button\" class=\"btn btn-danger\" data-act=\"delete\">Delete file</button>" +
@@ -146,6 +213,7 @@
       });
 
       showFacts(file, $form.find(".file-facts"));
+      showVideo(file, $form.find(".video-box"), function () { result = result || "changed"; });
 
       // ---- time frames (Map drop; data entry = MAP_DROP) ----
       var $rows = $form.find(".frame-rows");

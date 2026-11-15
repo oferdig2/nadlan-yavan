@@ -126,6 +126,7 @@ public static class PresentationEndpoints
         var files = services.GetRequiredService<IFileAttachmentStore>();
         var urls = services.GetRequiredService<IFileUrlProvider>();
         var sea = services.GetRequiredService<SeaDistanceService>();
+        var video = services.GetService<Nadlan.Core.Video.VideoSettings>();
         {
             List<long> order;
             AssetQuery query;
@@ -176,7 +177,7 @@ public static class PresentationEndpoints
                 }
 
                 var seaMetres = sea.Settings.Shown(g.Select(a => seaByParcel.GetValueOrDefault(a.ParcelId)).Where(m => m is not null).Min());
-                items.Add(Item(g.ToList(), asset, plotSqm, await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct), seaMetres, hideNumbers));
+                items.Add(Item(g.ToList(), asset, plotSqm, await MediaAsync(me, files, urls, g.Key, g.Select(a => a.ParcelId).Distinct(), ct, video), seaMetres, hideNumbers));
             }
 
             return (items, all.Count, all.Count > groups.Count);
@@ -328,7 +329,7 @@ public static class PresentationEndpoints
     /// ("ID_scan_Papadopoulos.jpg").
     /// </summary>
     private static async Task<List<object>> MediaAsync(UserAccess me, IFileAttachmentStore files, IFileUrlProvider urls, long assetId,
-        IEnumerable<long> parcelIds, CancellationToken ct)
+        IEnumerable<long> parcelIds, CancellationToken ct, Nadlan.Core.Video.VideoSettings? video = null)
     {
         var all = new List<FileListItem>(await files.ListReadyAsync(FileTargetTypes.Asset, assetId, ct));
         foreach (var parcelId in parcelIds)
@@ -336,10 +337,10 @@ public static class PresentationEndpoints
             all.AddRange(await files.ListReadyAsync(FileTargetTypes.Parcel, parcelId, ct));
         }
 
-        return Media(me, urls, all);
+        return Media(me, urls, all, video);
     }
 
-    internal static List<object> Media(UserAccess me, IFileUrlProvider urls, IEnumerable<FileListItem> all)
+    internal static List<object> Media(UserAccess me, IFileUrlProvider urls, IEnumerable<FileListItem> all, Nadlan.Core.Video.VideoSettings? video = null)
     {
         return all.Where(f => string.Equals(f.Category, CustomerCategory, StringComparison.OrdinalIgnoreCase) && me.CanSeeFileCategory(f.Category)
                               && CustomerMediaTypes.Contains(f.MimeType.Split(';')[0].Trim()))
@@ -348,7 +349,8 @@ public static class PresentationEndpoints
             {
                 kind = f.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ? "video" : "image",
                 // Neutral names: the uploader's file name must not reach the customer through the download name.
-                url = urls.GetUrl(f.StorageKey, NeutralName(f)),
+                url = urls.GetUrl(Nadlan.Host.Video.VideoView.PlayKey(f), NeutralName(f)), // a video: its 1080p once converted
+                video = Nadlan.Host.Video.VideoView.For(f, urls, video, NeutralName(f)), // 720p for phones, heights as subtitles
                 downloadUrl = urls.GetDownloadUrl(f.StorageKey, NeutralName(f)), // "Download the video" when it can't play here
                 thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey), "photo.jpg") : null,
                 caption = string.IsNullOrWhiteSpace(f.Caption) ? f.FileTypeName : f.Caption,

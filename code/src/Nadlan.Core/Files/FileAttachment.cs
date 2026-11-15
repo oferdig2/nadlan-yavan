@@ -70,6 +70,14 @@ public sealed record FileListItem
 
     /// <summary>When the photo / video was taken, as its camera wrote it ("yyyy-MM-dd HH:mm:ss", no time zone); null = not read or none.</summary>
     public string? TakenLocal { get; init; }
+
+    // A video's light versions (migration 028, video_rendition); null = not converted (yet).
+    public string? VideoStatus { get; init; }
+    public string? VideoSmallKey { get; init; }
+    public string? VideoLargeKey { get; init; }
+    public string? VideoHeightsJson { get; init; }
+    public decimal VideoOffsetM { get; init; }
+    public int? VideoDurationMs { get; init; }
 }
 
 public sealed record FileType(int Id, string Code, string Name, string Category, bool IsActive, int SortOrder);

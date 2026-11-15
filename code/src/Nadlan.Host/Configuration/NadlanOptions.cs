@@ -16,6 +16,48 @@ public sealed class NadlanOptions
 
     public GeoOptions Geo { get; set; } = new();
 
+    public VideoOptions Video { get; set; } = new();
+
+    /// <summary>
+    /// Large videos made light (AWS MediaConvert, migration 028; owner 2026-11-10/15). Off until switched on with the role. Jobs run
+    /// in Region (Frankfurt: the project's AWS rule blocks MediaConvert in Stockholm); the files stay in the bucket.
+    /// </summary>
+    public sealed class VideoOptions
+    {
+        public bool Enabled { get; set; }
+
+        public string Region { get; set; } = "eu-central-1";
+
+        public string RoleArn { get; set; } = "";
+
+        public int FrameCount { get; set; } = 10;
+
+        public bool HeightsOnByDefault { get; set; } = true;
+
+        public double FloorHeightM { get; set; } = 3.0;
+
+        public double EyeHeightM { get; set; } = 1.6;
+
+        public int OriginalRetentionDays { get; set; } = 7;
+
+        /// <summary>yyyy-MM-dd: videos uploaded since then are converted by themselves. Empty = every video (older ones too).</summary>
+        public string QueueUploadedAfter { get; set; } = "";
+
+        public Nadlan.Core.Video.VideoSettings ToSettings() => new()
+        {
+            Enabled = Enabled,
+            Region = string.IsNullOrWhiteSpace(Region) ? "eu-central-1" : Region.Trim(),
+            RoleArn = (RoleArn ?? "").Trim(),
+            FrameCount = Math.Clamp(FrameCount, 0, 30),
+            HeightsOnByDefault = HeightsOnByDefault,
+            FloorHeightM = FloorHeightM is > 1 and < 10 ? FloorHeightM : 3.0,
+            EyeHeightM = EyeHeightM is >= 0 and < 5 ? EyeHeightM : 1.6,
+            OriginalRetentionDays = Math.Clamp(OriginalRetentionDays, 1, 365),
+            QueueUploadedAfterUtc = DateTime.TryParseExact((QueueUploadedAfter ?? "").Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var d) ? d : DateTime.MinValue,
+        };
+    }
+
     /// <summary>
     /// Where a visitor's IP is placed (analytics, migration 026): MaxMind GeoLite2 files on this machine, no call to anyone.
     /// Empty or a missing file = the IP is kept and the place left empty (filled in later by the daily job).

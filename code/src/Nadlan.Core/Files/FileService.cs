@@ -224,6 +224,27 @@ public sealed class FileService
         await _files.UpdateMetadataAsync(fileAttachmentId, fileTypeId, TextNormalize.NullIfBlank(caption), TextNormalize.NullIfBlank(notes), sortOrder, ct);
     }
 
+    /// <summary>A video's light versions and frames (_renditions/{id}/, migration 028); best effort, like the preview.</summary>
+    private async Task DeleteRenditionsAsync(FileAttachment file, CancellationToken ct)
+    {
+        if (!file.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var o in await _storage.ListAsync(Nadlan.Core.Video.VideoKeys.Prefix(file.FileAttachmentId), ct))
+            {
+                await _storage.DeleteObjectAsync(o.Key, ct);
+            }
+        }
+        catch (NotSupportedException)
+        {
+            // storage without listing (tests): nothing was converted there
+        }
+    }
+
     public async Task DeleteAsync(long fileAttachmentId, CancellationToken ct = default)
     {
         var file = await _files.GetAsync(fileAttachmentId, ct) ?? throw new EntityNotFoundException("File", fileAttachmentId);
@@ -236,6 +257,7 @@ public sealed class FileService
         {
             await _storage.DeleteObjectAsync(file.StorageKey, ct);
             await DeleteThumbnailAsync(file, ct);
+            await DeleteRenditionsAsync(file, ct);
         }
 
         await _files.DeleteAsync(fileAttachmentId, ct);
@@ -255,6 +277,7 @@ public sealed class FileService
         {
             await _storage.DeleteObjectAsync(file.StorageKey, ct);
             await DeleteThumbnailAsync(file, ct);
+            await DeleteRenditionsAsync(file, ct);
         }
 
         await RecordAsync(file, ActivityActions.FileDeleted, "Deleted", ct);
