@@ -139,14 +139,15 @@ try {
     Write-Host "cache policy $cachePolicyId, headers policy $headersPolicyId"
 
     # ------------------------------------------------------------ function: refuse "_" folders
-    Write-Step "Function: refuse _backups, _downloads and every other '_' folder"
+    Write-Step "Function: refuse _backups, _downloads and every other '_' folder except _renditions"
     $fnName = $Name + "-block-internal"
     $fnCode = Join-Path $tmpDir "fn.js"
     [IO.File]::WriteAllText($fnCode, @'
 // GreekPlot files CDN: app files live under <type>/<id>/...; folders starting with "_" (database backups, downloads,
-// self-test) are never served here, even with a valid signature.
+// self-test) are never served here, even with a valid signature - except _renditions/ (the light video copies, 2026-11-16).
 function handler(event) {
-  if (event.request.uri.indexOf('/_') === 0) {
+  var uri = event.request.uri;
+  if (uri.indexOf('/_') === 0 && uri.indexOf('/_renditions/') !== 0) {
     return { statusCode: 403, statusDescription: 'Forbidden' };
   }
   return event.request;
@@ -156,10 +157,10 @@ function handler(event) {
     if ($fn.Ok) {
         $etag = ($fn.Out | ConvertFrom-Json).ETag
         $etag = (Get-CfJson @("cloudfront", "update-function", "--name", $fnName, "--if-match", $etag,
-            "--function-config", "Comment=GreekPlot files: refuse _ folders,Runtime=cloudfront-js-2.0", "--function-code", "fileb://$fnCode")).ETag
+            "--function-config", "Comment=GreekPlot files: refuse _ folders except _renditions,Runtime=cloudfront-js-2.0", "--function-code", "fileb://$fnCode")).ETag
     } else {
         $etag = (Get-CfJson @("cloudfront", "create-function", "--name", $fnName,
-            "--function-config", "Comment=GreekPlot files: refuse _ folders,Runtime=cloudfront-js-2.0", "--function-code", "fileb://$fnCode")).ETag
+            "--function-config", "Comment=GreekPlot files: refuse _ folders except _renditions,Runtime=cloudfront-js-2.0", "--function-code", "fileb://$fnCode")).ETag
     }
     Get-CfJson @("cloudfront", "publish-function", "--name", $fnName, "--if-match", $etag) | Out-Null
     $fnArn = (Get-CfJson @("cloudfront", "describe-function", "--name", $fnName, "--stage", "LIVE")).FunctionSummary.FunctionMetadata.FunctionARN
