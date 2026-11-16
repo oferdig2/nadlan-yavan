@@ -101,13 +101,14 @@ public class VideoTests
     {
         public Dictionary<string, long> Objects { get; } = new();
         public Dictionary<string, string> Texts { get; } = new();
+        public bool EverythingExists { get; init; }
         public bool IsConfigured => true;
         public Task<string> StartMultipartUploadAsync(string key, string contentType, string contentDisposition, CancellationToken ct = default) => Task.FromResult("u");
         public string GetPartUploadUrl(string key, string uploadId, int partNumber, TimeSpan lifetime) => "";
         public Task<IReadOnlyList<UploadedPart>?> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<UploadedPart>?>(null);
         public Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<UploadedPart> parts, CancellationToken ct = default) => Task.CompletedTask;
         public Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default) => Task.FromResult(Objects.TryGetValue(key, out var s) ? s : (long?)null);
+        public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default) => Task.FromResult(Objects.TryGetValue(key, out var s) ? s : EverythingExists ? 5 : (long?)null);
         public Task DeleteObjectAsync(string key, CancellationToken ct = default) { Objects.Remove(key); return Task.CompletedTask; }
         public Task CopyObjectAsync(string fromKey, string toKey, CancellationToken ct = default) { Objects[toKey] = Objects[fromKey]; return Task.CompletedTask; }
         public Task<IReadOnlyList<StoredObject>> ListAsync(string prefix, CancellationToken ct = default) =>
@@ -120,8 +121,15 @@ public class VideoTests
         public List<VideoJobSpec> Jobs { get; } = new();
         public string IdPrefix { get; set; } = "job-";
         public Dictionary<string, VideoJobState> States { get; } = new();
+        public Exception? Refuse { get; set; }
+
         public Task<string> SubmitAsync(VideoJobSpec spec, CancellationToken ct = default)
         {
+            if (Refuse is not null)
+            {
+                throw Refuse;
+            }
+
             Jobs.Add(spec);
             var id = IdPrefix + Jobs.Count;
             States[id] = new VideoJobState("PROGRESSING", null, null);
@@ -271,7 +279,7 @@ public class VideoTests
         {
             await new SchemaMigrator(db).MigrateAsync();
             var files = new MySqlFileAttachmentStore(db);
-            var storage = new MemStorage();
+            var storage = new MemStorage { EverythingExists = true };
             var mc = new FakeTranscoder();
             var id = await files.InsertPendingAsync(new FileAttachment { FileTypeId = (await files.ListTypesAsync()).First().Id, AttachedToType = FileTargetTypes.Asset,
                 AttachedToId = 3, StorageKey = "asset/3/x.mov", OriginalFileName = "x.MOV", MimeType = "video/quicktime", FileSize = 9 });
@@ -308,7 +316,7 @@ public class VideoTests
             var store = new MySqlVideoStore(db);
             var mc = new FakeTranscoder();
             var clock = new Clock(DateTime.UtcNow);
-            var video = new VideoService(store, mc, new MemStorage(), files, new MySqlMapDropStore(db), Settings with { MaxRunMinutes = 90 }, clock);
+            var video = new VideoService(store, mc, new MemStorage { EverythingExists = true }, files, new MySqlMapDropStore(db), Settings with { MaxRunMinutes = 90 }, clock);
             async Task<long> VideoAsync(string key)
             {
                 var id = await files.InsertPendingAsync(new FileAttachment { FileTypeId = (await files.ListTypesAsync()).First().Id, AttachedToType = FileTargetTypes.Parcel,
@@ -361,7 +369,7 @@ public class VideoTests
             var files = new MySqlFileAttachmentStore(db);
             var store = new MySqlVideoStore(db);
             var mc = new FakeTranscoder { IdPrefix = new string('x', 300) }; // too long to store
-            var video = new VideoService(store, mc, new MemStorage(), files, new MySqlMapDropStore(db), Settings);
+            var video = new VideoService(store, mc, new MemStorage { EverythingExists = true }, files, new MySqlMapDropStore(db), Settings);
             var id = await files.InsertPendingAsync(new FileAttachment { FileTypeId = (await files.ListTypesAsync()).First().Id, AttachedToType = FileTargetTypes.Parcel,
                 AttachedToId = 4, StorageKey = "v.mp4", OriginalFileName = "v.mp4", MimeType = "video/mp4", FileSize = 5 });
             await files.MarkReadyAsync(id);
@@ -372,6 +380,95 @@ public class VideoTests
             Assert.Single(mc.Jobs); // started once only
             Assert.Equal(mc.Jobs.Count, mc.Stopped.Count); // ...and stopped at once
             Assert.Equal(VideoStatuses.Failed, (await store.GetAsync(id))!.Status);
+        }
+        finally
+        {
+            await ScratchMySql.DropAsync(db);
+        }
+    }
+
+    [Fact]
+    public void A_good_original_is_kept_instead_of_a_bigger_copy()
+    {
+        Assert.True(VideoRules.KeepOriginal("h264", 142, 93));   // WhatsApp: the copy came out bigger
+        Assert.True(VideoRules.KeepOriginal("h264", 90, 93));    // ...or hardly smaller
+        Assert.False(VideoRules.KeepOriginal("h264", 217, 1135)); // a drone original: the copy is much smaller
+        Assert.False(VideoRules.KeepOriginal("hevc", 142, 93));  // HEVC does not play everywhere: the copy stays
+        Assert.False(VideoRules.KeepOriginal(null, 142, 93));
+        Assert.True(VideoRules.IsCapacityError("The worker did not start: You’ve reached the limit on the number of vCPUs you can run concurrently"));
+    }
+
+    [Fact]
+    public async Task Workers_wait_their_turn_a_missing_original_starts_none_and_a_good_original_stays_the_file()
+    {
+        if (ScratchMySql.ServerConnectionString is null) { return; }
+
+        var db = ScratchMySql.NewDatabase("nadlan_v_");
+        try
+        {
+            await new SchemaMigrator(db).MigrateAsync();
+            var files = new MySqlFileAttachmentStore(db);
+            var store = new MySqlVideoStore(db);
+            var storage = new MemStorage();
+            var mc = new FakeTranscoder();
+            var clock = new Clock(DateTime.UtcNow);
+            var video = new VideoService(store, mc, storage, files, new MySqlMapDropStore(db), Settings with { MaxWorkers = 1 }, clock);
+            var typeId = (await files.ListTypesAsync()).First().Id;
+            async Task<long> VideoAsync(string key, long size, bool stored = true)
+            {
+                var id = await files.InsertPendingAsync(new FileAttachment { FileTypeId = typeId, AttachedToType = FileTargetTypes.Parcel, AttachedToId = 6,
+                    StorageKey = key, OriginalFileName = key, MimeType = "video/mp4", FileSize = size });
+                await files.MarkReadyAsync(id);
+                if (stored)
+                {
+                    storage.Objects[key] = size;
+                }
+
+                return id;
+            }
+
+            var whatsapp = await VideoAsync("wa.mp4", 93);
+            var gone = await VideoAsync("gone.mp4", 50, stored: false);
+
+            // AWS has no room: nothing counted, the videos wait.
+            mc.Refuse = new StorageUnavailableException("The worker did not start: You’ve reached the limit on the number of vCPUs you can run concurrently");
+            await video.TickAsync();
+            Assert.Equal((VideoStatuses.Queued, 0), ((await store.GetAsync(whatsapp))!.Status, (await store.GetAsync(whatsapp))!.Attempts));
+
+            // One worker at a time; the file without bytes is failed without a worker.
+            mc.Refuse = null;
+            await video.TickAsync();
+            await video.TickAsync();
+            Assert.Single(mc.Jobs);
+            Assert.Equal(VideoStatuses.Queued, (await store.GetAsync(gone))!.Status); // waits for the one worker
+
+            // The WhatsApp original (H.264) is kept: its copies came out bigger and are removed.
+            storage.Objects[VideoKeys.Small(whatsapp)] = 108;
+            storage.Objects[VideoKeys.Large(whatsapp)] = 142;
+            mc.States["job-1"] = new VideoJobState("COMPLETE", null, 264_000, clock.Now, clock.Now.AddMinutes(2), "h264");
+            await video.TickAsync();
+            var r = (await store.GetAsync(whatsapp))!;
+            Assert.Equal((VideoStatuses.Ready, "wa.mp4", "wa.mp4", 93L), (r.Status, r.LargeKey, r.SmallKey, r.LargeSize!.Value));
+            Assert.False(storage.Objects.ContainsKey(VideoKeys.Large(whatsapp)));
+            Assert.False(storage.Objects.ContainsKey(VideoKeys.Small(whatsapp)));
+
+            // Its turn now: the file without bytes is failed at once, no worker started.
+            await video.TickAsync();
+            Assert.Single(mc.Jobs);
+            Assert.Equal((VideoStatuses.Failed, "The original file is missing in storage: nothing to convert."),
+                ((await store.GetAsync(gone))!.Status, (await store.GetAsync(gone))!.ErrorMessage));
+
+            // After the waiting period the original is not deleted (it is the file); not looked at again.
+            await using (var c = await db.OpenAsync())
+            {
+                await c.ExecuteAsync("UPDATE video_rendition SET completed_utc = UTC_TIMESTAMP(3) - INTERVAL 30 DAY");
+            }
+
+            Assert.Equal(0, await video.SweepAsync());
+            Assert.True(storage.Objects.ContainsKey("wa.mp4"));
+            Assert.Equal("wa.mp4", (await files.GetAsync(whatsapp))!.StorageKey);
+            Assert.NotNull((await store.GetAsync(whatsapp))!.FramesDeletedUtc);
+            Assert.Null((await store.GetAsync(whatsapp))!.OriginalDeletedUtc);
         }
         finally
         {

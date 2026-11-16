@@ -42,6 +42,8 @@ public sealed class NadlanOptions
 
         public int MaxRunMinutes { get; set; } = 90;
 
+        public int MaxWorkers { get; set; } = 3;
+
         public double CostPerVcpuHour { get; set; } = 0.0356;
 
         public double CostPerGbHour { get; set; } = 0.00392;
@@ -70,6 +72,7 @@ public sealed class NadlanOptions
             MemoryMb = Math.Clamp(MemoryMb, 2048, 32768),
             StorageGb = Math.Clamp(StorageGb, 21, 200),
             MaxRunMinutes = Math.Clamp(MaxRunMinutes, 10, 600),
+            MaxWorkers = Math.Clamp(MaxWorkers, 1, 10),
             CostPerVcpuHour = CostPerVcpuHour > 0 ? CostPerVcpuHour : 0.0356,
             CostPerGbHour = CostPerGbHour > 0 ? CostPerGbHour : 0.00392,
             FrameCount = Math.Clamp(FrameCount, 0, 30),

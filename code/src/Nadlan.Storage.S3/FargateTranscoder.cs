@@ -36,6 +36,7 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
         aws s3 cp "s3://$BUCKET/$IN_KEY" in.bin --only-show-errors
         say "downloaded $(du -h in.bin | cut -f1) in $(( $(date +%s) - t0 )) s"
         DUR=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 in.bin || true)
+        CODEC=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 in.bin || true)
         S720="scale=w='if(gt(iw,ih),-2,min(720,iw))':h='if(gt(iw,ih),min(720,ih),-2)'"
         S1080="scale=w='if(gt(iw,ih),-2,min(1080,iw))':h='if(gt(iw,ih),min(1080,ih),-2)'"
         X264="-c:v libx264 -preset veryfast -crf 23 -profile:v high -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 128k -ac 2"
@@ -50,7 +51,7 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
         aws s3 cp v1080.mp4 "s3://$BUCKET/${OUT}v1080.mp4" --content-type video/mp4 --only-show-errors
         aws s3 cp frames "s3://$BUCKET/${OUT}frames/" --recursive --content-type image/jpeg --only-show-errors
         MS=$(awk -v d="${DUR:-0}" 'BEGIN { printf "%d", d * 1000 }')
-        printf '{"durationMs":%s,"seconds":%s}' "$MS" "$(( $(date +%s) - t0 ))" > result.json
+        printf '{"durationMs":%s,"seconds":%s,"codec":"%s"}' "$MS" "$(( $(date +%s) - t0 ))" "$CODEC" > result.json
         aws s3 cp result.json "s3://$BUCKET/${OUT}result.json" --content-type application/json --only-show-errors
         say "done in $(( $(date +%s) - t0 )) s"
         """;
@@ -154,17 +155,19 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
             if (result is not null)
             {
                 int? ms = null;
+                string? codec = null;
                 try
                 {
                     using var doc = JsonDocument.Parse(result);
                     ms = doc.RootElement.TryGetProperty("durationMs", out var d) && d.TryGetInt32(out var v) && v > 0 ? v : null;
+                    codec = doc.RootElement.TryGetProperty("codec", out var c) && c.ValueKind == JsonValueKind.String && c.GetString() is { Length: > 0 } cs ? cs : null;
                 }
                 catch (JsonException)
                 {
                     // the duration is a nicety
                 }
 
-                return new VideoJobState("COMPLETE", null, ms, started, task.StoppedAt);
+                return new VideoJobState("COMPLETE", null, ms, started, task.StoppedAt, codec);
             }
         }
 
