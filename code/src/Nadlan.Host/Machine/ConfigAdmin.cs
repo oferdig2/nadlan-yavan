@@ -85,6 +85,7 @@ public sealed class ConfigAdmin
         new ConfigField("Nadlan:Video:Cpu", "Worker CPU (units)", "integer", "1024 = 1 vCPU. ffmpeg uses every core: 4096 (4 vCPU) converts a 4-minute 1080p video in a few minutes."),
         new ConfigField("Nadlan:Video:MemoryMb", "Worker memory (MB)", "integer", "8192 for 4 vCPU."),
         new ConfigField("Nadlan:Video:StorageGb", "Worker disk (GB)", "integer", "Holds the original and the results: 50 is plenty for a 20 GB video."),
+        new ConfigField("Nadlan:Video:MaxWorkers", "Workers at the same time", "integer", "More videos wait their turn. AWS limits the vCPUs a new account may run at once; 3 workers of 4 vCPU stay inside it."),
         new ConfigField("Nadlan:Video:MaxRunMinutes", "Stop a worker after (minutes)", "integer", "A safety net: a worker running longer is stopped and its video marked failed."),
         new ConfigField("Nadlan:Video:CostPerVcpuHour", "Price per vCPU-hour (USD)", "number", "Fargate ARM, EU (Stockholm) list price - for the cost of each run."),
         new ConfigField("Nadlan:Video:CostPerGbHour", "Price per GB-hour (USD)", "number", "Fargate ARM memory, EU (Stockholm) list price."),

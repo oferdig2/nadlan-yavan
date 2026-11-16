@@ -29,6 +29,7 @@ public static class AppConfigLimits
         ["Nadlan:Video:MemoryMb"] = (2048, 32768),
         ["Nadlan:Video:StorageGb"] = (21, 200),
         ["Nadlan:Video:MaxRunMinutes"] = (10, 600),
+        ["Nadlan:Video:MaxWorkers"] = (1, 10),
         ["Nadlan:Video:CostPerVcpuHour"] = (0.001, 1),
         ["Nadlan:Video:CostPerGbHour"] = (0.0001, 0.1),
         ["Nadlan:Video:FloorHeightM"] = (2, 6),

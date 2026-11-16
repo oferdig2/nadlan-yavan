@@ -57,10 +57,18 @@ public sealed class VideoService
             queued += await QueueCandidateAsync(c, ct) ? 1 : 0;
         }
 
+        // At most MaxWorkers at once (review 2026-11-16: 7 at once hit the account's vCPU limit); the rest wait their turn.
         var sent = 0;
-        foreach (var r in await _store.ListByStatusAsync(VideoStatuses.Queued, 5, ct))
+        var room = Math.Max(1, _settings.MaxWorkers) - (await _store.ListByStatusAsync(VideoStatuses.Submitted, 500, ct)).Count;
+        foreach (var r in room > 0 ? await _store.ListByStatusAsync(VideoStatuses.Queued, room, ct) : Array.Empty<VideoRendition>())
         {
-            sent += await SubmitAsync(r, ct) ? 1 : 0;
+            var result = await SubmitAsync(r, ct);
+            if (result < 0)
+            {
+                break; // AWS has no room right now: try again next round
+            }
+
+            sent += result;
         }
 
         var done = 0;
@@ -148,13 +156,21 @@ public sealed class VideoService
         return json;
     }
 
-    private async Task<bool> SubmitAsync(VideoRendition r, CancellationToken ct)
+    /// <summary>1 = a worker started, 0 = not (failed or given up), -1 = AWS has no room right now (the video stays queued).</summary>
+    private async Task<int> SubmitAsync(VideoRendition r, CancellationToken ct)
     {
         var c = await _store.GetCandidateAsync(r.FileAttachmentId, ct);
         if (c is null)
         {
             await _store.MarkFailedAsync(r.FileAttachmentId, "The file is no longer a video on a parcel or an asset.", ct);
-            return false;
+            return 0;
+        }
+
+        // No worker (and no cost) for a file whose bytes are gone (review 2026-11-16: three old test uploads with no object).
+        if (await _storage.GetObjectSizeAsync(c.StorageKey, ct) is not > 0)
+        {
+            await _store.MarkFailedAsync(r.FileAttachmentId, "The original file is missing in storage: nothing to convert.", ct);
+            return 0;
         }
 
         string jobId;
@@ -164,6 +180,11 @@ public sealed class VideoService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            if (VideoRules.IsCapacityError(ex.Message))
+            {
+                return -1; // not the video's fault: no attempt counted
+            }
+
             if (r.Attempts + 1 >= MaxAttempts)
             {
                 await _store.MarkFailedAsync(r.FileAttachmentId, "Could not start: " + ex.Message, ct);
@@ -173,7 +194,7 @@ public sealed class VideoService
                 await _store.CountAttemptAsync(r.FileAttachmentId, "Could not start: " + ex.Message, ct); // tried again next round
             }
 
-            return false;
+            return 0;
         }
 
         // A worker runs (and costs) from here on: record it first; if that fails, stop it at once and give up on the video - never
@@ -182,7 +203,7 @@ public sealed class VideoService
         {
             await _store.StartRunAsync(jobId, r.FileAttachmentId, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, ct);
             await _store.MarkSubmittedAsync(r.FileAttachmentId, jobId, r.WithAudio, ct);
-            return true;
+            return 1;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -196,7 +217,7 @@ public sealed class VideoService
             }
 
             await _store.MarkFailedAsync(r.FileAttachmentId, "Could not record the job: " + ex.Message, ct);
-            return false;
+            return 0;
         }
     }
 
@@ -336,7 +357,21 @@ public sealed class VideoService
             offered = offered.Append(pi).Order().ToList(); // the poster is always among the photos offered (review 2026-11-15)
         }
 
-        await _store.MarkReadyAsync(id, new VideoResult(VideoKeys.Small(id), small.Value, VideoKeys.Large(id), large.Value, state.DurationMs, count, offered, poster), ct);
+        // An original that already plays everywhere and is not bigger stays the file; the copies that add nothing are removed.
+        string largeKey = VideoKeys.Large(id), smallKey = VideoKeys.Small(id);
+        long largeSize = large.Value, smallSize = small.Value;
+        if (r.OriginalKey is not null && r.OriginalSize is long os && VideoRules.KeepOriginal(state.SourceCodec, large.Value, os))
+        {
+            await _storage.DeleteObjectAsync(largeKey, ct);
+            (largeKey, largeSize) = (r.OriginalKey, os);
+            if (VideoRules.KeepOriginal(state.SourceCodec, small.Value, os))
+            {
+                await _storage.DeleteObjectAsync(smallKey, ct);
+                (smallKey, smallSize) = (r.OriginalKey, os);
+            }
+        }
+
+        await _store.MarkReadyAsync(id, new VideoResult(smallKey, smallSize, largeKey, largeSize, state.DurationMs, count, offered, poster), ct);
         return true;
     }
 
@@ -360,6 +395,19 @@ public sealed class VideoService
             if (file is null || r.LargeKey is null || large is not > 0 || r.OriginalKey is null)
             {
                 continue; // never delete an original without its verified replacement
+            }
+
+            // The original IS the kept file (it played everywhere already), or its copy is not smaller (format unknown: the copy
+            // stays for playing, the original for keeping): only the frames go.
+            if (r.LargeKey == r.OriginalKey || (r.OriginalSize is long os && large.Value >= os))
+            {
+                foreach (var o in await _storage.ListAsync(VideoKeys.Prefix(r.FileAttachmentId) + "frames/", ct))
+                {
+                    await _storage.DeleteObjectAsync(o.Key, ct);
+                }
+
+                await _store.MarkFramesDeletedAsync(r.FileAttachmentId, ct);
+                continue;
             }
 
             if (file.StorageKey == r.OriginalKey)

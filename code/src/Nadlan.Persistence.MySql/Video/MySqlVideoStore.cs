@@ -105,7 +105,7 @@ public sealed class MySqlVideoStore : IVideoStore
         await using var conn = await _db.OpenAsync(ct);
         return (await conn.QueryAsync<VideoRendition>(new CommandDefinition($"""
             SELECT {Columns} FROM video_rendition
-            WHERE status = 'Ready' AND original_deleted_utc IS NULL AND completed_utc < @completedBeforeUtc
+            WHERE status = 'Ready' AND original_deleted_utc IS NULL AND frames_deleted_utc IS NULL AND completed_utc < @completedBeforeUtc
             ORDER BY completed_utc LIMIT @limit
             """, new { completedBeforeUtc, limit }, cancellationToken: ct))).ToList();
     }
@@ -119,6 +119,9 @@ public sealed class MySqlVideoStore : IVideoStore
             WHERE file_attachment_id = @fileAttachmentId AND storage_key = @originalKey
             """, new { fileAttachmentId, originalKey, largeKey, largeSize, fileName }, cancellationToken: ct)) == 1;
     }
+
+    public Task MarkFramesDeletedAsync(long fileAttachmentId, CancellationToken ct = default) =>
+        UpdateAsync("frames_deleted_utc = UTC_TIMESTAMP(3)", new { fileAttachmentId }, ct);
 
     public Task MarkOriginalDeletedAsync(long fileAttachmentId, CancellationToken ct = default) =>
         UpdateAsync("original_deleted_utc = UTC_TIMESTAMP(3), frames_deleted_utc = UTC_TIMESTAMP(3)", new { fileAttachmentId }, ct);

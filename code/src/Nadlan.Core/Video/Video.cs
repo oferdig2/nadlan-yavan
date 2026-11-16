@@ -42,6 +42,9 @@ public sealed record VideoSettings
 
     public int StorageGb { get; init; } = 50;
 
+    /// <summary>Workers at the same time (AWS limits the vCPUs a new account may run at once; 3 x 4 vCPU stays well inside).</summary>
+    public int MaxWorkers { get; init; } = 3;
+
     /// <summary>A worker running longer is stopped by the checker (and the script stops itself a bit before).</summary>
     public int MaxRunMinutes { get; init; } = 90;
 
@@ -160,6 +163,9 @@ public interface IVideoStore
 
     Task MarkOriginalDeletedAsync(long fileAttachmentId, CancellationToken ct = default);
 
+    /// <summary>The frames are deleted but the original stays (it is the kept file, or its copy is not smaller).</summary>
+    Task MarkFramesDeletedAsync(long fileAttachmentId, CancellationToken ct = default);
+
     /// <summary>Records a run once (a known job id is left as it is). No file: a worker the checker found without a record.</summary>
     Task StartRunAsync(string jobId, long? fileAttachmentId, int cpu, int memoryMb, int storageGb, CancellationToken ct = default);
 
@@ -175,7 +181,9 @@ public interface IVideoStore
 public sealed record VideoJobSpec(string InputKey, string OutputPrefix, bool WithAudio, int? SourceWidth, int? SourceHeight);
 
 /// <summary>A job's state; StartedUtc / StoppedUtc = what the worker is billed for (from the image pull to its stop).</summary>
-public sealed record VideoJobState(string Status, string? ErrorMessage, int? DurationMs, DateTime? StartedUtc = null, DateTime? StoppedUtc = null);
+/// <summary>SourceCodec: the original's video format as the worker read it ("h264", "hevc", ...), null when not known.</summary>
+public sealed record VideoJobState(string Status, string? ErrorMessage, int? DurationMs, DateTime? StartedUtc = null, DateTime? StoppedUtc = null,
+    string? SourceCodec = null);
 
 /// <summary>A worker the cloud says is running (the leftover check compares them with the jobs we wait for).</summary>
 public sealed record RunningWorker(string JobId, DateTime? StartedUtc);
@@ -286,6 +294,19 @@ public static class VideoRules
         var perHour = cpu / 1024.0 * s.CostPerVcpuHour + memoryMb / 1024.0 * s.CostPerGbHour + Math.Max(0, storageGb - 20) * s.CostPerStorageGbHour;
         return Math.Round((decimal)(hours * perHour), 5);
     }
+
+    /// <summary>AWS refused another worker for now (too many vCPUs at once): wait, it is not the video's fault.</summary>
+    public static bool IsCapacityError(string? message) =>
+        message is not null && (message.Contains("limit on the number of vCPUs", StringComparison.OrdinalIgnoreCase)
+                                || message.Contains("You've reached the limit", StringComparison.OrdinalIgnoreCase)
+                                || message.Contains("capacity", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Keep the original instead of its copy: it already plays everywhere (H.264) and the copy is not clearly smaller - e.g. a
+    /// WhatsApp video, already squeezed: re-encoding only makes it bigger (review 2026-11-16: 93 MB became 142 MB).
+    /// </summary>
+    public static bool KeepOriginal(string? sourceCodec, long copySize, long? originalSize) =>
+        string.Equals(sourceCodec, "h264", StringComparison.OrdinalIgnoreCase) && originalSize is long o && copySize >= o * 0.9;
 
     /// <summary>A job that failed because the video has no sound: try again without audio.</summary>
     public static bool IsNoAudioError(string? message) =>
