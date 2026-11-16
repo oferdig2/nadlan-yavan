@@ -58,8 +58,9 @@ public sealed class VideoService
         }
 
         // At most MaxWorkers at once (review 2026-11-16: 7 at once hit the account's vCPU limit); the rest wait their turn.
+        // A frame being caught counts too.
         var sent = 0;
-        var room = Math.Max(1, _settings.MaxWorkers) - (await _store.ListByStatusAsync(VideoStatuses.Submitted, 500, ct)).Count;
+        var room = Math.Max(1, _settings.MaxWorkers) - await BusyWorkersAsync(ct);
         foreach (var r in room > 0 ? await _store.ListByStatusAsync(VideoStatuses.Queued, room, ct) : Array.Empty<VideoRendition>())
         {
             var result = await SubmitAsync(r, ct);
@@ -77,8 +78,14 @@ public sealed class VideoService
             done += await CollectAsync(r, ct) ? 1 : 0;
         }
 
-        return queued + sent + done == 0 ? null : $"queued {queued}, sent {sent}, finished {done}";
+        var caught = await CaptureRoundAsync(ct);
+        return queued + sent + done + caught == 0 ? null : $"queued {queued}, sent {sent}, finished {done}" + (caught > 0 ? $", frames caught {caught}" : "");
     }
+
+    /// <summary>Workers running now: conversions plus capture runs.</summary>
+    private async Task<int> BusyWorkersAsync(CancellationToken ct) =>
+        (await _store.ListByStatusAsync(VideoStatuses.Submitted, 500, ct)).Count
+        + (await _store.ListCapturesByStatusAsync(VideoCaptureStatuses.Running, 500, ct)).Select(c => c.JobId).Distinct().Count();
 
     /// <summary>"Optimize" one video now (also one uploaded before the feature). False if it is already converted or on its way.</summary>
     public async Task<bool> QueueOneAsync(long fileAttachmentId, CancellationToken ct = default)
@@ -259,10 +266,14 @@ public sealed class VideoService
         }
     }
 
-    private Task EndRunAsync(string jobId, VideoJobState state, string stoppedBy, CancellationToken ct)
+    private Task EndRunAsync(string jobId, VideoJobState state, string stoppedBy, CancellationToken ct) =>
+        EndRunAsync(jobId, state, stoppedBy, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, ct);
+
+    /// <summary>Closes a run with its cost, at the size that run had (a capture worker is a quarter of a conversion worker).</summary>
+    private Task EndRunAsync(string jobId, VideoJobState state, string stoppedBy, int cpu, int memoryMb, int storageGb, CancellationToken ct)
     {
         decimal? cost = state.StartedUtc is { } a && state.StoppedUtc is { } b
-            ? VideoRules.RunCost(a, b, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, _settings) : null;
+            ? VideoRules.RunCost(a, b, cpu, memoryMb, storageGb, _settings) : null;
         return _store.EndRunAsync(jobId, state.StartedUtc, state.StoppedUtc, state.Status, stoppedBy, cost, ct);
     }
 
@@ -280,36 +291,47 @@ public sealed class VideoService
 
         var waiting = (await _store.ListByStatusAsync(VideoStatuses.Submitted, 500, ct)).Where(r => !string.IsNullOrEmpty(r.JobId))
             .ToDictionary(r => r.JobId!, r => r);
+        var catching = (await _store.ListCapturesByStatusAsync(VideoCaptureStatuses.Running, 500, ct)).Where(c => !string.IsNullOrEmpty(c.JobId))
+            .GroupBy(c => c.JobId!).ToDictionary(g => g.Key, g => g.ToList());
+        var open = (await _store.ListOpenRunsAsync(ct)).ToDictionary(r => r.JobId);
         var running = await _transcoder.ListRunningAsync(ct);
         var stopped = 0;
         foreach (var w in running)
         {
-            var tooLong = w.StartedUtc is { } s && Now - s > TimeSpan.FromMinutes(Math.Max(5, _settings.MaxRunMinutes));
-            var orphan = !waiting.ContainsKey(w.JobId);
+            var capture = catching.ContainsKey(w.JobId);
+            var limit = capture ? CaptureMaxRunMinutes : Math.Max(5, _settings.MaxRunMinutes);
+            var tooLong = w.StartedUtc is { } s && Now - s > TimeSpan.FromMinutes(limit);
+            var orphan = !waiting.ContainsKey(w.JobId) && !capture;
             if (!tooLong && !orphan)
             {
                 continue;
             }
 
-            var reason = orphan ? "checker: no video waits for this worker" : $"checker: ran over {_settings.MaxRunMinutes} minutes";
+            var reason = orphan ? "checker: no video waits for this worker" : $"checker: ran over {limit} minutes";
             await _transcoder.StopAsync(w.JobId, reason, ct);
             await _store.StartRunAsync(w.JobId, null, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, ct); // a worker we had no record of: its cost shows too
-            await EndRunAsync(w.JobId, new VideoJobState("STOPPED", reason, null, w.StartedUtc, Now), reason, ct);
+            var size = open.TryGetValue(w.JobId, out var run) ? (run.Cpu, run.MemoryMb, run.StorageGb) : (_settings.Cpu, _settings.MemoryMb, _settings.StorageGb);
+            await EndRunAsync(w.JobId, new VideoJobState("STOPPED", reason, null, w.StartedUtc, Now), reason, size.Item1, size.Item2, size.Item3, ct);
             if (waiting.TryGetValue(w.JobId, out var r))
             {
                 await _store.MarkFailedAsync(r.FileAttachmentId, reason, ct);
             }
 
+            foreach (var c in catching.GetValueOrDefault(w.JobId) ?? new List<VideoCapture>())
+            {
+                await _store.MarkCaptureFailedAsync(c.CaptureId, reason, ct);
+            }
+
             stopped++;
         }
 
-        // Runs still open whose worker is no longer running and no video waits for (e.g. the file was deleted meanwhile).
+        // Runs still open whose worker is no longer running and no video or frame waits for (e.g. the file was deleted meanwhile).
         var live = running.Select(w => w.JobId).ToHashSet();
-        foreach (var run in await _store.ListOpenRunsAsync(ct))
+        foreach (var run in open.Values)
         {
-            if (!live.Contains(run.JobId) && !waiting.ContainsKey(run.JobId))
+            if (!live.Contains(run.JobId) && !waiting.ContainsKey(run.JobId) && !catching.ContainsKey(run.JobId))
             {
-                await EndRunAsync(run.JobId, await _transcoder.GetAsync(run.JobId, ct), "closed by the checker", ct);
+                await EndRunAsync(run.JobId, await _transcoder.GetAsync(run.JobId, ct), "closed by the checker", run.Cpu, run.MemoryMb, run.StorageGb, ct);
             }
         }
 
@@ -468,30 +490,216 @@ public sealed class VideoService
             }
 
             var at = TimeSpan.FromMilliseconds((long)i * VideoSettings.FrameIntervalMs);
-            var name = $"{Path.GetFileNameWithoutExtension(file.OriginalFileName)} {(int)at.TotalMinutes:00}-{at.Seconds:00}.jpg";
-            var key = $"{file.AttachedToType.ToLowerInvariant()}/{file.AttachedToId}/{Guid.NewGuid():N}.jpg";
-            await _storage.CopyObjectAsync(full, key, ct);
-            await _storage.CopyObjectAsync(VideoKeys.Frame(fileAttachmentId, i, small: true), FileAttachment.ThumbnailKey(key), ct);
-            var id = await _files.InsertPendingAsync(new FileAttachment
-            {
-                FileTypeId = photoType.Id,
-                AttachedToType = file.AttachedToType,
-                AttachedToId = file.AttachedToId,
-                StorageKey = key,
-                OriginalFileName = name,
-                MimeType = "image/jpeg",
-                FileSize = size.Value,
-                UploadStatus = FileUploadStatus.Pending,
-                UploadedByUserId = userId,
-            }, ct);
-            await _files.MarkReadyAsync(id, ct);
-            await _files.SetHasThumbnailAsync(id, ct);
-            await _files.UpdateMetadataAsync(id, photoType.Id, null,
-                $"Frame at {(int)at.TotalMinutes}:{at.Seconds:00} of the video {file.OriginalFileName}.", null, ct);
-            ids.Add(id);
+            ids.Add(await AddPhotoAsync(file, full, VideoKeys.Frame(fileAttachmentId, i, small: true), size.Value, at, photoType.Id, userId,
+                $"Frame at {(int)at.TotalMinutes}:{at.Seconds:00} of the video {file.OriginalFileName}.", ct));
         }
 
         return ids;
+    }
+
+    /// <summary>A frame (copied, so it outlives the frames and the original) becomes a photo of the video's Parcel / Asset.</summary>
+    private async Task<long> AddPhotoAsync(FileAttachment video, string fullKey, string smallKey, long size, TimeSpan at, int photoTypeId, long? userId,
+        string description, CancellationToken ct)
+    {
+        var name = $"{Path.GetFileNameWithoutExtension(video.OriginalFileName)} {(int)at.TotalMinutes:00}-{at.Seconds:00}.jpg";
+        var key = $"{video.AttachedToType.ToLowerInvariant()}/{video.AttachedToId}/{Guid.NewGuid():N}.jpg";
+        await _storage.CopyObjectAsync(fullKey, key, ct);
+        await _storage.CopyObjectAsync(smallKey, FileAttachment.ThumbnailKey(key), ct);
+        var id = await _files.InsertPendingAsync(new FileAttachment
+        {
+            FileTypeId = photoTypeId,
+            AttachedToType = video.AttachedToType,
+            AttachedToId = video.AttachedToId,
+            StorageKey = key,
+            OriginalFileName = name,
+            MimeType = "image/jpeg",
+            FileSize = size,
+            UploadStatus = FileUploadStatus.Pending,
+            UploadedByUserId = userId,
+        }, ct);
+        await _files.MarkReadyAsync(id, ct);
+        await _files.SetHasThumbnailAsync(id, ct);
+        await _files.UpdateMetadataAsync(id, photoTypeId, null, description, null, ct);
+        return id;
+    }
+
+    // ---- Catch image (owner, 2026-11-16) ----
+
+    /// <summary>A capture worker that runs longer than this is stopped (one frame takes seconds; 40 take a few minutes).</summary>
+    public const int CaptureMaxRunMinutes = 20;
+
+    /// <summary>The original of this video is still in storage: Hi-res and Catch image are offered (for Admin / Data person).</summary>
+    public static bool HasOriginal(VideoRendition? r) => r is { OriginalKey: not null, OriginalDeletedUtc: null } && r.Status != VideoStatuses.Failed;
+
+    /// <summary>
+    /// "Catch image": records the moment; a small worker cuts that exact frame from the original at full size within about a minute
+    /// and it becomes a photo of the video's Parcel / Asset. The caller checked the right to add that photo there.
+    /// </summary>
+    public async Task<long> RequestCaptureAsync(long fileAttachmentId, int atMs, FileType photoType, long userId, CancellationToken ct = default)
+    {
+        RequireActive();
+        var r = await _store.GetAsync(fileAttachmentId, ct);
+        if (!HasOriginal(r) || await _files.GetAsync(fileAttachmentId, ct) is null)
+        {
+            throw new DomainValidationException("VIDEO_ORIGINAL_GONE",
+                $"The original of this video is no longer kept (only {_settings.OriginalRetentionDays} days after it is converted). Add one of the photos under the video instead.");
+        }
+
+        if (atMs < 0 || (r!.DurationMs is int d && d > 0 && atMs > d))
+        {
+            throw new DomainValidationException("VIDEO_CAPTURE_TIME", "That moment is outside the video.");
+        }
+
+        var waiting = (await _store.ListCapturesAsync(fileAttachmentId, 200, ct)).Count(c => c.Status is VideoCaptureStatuses.Pending or VideoCaptureStatuses.Running);
+        if (waiting >= VideoCaptureWorker.MaxPerRun)
+        {
+            throw new DomainValidationException("VIDEO_CAPTURE_BUSY", $"{waiting} images of this video are still being caught. Wait a minute and try again.");
+        }
+
+        return await _store.AddCaptureAsync(fileAttachmentId, atMs, photoType.Id, userId, ct);
+    }
+
+    /// <summary>Collects finished capture runs, then starts one for each video with frames waiting. Returns the photos added.</summary>
+    private async Task<int> CaptureRoundAsync(CancellationToken ct)
+    {
+        var added = 0;
+        foreach (var job in (await _store.ListCapturesByStatusAsync(VideoCaptureStatuses.Running, 500, ct)).GroupBy(c => c.JobId ?? ""))
+        {
+            added += await CollectCapturesAsync(job.Key, job.ToList(), ct);
+        }
+
+        // A frame is waited for by a person: captures may use one worker more than conversions (a quarter of the size of one).
+        var busy = await BusyWorkersAsync(ct);
+        foreach (var video in (await _store.ListCapturesByStatusAsync(VideoCaptureStatuses.Pending, 500, ct)).GroupBy(c => c.FileAttachmentId))
+        {
+            if (busy >= Math.Max(1, _settings.MaxWorkers) + 1)
+            {
+                break;
+            }
+
+            var result = await SubmitCapturesAsync(video.Key, video.Take(VideoCaptureWorker.MaxPerRun).ToList(), ct);
+            if (result < 0)
+            {
+                break; // AWS has no room right now: next round
+            }
+
+            busy += result;
+        }
+
+        return added;
+    }
+
+    /// <summary>1 = a worker started, 0 = not (the captures failed), -1 = AWS has no room right now (they stay pending).</summary>
+    private async Task<int> SubmitCapturesAsync(long fileAttachmentId, IReadOnlyList<VideoCapture> captures, CancellationToken ct)
+    {
+        async Task FailAllAsync(string message)
+        {
+            foreach (var c in captures)
+            {
+                await _store.MarkCaptureFailedAsync(c.CaptureId, message, ct);
+            }
+        }
+
+        var r = await _store.GetAsync(fileAttachmentId, ct);
+        if (!HasOriginal(r) || await _storage.GetObjectSizeAsync(r!.OriginalKey!, ct) is not > 0)
+        {
+            await FailAllAsync("The original of this video is no longer in storage.");
+            return 0;
+        }
+
+        var ids = captures.Select(c => c.CaptureId).ToList();
+        string jobId;
+        try
+        {
+            jobId = await _transcoder.SubmitCaptureAsync(r.OriginalKey!, VideoCaptureKeys.RunPrefix(fileAttachmentId, ids.Min()),
+                captures.Select(c => c.AtMs).Distinct().Order().ToList(), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            if (VideoRules.IsCapacityError(ex.Message))
+            {
+                return -1;
+            }
+
+            await FailAllAsync("Could not start: " + ex.Message);
+            return 0;
+        }
+
+        try
+        {
+            await _store.StartRunAsync(jobId, fileAttachmentId, VideoCaptureWorker.Cpu, VideoCaptureWorker.MemoryMb, VideoCaptureWorker.StorageGb, ct);
+            await _store.MarkCapturesRunningAsync(ids, jobId, ct);
+            return 1;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            try
+            {
+                await _transcoder.StopAsync(jobId, "the app could not record this job", ct);
+            }
+            catch (Exception)
+            {
+                // the checker stops it within 5 minutes
+            }
+
+            await FailAllAsync("Could not record the job: " + ex.Message);
+            return 0;
+        }
+    }
+
+    private async Task<int> CollectCapturesAsync(string jobId, IReadOnlyList<VideoCapture> captures, CancellationToken ct)
+    {
+        if (jobId.Length == 0)
+        {
+            foreach (var c in captures)
+            {
+                await _store.MarkCaptureFailedAsync(c.CaptureId, "The worker was not recorded.", ct);
+            }
+
+            return 0;
+        }
+
+        var state = await _transcoder.GetAsync(jobId, ct);
+        if (state.Status is not ("COMPLETE" or "ERROR" or "CANCELED"))
+        {
+            return 0; // still working
+        }
+
+        await EndRunAsync(jobId, state, state.Status == "COMPLETE" ? "finished" : "failed", VideoCaptureWorker.Cpu, VideoCaptureWorker.MemoryMb,
+            VideoCaptureWorker.StorageGb, ct);
+        var fileId = captures[0].FileAttachmentId;
+        var prefix = VideoCaptureKeys.RunPrefix(fileId, captures.Min(c => c.CaptureId));
+        var file = await _files.GetAsync(fileId, ct);
+        var added = 0;
+        foreach (var c in captures)
+        {
+            var at = TimeSpan.FromMilliseconds(c.AtMs);
+            var when = $"{(int)at.TotalMinutes}:{at.Seconds:00}.{at.Milliseconds / 100}";
+            var size = state.Status == "COMPLETE" ? await _storage.GetObjectSizeAsync(VideoCaptureKeys.Full(prefix, c.AtMs), ct) : null;
+            if (state.Status != "COMPLETE" || file is null)
+            {
+                await _store.MarkCaptureFailedAsync(c.CaptureId, file is null ? "The video was deleted." : state.ErrorMessage ?? state.Status, ct);
+            }
+            else if (size is not > 0)
+            {
+                await _store.MarkCaptureFailedAsync(c.CaptureId, $"No frame at {when} (past the end of the video?).", ct);
+            }
+            else
+            {
+                var id = await AddPhotoAsync(file, VideoCaptureKeys.Full(prefix, c.AtMs), VideoCaptureKeys.Small(prefix, c.AtMs), size.Value, at,
+                    c.FileTypeId, c.RequestedByUserId, $"Caught at {when} from the original of the video {file.OriginalFileName} (full size).", ct);
+                await _store.MarkCaptureDoneAsync(c.CaptureId, id, ct);
+                added++;
+            }
+        }
+
+        // The photos are copies: the run's folder goes.
+        foreach (var o in await _storage.ListAsync(prefix, ct))
+        {
+            await _storage.DeleteObjectAsync(o.Key, ct);
+        }
+
+        return added;
     }
 
     public async Task SetOffsetAsync(long fileAttachmentId, decimal offsetM, CancellationToken ct = default)

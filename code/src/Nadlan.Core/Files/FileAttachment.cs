@@ -78,6 +78,8 @@ public sealed record FileListItem
     public string? VideoHeightsJson { get; init; }
     public decimal VideoOffsetM { get; init; }
     public int? VideoDurationMs { get; init; }
+    /// <summary>The uploaded original is still kept (Hi-res / Catch image, migration 029).</summary>
+    public bool VideoHasOriginal { get; init; }
 }
 
 public sealed record FileType(int Id, string Code, string Name, string Category, bool IsActive, int SortOrder);

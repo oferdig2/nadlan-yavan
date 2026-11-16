@@ -4,7 +4,7 @@ using Nadlan.Core.Video;
 
 namespace Nadlan.Persistence.MySql.Video;
 
-/// <summary>Video conversions (migration 028, video_rendition).</summary>
+/// <summary>Video conversions (migration 028, video_rendition) and frames caught from originals (migration 029, video_capture).</summary>
 public sealed class MySqlVideoStore : IVideoStore
 {
     private const string Columns = """
@@ -106,6 +106,8 @@ public sealed class MySqlVideoStore : IVideoStore
         return (await conn.QueryAsync<VideoRendition>(new CommandDefinition($"""
             SELECT {Columns} FROM video_rendition
             WHERE status = 'Ready' AND original_deleted_utc IS NULL AND frames_deleted_utc IS NULL AND completed_utc < @completedBeforeUtc
+              AND NOT EXISTS (SELECT 1 FROM video_capture c WHERE c.file_attachment_id = video_rendition.file_attachment_id
+                              AND c.status IN ('Pending', 'Running')) -- a frame being caught keeps its original until it is done
             ORDER BY completed_utc LIMIT @limit
             """, new { completedBeforeUtc, limit }, cancellationToken: ct))).ToList();
     }
@@ -163,6 +165,58 @@ public sealed class MySqlVideoStore : IVideoStore
         await using var conn = await _db.OpenAsync(ct);
         return (await conn.QueryAsync<VideoWorkerRun>(new CommandDefinition(
             $"SELECT {RunColumns} FROM video_worker_run WHERE stopped_by IS NULL ORDER BY submitted_utc LIMIT 200", cancellationToken: ct))).ToList();
+    }
+
+    private const string CaptureColumns = """
+        capture_id, file_attachment_id, at_ms, file_type_id, requested_by_user_id, status, job_id, photo_file_id, created_utc, error_message
+        """;
+
+    public async Task<long> AddCaptureAsync(long fileAttachmentId, int atMs, int fileTypeId, long userId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition("""
+            INSERT INTO video_capture (file_attachment_id, at_ms, file_type_id, requested_by_user_id) VALUES (@fileAttachmentId, @atMs, @fileTypeId, @userId);
+            SELECT LAST_INSERT_ID();
+            """, new { fileAttachmentId, atMs, fileTypeId, userId }, cancellationToken: ct));
+    }
+
+    public async Task<IReadOnlyList<VideoCapture>> ListCapturesAsync(long fileAttachmentId, int limit, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return (await conn.QueryAsync<VideoCapture>(new CommandDefinition(
+            $"SELECT {CaptureColumns} FROM video_capture WHERE file_attachment_id = @fileAttachmentId ORDER BY capture_id DESC LIMIT @limit",
+            new { fileAttachmentId, limit }, cancellationToken: ct))).ToList();
+    }
+
+    public async Task<IReadOnlyList<VideoCapture>> ListCapturesByStatusAsync(string status, int limit, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        return (await conn.QueryAsync<VideoCapture>(new CommandDefinition(
+            $"SELECT {CaptureColumns} FROM video_capture WHERE status = @status ORDER BY capture_id LIMIT @limit", new { status, limit }, cancellationToken: ct))).ToList();
+    }
+
+    public async Task MarkCapturesRunningAsync(IReadOnlyList<long> captureIds, string jobId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE video_capture SET status = 'Running', job_id = @jobId WHERE capture_id IN @captureIds AND status = 'Pending'",
+            new { captureIds, jobId }, cancellationToken: ct));
+    }
+
+    public async Task MarkCaptureDoneAsync(long captureId, long photoFileId, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE video_capture SET status = 'Done', photo_file_id = @photoFileId, error_message = NULL, done_utc = UTC_TIMESTAMP(3) WHERE capture_id = @captureId",
+            new { captureId, photoFileId }, cancellationToken: ct));
+    }
+
+    public async Task MarkCaptureFailedAsync(long captureId, string message, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE video_capture SET status = 'Failed', error_message = @message, done_utc = UTC_TIMESTAMP(3) WHERE capture_id = @captureId",
+            new { captureId, message = Cut(message) }, cancellationToken: ct));
     }
 
     private static string Cut(string message, int max = 1000) => message.Length <= max ? message : message[..max];

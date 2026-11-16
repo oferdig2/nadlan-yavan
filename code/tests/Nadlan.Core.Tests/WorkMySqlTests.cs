@@ -466,6 +466,8 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
 
             // Back to version 20 - what production had - with some data there, then 021 again (and 025-027 after it).
             await c.ExecuteAsync("""
+                DROP TABLE video_capture;
+                DELETE FROM schema_version WHERE version = 29;
                 DROP TABLE video_worker_run, video_rendition;
                 DELETE FROM schema_version WHERE version = 28;
                 DELETE FROM permission WHERE code = 'VIEW_ANALYTICS_PAGE';
@@ -507,15 +509,15 @@ public partial class WorkMySqlTests : IClassFixture<ScratchMySql>
                 SELECT COUNT(*) FROM role_permission rp JOIN security_role r ON r.security_role_id = rp.security_role_id WHERE r.code = 'DATA_PERSON'
                 """);
 
-            Assert.Equal(new[] { "021_work_requests", "022_work_item_remarks", "023_work_track", "024_work_contractor_link", "025_presentation_link", "026_app_events", "027_analytics_page", "028_video_renditions" },
+            Assert.Equal(new[] { "021_work_requests", "022_work_item_remarks", "023_work_track", "024_work_contractor_link", "025_presentation_link", "026_app_events", "027_analytics_page", "028_video_renditions", "029_video_captures" },
                 await migrator.MigrateAsync());
             var after = await TablesAsync();
 
-            Assert.Equal(before.Keys.Concat(WorkTables).Append("presentation_link").Concat(new[] { "app_event", "app_event_context", "app_event_batch", "video_rendition", "video_worker_run" }).Order(), after.Keys.Order()); // the new tables, nothing dropped
+            Assert.Equal(before.Keys.Concat(WorkTables).Append("presentation_link").Concat(new[] { "app_event", "app_event_context", "app_event_batch", "video_rendition", "video_worker_run", "video_capture" }).Order(), after.Keys.Order()); // the new tables, nothing dropped
             foreach (var (table, was) in before)
             {
                 Assert.True(was.Columns == after[table].Columns, $"{table}: columns changed");
-                var added = table switch { "permission" => 4, "role_permission" => 3, "contact_role" => 1, "schema_version" => 8, _ => 0 }; // 025, 026 (Data person too), 027 (Admin only), 028 (a table)
+                var added = table switch { "permission" => 4, "role_permission" => 3, "contact_role" => 1, "schema_version" => 9, _ => 0 }; // 025, 026 (Data person too), 027 (Admin only), 028, 029 (tables)
                 Assert.True(was.Rows + added == after[table].Rows, $"{table}: {was.Rows} rows before, {after[table].Rows} after");
             }
 

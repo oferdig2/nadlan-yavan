@@ -136,6 +136,16 @@ public class VideoTests
             return Task.FromResult(id);
         }
 
+        public List<(string InputKey, string Prefix, IReadOnlyList<int> AtMs)> Captures { get; } = new();
+
+        public Task<string> SubmitCaptureAsync(string inputKey, string outputPrefix, IReadOnlyList<int> atMs, CancellationToken ct = default)
+        {
+            Captures.Add((inputKey, outputPrefix, atMs));
+            var id = "cap-" + Captures.Count;
+            States[id] = new VideoJobState("PROGRESSING", null, null);
+            return Task.FromResult(id);
+        }
+
         public Task<VideoJobState> GetAsync(string jobId, CancellationToken ct = default) =>
             Task.FromResult(States.TryGetValue(jobId, out var s) ? s : new VideoJobState("ERROR", "gone", null));
 
@@ -469,6 +479,107 @@ public class VideoTests
             Assert.Equal("wa.mp4", (await files.GetAsync(whatsapp))!.StorageKey);
             Assert.NotNull((await store.GetAsync(whatsapp))!.FramesDeletedUtc);
             Assert.Null((await store.GetAsync(whatsapp))!.OriginalDeletedUtc);
+        }
+        finally
+        {
+            await ScratchMySql.DropAsync(db);
+        }
+    }
+
+    [Fact]
+    public void The_capture_worker_script_reads_only_what_it_needs_and_writes_one_file_per_moment()
+    {
+        var script = FargateTranscoder.CaptureShellScript;
+        Assert.DoesNotContain("\r", script);
+        Assert.Contains("aws s3 presign", script);                // ffmpeg seeks over a signed link: a few MB, not the whole original
+        Assert.Contains("-ss \"$T\" -i", script);                   // the seek before the input: fast, and exact (ffmpeg decodes to it)
+        Assert.Contains("aws s3 cp \"s3://$BUCKET/$IN_KEY\" in.bin", script); // the fallback: download once
+        Assert.EndsWith("say \"done in $(( $(date +%s) - t0 )) s\"", script.TrimEnd());
+        Assert.Equal("_renditions/7/captures/c12/83400.jpg", VideoCaptureKeys.Full(VideoCaptureKeys.RunPrefix(7, 12), 83_400));
+    }
+
+    [Fact]
+    public async Task Catch_image_cuts_frames_from_the_original_into_photos_and_the_original_waits_for_them()
+    {
+        if (ScratchMySql.ServerConnectionString is null) { return; }
+
+        var db = ScratchMySql.NewDatabase("nadlan_v_");
+        try
+        {
+            await new SchemaMigrator(db).MigrateAsync();
+            var files = new MySqlFileAttachmentStore(db);
+            var store = new MySqlVideoStore(db);
+            var storage = new MemStorage();
+            var mc = new FakeTranscoder();
+            var clock = new Clock(DateTime.UtcNow);
+            var video = new VideoService(store, mc, storage, files, new MySqlMapDropStore(db), Settings with { MaxWorkers = 1 }, clock);
+            var types = await files.ListTypesAsync();
+            var photo = types.First(t => t.Code == "PHOTO");
+            async Task<long> VideoAsync(string key, string name)
+            {
+                var vid = await files.InsertPendingAsync(new FileAttachment { FileTypeId = types.First().Id, AttachedToType = FileTargetTypes.Asset, AttachedToId = 3,
+                    StorageKey = key, OriginalFileName = name, MimeType = "video/mp4", FileSize = 1000 });
+                await files.MarkReadyAsync(vid);
+                storage.Objects[key] = 1000;
+                return vid;
+            }
+
+            var id = await VideoAsync("asset/3/a.mp4", "DJI_0963.MP4");
+            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCaptureAsync(id, 1000, photo, 1)); // not queued yet
+            await video.TickAsync();
+            storage.Objects[VideoKeys.Small(id)] = 100;
+            storage.Objects[VideoKeys.Large(id)] = 200;
+            mc.States["job-1"] = new VideoJobState("COMPLETE", null, 90_000, clock.Now, clock.Now.AddMinutes(3), "hevc");
+            await video.TickAsync();
+            Assert.Equal(VideoStatuses.Ready, (await store.GetAsync(id))!.Status);
+            Assert.True(VideoService.HasOriginal(await store.GetAsync(id)));
+
+            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCaptureAsync(id, 95_000, photo, 1)); // past the end
+            var a = await video.RequestCaptureAsync(id, 83_400, photo, 1);
+            var b = await video.RequestCaptureAsync(id, 89_990, photo, 1);
+
+            // Another video's conversion holds the one conversion worker: a frame someone waits for still gets its lane.
+            await VideoAsync("asset/3/b.mp4", "other.mp4");
+            await video.TickAsync();
+            Assert.Equal(2, mc.Jobs.Count);
+            var run = Assert.Single(mc.Captures);
+            Assert.Equal(("asset/3/a.mp4", VideoCaptureKeys.RunPrefix(id, a)), (run.InputKey, run.Prefix));
+            Assert.Equal(new[] { 83_400, 89_990 }, run.AtMs);
+
+            // The checker leaves a capture worker alone; the sweep keeps the original while frames are being caught.
+            mc.Running.Add(new RunningWorker("cap-1", clock.Now));
+            mc.Running.Add(new RunningWorker("job-2", clock.Now));
+            Assert.Equal(0, await video.CheckWorkersAsync());
+            await using (var c = await db.OpenAsync())
+            {
+                await c.ExecuteAsync("UPDATE video_rendition SET completed_utc = UTC_TIMESTAMP(3) - INTERVAL 40 DAY WHERE file_attachment_id = @id", new { id });
+            }
+
+            Assert.Equal(0, await video.SweepAsync());
+            Assert.True(storage.Objects.ContainsKey("asset/3/a.mp4"));
+
+            // The worker found a frame at 1:23.4 only (89.99 s was past the last frame).
+            mc.Running.Clear();
+            storage.Objects[run.Prefix + "83400.jpg"] = 5000;
+            storage.Objects[run.Prefix + "83400_t.jpg"] = 300;
+            storage.Objects[run.Prefix + "result.json"] = 10;
+            mc.States["cap-1"] = new VideoJobState("COMPLETE", null, null, clock.Now, clock.Now.AddSeconds(50));
+            await video.TickAsync();
+            var caps = (await store.ListCapturesAsync(id, 10)).ToDictionary(c => c.CaptureId);
+            Assert.Equal(VideoCaptureStatuses.Done, caps[a].Status);
+            Assert.Equal((VideoCaptureStatuses.Failed, "No frame at 1:29.9 (past the end of the video?)."), (caps[b].Status, caps[b].ErrorMessage));
+            var p = (await files.GetAsync(caps[a].PhotoFileId!.Value))!;
+            Assert.Equal(("DJI_0963 01-23.jpg", photo.Id, FileTargetTypes.Asset, 3L, 5000L, true), (p.OriginalFileName, p.FileTypeId, p.AttachedToType, p.AttachedToId, p.FileSize, p.HasThumbnail));
+            Assert.Empty(storage.Objects.Keys.Where(k => k.StartsWith(run.Prefix, StringComparison.Ordinal))); // the photo is a copy: the run folder goes
+            var cost = (await store.ListRunsAsync(10)).Single(r => r.JobId == "cap-1");
+            Assert.Equal((1024, 2048, "finished"), (cost.Cpu, cost.MemoryMb, cost.StoppedBy));
+            Assert.Equal(VideoRules.RunCost(clock.Now, clock.Now.AddSeconds(50), 1024, 2048, 21, Settings), cost.CostUsd);
+
+            // Nothing waits any more: the original goes, and with it Hi-res and Catch image.
+            Assert.Equal(1, await video.SweepAsync());
+            Assert.False(VideoService.HasOriginal(await store.GetAsync(id)));
+            var gone = await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCaptureAsync(id, 1000, photo, 1));
+            Assert.Equal("VIDEO_ORIGINAL_GONE", gone.Code);
         }
         finally
         {

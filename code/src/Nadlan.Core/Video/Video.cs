@@ -66,7 +66,7 @@ public sealed record VideoSettings
     public double EyeHeightM { get; init; } = 1.6;
 
     /// <summary>Days the original is kept after a verified conversion.</summary>
-    public int OriginalRetentionDays { get; init; } = 7;
+    public int OriginalRetentionDays { get; init; } = 30;
 
     /// <summary>Videos uploaded from this moment on are queued by themselves; older ones by "Optimize" (one or all).</summary>
     public DateTime QueueUploadedAfterUtc { get; init; } = DateTime.MaxValue;
@@ -176,6 +176,19 @@ public interface IVideoStore
 
     /// <summary>Runs started but not ended (the leftover check, and runs whose job vanished).</summary>
     Task<IReadOnlyList<VideoWorkerRun>> ListOpenRunsAsync(CancellationToken ct = default);
+
+    // ---- Catch image (migration 029) ----
+    Task<long> AddCaptureAsync(long fileAttachmentId, int atMs, int fileTypeId, long userId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<VideoCapture>> ListCapturesAsync(long fileAttachmentId, int limit, CancellationToken ct = default);
+
+    Task<IReadOnlyList<VideoCapture>> ListCapturesByStatusAsync(string status, int limit, CancellationToken ct = default);
+
+    Task MarkCapturesRunningAsync(IReadOnlyList<long> captureIds, string jobId, CancellationToken ct = default);
+
+    Task MarkCaptureDoneAsync(long captureId, long photoFileId, CancellationToken ct = default);
+
+    Task MarkCaptureFailedAsync(long captureId, string message, CancellationToken ct = default);
 }
 
 public sealed record VideoJobSpec(string InputKey, string OutputPrefix, bool WithAudio, int? SourceWidth, int? SourceHeight);
@@ -199,6 +212,9 @@ public interface IVideoTranscoder
     Task<IReadOnlyList<RunningWorker>> ListRunningAsync(CancellationToken ct = default);
 
     Task StopAsync(string jobId, string reason, CancellationToken ct = default);
+
+    /// <summary>A small worker that cuts the frames at these times (ms) from the original, full size, into <paramref name="outputPrefix"/>.</summary>
+    Task<string> SubmitCaptureAsync(string inputKey, string outputPrefix, IReadOnlyList<int> atMs, CancellationToken ct = default);
 }
 
 /// <summary>One worker run, kept for the Admin: when, how big, how long, what it cost (migration 028, video_worker_run).</summary>
