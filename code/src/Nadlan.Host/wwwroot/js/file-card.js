@@ -13,12 +13,15 @@
   }
 
   // A converted video's extras on its play button (migration 028): the 720p for small screens, the heights (subtitle cues) and
-  // whether they show at first. Used by the Files cards and the presentation.
+  // whether they show at first. Used by the Files cards and the presentation. hiRes (staff lists only, migration 029): the file id
+  // while its original is kept - the viewer offers Hi-res and Catch image to an Admin / Data person.
   function videoAttrs(video) {
     var esc = Nadlan.format.escapeHtml;
     if (!video) { return ""; }
+    var hiRes = video.hiRes && Nadlan.session && Nadlan.session.can && Nadlan.session.can("MAP_DROP");
     return (video.urlSmall ? " data-url-small=\"" + esc(video.urlSmall) + "\"" : "") +
-      (video.heights ? " data-heights=\"" + esc(JSON.stringify(video.heights)) + "\" data-heights-on=\"" + (video.heightsOn ? "1" : "0") + "\"" : "");
+      (video.heights ? " data-heights=\"" + esc(JSON.stringify(video.heights)) + "\" data-heights-on=\"" + (video.heightsOn ? "1" : "0") + "\"" : "") +
+      (hiRes ? " data-hires=\"" + esc(String(video.hiRes)) + "\"" : "");
   }
 
   // Round button on media thumbnails: ▶ plays the video, ⤢ shows the image, in the full-screen viewer.
@@ -49,6 +52,9 @@
       "<div class=\"media-viewer" + (info ? " has-info" : "") + "\" role=\"dialog\">" +
         "<div class=\"media-viewer-bar\"><span class=\"media-viewer-name\"></span>" +
           (items.length > 1 ? "<span class=\"media-viewer-count\"></span>" : "") +
+          "<span class=\"media-viewer-note\" hidden></span>" +
+          "<button type=\"button\" class=\"media-viewer-catch\" hidden title=\"Add this exact moment as a full-size photo of the parcel / asset\">Catch image</button>" +
+          "<button type=\"button\" class=\"media-viewer-hires\" hidden title=\"Play the original upload at full resolution (kept for a few weeks)\">Hi-res</button>" +
           "<button type=\"button\" class=\"media-viewer-heights\" hidden title=\"Show or hide the height above take-off\">Heights</button>" +
           "<a class=\"media-viewer-open\" target=\"_blank\" rel=\"noopener\">Open in new tab</a>" +
           "<button type=\"button\" class=\"media-viewer-close\" title=\"Close (Esc)\">×</button></div>" +
@@ -62,6 +68,7 @@
     var $stage = $viewer.find(".media-viewer-stage");
     var heightsShown = null; // the viewer's choice once the Heights button was used (else each video's default)
     var trackUrl = null;
+    var shown = 0; // which show() a late answer belongs to (Hi-res, Catch image)
 
     function stopVideo() {
       $stage.find("video").each(function () { this.pause(); this.removeAttribute("src"); this.load(); }); // stop downloading
@@ -102,8 +109,89 @@
         "<a class=\"media-viewer-download\" href=\"" + esc(it.download || it.url) + "\" download>Download the video</a></div>");
     }
 
+    // Hi-res and Catch image (owner, 2026-11-16; Admin / Data person, while the original is kept). The original plays straight
+    // from storage over a signed link (our server never handles video bytes). Catch image sends only the moment: a worker cuts
+    // that exact frame from the original at full size and it becomes a photo of the video's parcel / asset in about a minute.
+    function hiResFor(video, it) {
+      var $hi = $viewer.find(".media-viewer-hires"), $catch = $viewer.find(".media-viewer-catch"), $note = $viewer.find(".media-viewer-note");
+      var mine = shown, fileId = it.hiRes, light = playUrl(it), on = false;
+      $hi.removeClass("active").prop("disabled", false).text("Hi-res").prop("hidden", !fileId).off("click");
+      $catch.prop("hidden", true).prop("disabled", false).off("click");
+      $note.text("").prop("hidden", true);
+      if (!fileId) { return { failed: function () { return false; } }; }
+      var url = "/api/files/" + encodeURIComponent(fileId) + "/video";
+      var note = function (text) { if (mine === shown) { $note.text(text).prop("hidden", !text); } };
+      // The moment and play state are taken when Hi-res is pressed: a source that fails resets the player's time to 0.
+      var moment = 0, playing = false, pending = null;
+      var swap = function (src, onBad) {
+        if (pending) { video.removeEventListener("loadedmetadata", pending); }
+        pending = function () {
+          pending = null;
+          if (onBad && !video.videoWidth) { onBad(); return; } // sound only: the picture can't be decoded
+          try { video.currentTime = moment; } catch (e) { /* not seekable yet */ }
+          if (playing) { var p = video.play(); if (p && p.catch) { p.catch(function () { /* the user presses play */ }); } }
+        };
+        video.addEventListener("loadedmetadata", pending, { once: true });
+        video.autoplay = playing; // paused on a frame stays paused (to catch it)
+        video.src = src;
+      };
+      var keep = function () { moment = video.currentTime; playing = !video.paused; };
+      // The original's picture can't be played here (e.g. H.265): the light copy again at the same moment; Catch image still
+      // cuts the frame from the original.
+      var fallBack = function () {
+        on = false;
+        $hi.removeClass("active");
+        swap(light);
+        note("The original can't play in this browser (probably H.265): you see the light copy. Catch image still takes the full-size frame.");
+      };
+      $hi.on("click", function () {
+        if (on) { on = false; keep(); $hi.removeClass("active"); $catch.prop("hidden", true); note(""); swap(light); return; }
+        $hi.prop("disabled", true).text("Loading…");
+        Nadlan.api.get(url + "/original").then(function (o) {
+          if (mine !== shown) { return; }
+          $hi.prop("disabled", false).text("Hi-res").addClass("active");
+          on = true;
+          keep();
+          swap(o.url, fallBack);
+          $catch.prop("hidden", !o.canCatch);
+          note("Original" + (o.size ? " · " + Math.round(o.size / 1048576) + " MB" : "") +
+            (o.keptUntilUtc ? " · kept until " + new Date(o.keptUntilUtc).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""));
+        }, function (err) {
+          $hi.prop("disabled", false).text("Hi-res");
+          note(err && err.message ? err.message : "The original could not be opened.");
+        });
+      });
+      $catch.on("click", function () {
+        var ms = Math.round(video.currentTime * 1000);
+        var at = fmtTime(ms) + "." + Math.floor((ms % 1000) / 100);
+        video.pause();
+        $catch.prop("disabled", true);
+        Nadlan.api.post(url + "/capture", { atMs: ms }).then(function (res) {
+          $catch.prop("disabled", false);
+          note("Caught " + at + " - the full-size photo is added to the files in about a minute.");
+          var tries = 0;
+          (function poll() {
+            if (mine !== shown || !document.body.contains($viewer[0]) || ++tries > 60) { return; }
+            setTimeout(function () {
+              Nadlan.api.get(url + "/captures").then(function (list) {
+                var c = (list || []).filter(function (x) { return x.captureId === res.captureId; })[0];
+                if (c && c.status === "Done") { note("Photo " + at + " added to the files."); }
+                else if (c && c.status === "Failed") { note("Photo " + at + " failed: " + (c.error || "unknown error")); }
+                else { poll(); }
+              }, poll);
+            }, 5000);
+          })();
+        }, function (err) {
+          $catch.prop("disabled", false);
+          note(err && err.message ? err.message : "Could not catch the image.");
+        });
+      });
+      return { failed: function () { if (on) { fallBack(); return true; } return false; } };
+    }
+
     function show(i, via) {
       stopVideo();
+      shown++;
       index = i;
       var it = items[i];
       var frame = it.kind === "video" && i === (set ? set.index : 0) && startMs >= 0
@@ -117,13 +205,18 @@
         : "<img class=\"media-viewer-media\" src=\"" + esc(it.url) + "\" alt=\"" + esc(it.name || "") + "\">");
       var video = $stage.find("video")[0];
       if (set && set.onShow) { try { set.onShow(i, it, via || "open", video || null); } catch (e) { /* the page's hook never breaks the viewer */ } }
-      if (!video) { $viewer.find(".media-viewer-heights").prop("hidden", true); return; }
+      if (!video) { $viewer.find(".media-viewer-heights, .media-viewer-hires, .media-viewer-catch, .media-viewer-note").prop("hidden", true); return; }
       addHeights(video, it);
+      var hi = hiResFor(video, it);
       video.addEventListener("loadedmetadata", function () {
         if (!video.videoWidth) { cantPlay(it); return; } // sound only: the picture can't be decoded
         if (frame && startMs > 0) { video.currentTime = startMs / 1000; }
       }, { once: true });
-      video.addEventListener("error", function () { if (video.error && video.error.code !== 1) { cantPlay(it); } }, { once: true }); // 1 = aborted
+      video.addEventListener("error", function onError() {
+        if (!video.error || video.error.code === 1 || hi.failed()) { return; } // 1 = aborted; the original failed: back to the copy
+        video.removeEventListener("error", onError);
+        cantPlay(it);
+      });
       if (frame && endMs > 0) {
         var stopAt = endMs / 1000;
         video.addEventListener("timeupdate", function onTime() {
@@ -162,7 +255,7 @@
     var heights = null;
     try { heights = b.getAttribute("data-heights") ? JSON.parse(b.getAttribute("data-heights")) : null; } catch (e) { heights = null; }
     return { kind: b.getAttribute("data-view-file"), url: b.getAttribute("data-url"), name: b.getAttribute("data-name"), download: b.getAttribute("data-download"),
-      urlSmall: b.getAttribute("data-url-small"), heights: heights, heightsOn: b.getAttribute("data-heights-on") === "1" };
+      urlSmall: b.getAttribute("data-url-small"), heights: heights, heightsOn: b.getAttribute("data-heights-on") === "1", hiRes: b.getAttribute("data-hires") };
   }
 
   function viewSet(b) {

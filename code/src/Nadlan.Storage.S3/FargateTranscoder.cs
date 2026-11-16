@@ -56,8 +56,50 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
         say "done in $(( $(date +%s) - t0 )) s"
         """;
 
+    /// <summary>
+    /// "Catch image": the exact frame at each time in AT_MS (ms), full size and 640 px wide, as {ms}.jpg and {ms}_t.jpg. ffmpeg reads
+    /// the original over a short-lived signed link and fetches only the part it needs (seeking reads a few MB of a 1 GB file); if
+    /// that fails it downloads the original once. A time with no frame (past the end) simply has no file. result.json last.
+    /// </summary>
+    internal const string CaptureScript = """
+        set -eu
+        t0=$(date +%s)
+        say() { echo "[$(date -u +%H:%M:%S)] $*"; }
+        say "catch: $IN_KEY at $AT_MS"
+        apk add --no-cache ffmpeg aws-cli >/dev/null
+        mkdir -p /work/out && cd /work
+        SRC=$(aws s3 presign "s3://$BUCKET/$IN_KEY" --expires-in 3600)
+        grab() {
+          T=$(awk -v m="$2" 'BEGIN { printf "%.3f", m / 1000 }')
+          rm -f "out/$2.jpg" "out/$2_t.jpg"
+          timeout 600 ffmpeg -hide_banner -loglevel error -y -ss "$T" -i "$1" \
+            -map 0:v:0 -frames:v 1 -q:v 2 "out/$2.jpg" \
+            -map 0:v:0 -vf scale=640:-2 -frames:v 1 -q:v 5 "out/$2_t.jpg"
+        }
+        for MS in $AT_MS; do
+          if ! grab "$SRC" "$MS"; then
+            if [ ! -f in.bin ]; then
+              say "reading over the link failed: downloading the original"
+              aws s3 cp "s3://$BUCKET/$IN_KEY" in.bin --only-show-errors
+            fi
+            SRC=in.bin
+            grab in.bin "$MS" || say "no frame at $MS ms"
+          fi
+          if [ ! -s "out/$MS.jpg" ] || [ ! -s "out/${MS}_t.jpg" ]; then rm -f "out/$MS.jpg" "out/${MS}_t.jpg"; say "no frame at $MS ms"; fi
+        done
+        say "caught $(ls out | wc -l) files in $(( $(date +%s) - t0 )) s"
+        aws s3 cp out "s3://$BUCKET/${OUT}" --recursive --content-type image/jpeg --only-show-errors
+        printf '{"seconds":%s}' "$(( $(date +%s) - t0 ))" > result.json
+        aws s3 cp result.json "s3://$BUCKET/${OUT}result.json" --content-type application/json --only-show-errors
+        say "done in $(( $(date +%s) - t0 )) s"
+        """;
+
     /// <summary>The script as Linux reads it: a Windows checkout may give the source file CRLF line ends, which sh would choke on.</summary>
-    internal static string ShellScript => Script.Replace("\r\n", "\n").Replace('\r', '\n');
+    internal static string ShellScript => Linux(Script);
+
+    internal static string CaptureShellScript => Linux(CaptureScript);
+
+    private static string Linux(string script) => script.Replace("\r\n", "\n").Replace('\r', '\n');
 
     private readonly StorageOptions _storage;
     private readonly VideoSettings _settings;
@@ -72,7 +114,16 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
         _client = new Lazy<IAmazonECS>(CreateClient, LazyThreadSafetyMode.PublicationOnly);
     }
 
-    public async Task<string> SubmitAsync(VideoJobSpec spec, CancellationToken ct = default)
+    public Task<string> SubmitAsync(VideoJobSpec spec, CancellationToken ct = default) =>
+        RunAsync(ShellScript, _settings.Cpu, _settings.MemoryMb, _settings.StorageGb, spec.InputKey, spec.OutputPrefix,
+            ("MAX_SECONDS", (Math.Max(5, _settings.MaxRunMinutes - 5) * 60).ToString(CultureInfo.InvariantCulture)), ct);
+
+    public Task<string> SubmitCaptureAsync(string inputKey, string outputPrefix, IReadOnlyList<int> atMs, CancellationToken ct = default) =>
+        RunAsync(CaptureShellScript, VideoCaptureWorker.Cpu, VideoCaptureWorker.MemoryMb, VideoCaptureWorker.StorageGb, inputKey, outputPrefix,
+            ("AT_MS", string.Join(" ", atMs.Select(m => m.ToString(CultureInfo.InvariantCulture)))), ct);
+
+    private async Task<string> RunAsync(string script, int cpu, int memoryMb, int storageGb, string inputKey, string outputPrefix,
+        (string Name, string Value) extra, CancellationToken ct)
     {
         var request = new RunTaskRequest
         {
@@ -92,22 +143,22 @@ public sealed class FargateTranscoder : IVideoTranscoder, IDisposable
             },
             Overrides = new TaskOverride
             {
-                Cpu = _settings.Cpu.ToString(CultureInfo.InvariantCulture),
-                Memory = _settings.MemoryMb.ToString(CultureInfo.InvariantCulture),
-                EphemeralStorage = new EphemeralStorage { SizeInGiB = Math.Clamp(_settings.StorageGb, 21, 200) },
+                Cpu = cpu.ToString(CultureInfo.InvariantCulture),
+                Memory = memoryMb.ToString(CultureInfo.InvariantCulture),
+                EphemeralStorage = new EphemeralStorage { SizeInGiB = Math.Clamp(storageGb, 21, 200) },
                 ContainerOverrides = new List<ContainerOverride>
                 {
                     new()
                     {
                         Name = Container,
-                        Command = new List<string> { "sh", "-c", ShellScript },
+                        Command = new List<string> { "sh", "-c", script },
                         Environment = new List<Amazon.ECS.Model.KeyValuePair>
                         {
                             new() { Name = "BUCKET", Value = _storage.Bucket },
-                            new() { Name = "IN_KEY", Value = _storage.FullKey(spec.InputKey) },
-                            new() { Name = "OUT", Value = _storage.FullKey(spec.OutputPrefix) },
-                            new() { Name = "OUT_REL", Value = spec.OutputPrefix },
-                            new() { Name = "MAX_SECONDS", Value = (Math.Max(5, _settings.MaxRunMinutes - 5) * 60).ToString(CultureInfo.InvariantCulture) },
+                            new() { Name = "IN_KEY", Value = _storage.FullKey(inputKey) },
+                            new() { Name = "OUT", Value = _storage.FullKey(outputPrefix) },
+                            new() { Name = "OUT_REL", Value = outputPrefix },
+                            new() { Name = extra.Name, Value = extra.Value },
                         },
                     },
                 },

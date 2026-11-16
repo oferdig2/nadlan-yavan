@@ -221,7 +221,7 @@ public static class FileEndpoints
         uploadedUtc = f.UploadedUtc,
         takenLocal = f.TakenLocal, // under the thumbnail: "taken 19 Oct 2026"
         url = urls.GetUrl(Nadlan.Host.Video.VideoView.PlayKey(f)), // direct, signed, expiring - for the viewer (a video: its 1080p once converted)
-        video = Nadlan.Host.Video.VideoView.For(f, urls, video), // a converted video: 720p for small screens, heights
+        video = Nadlan.Host.Video.VideoView.For(f, urls, video, staff: true), // a converted video: 720p for small screens, heights, Hi-res
         downloadUrl = urls.GetDownloadUrl(f.StorageKey, f.OriginalFileName), // the same file, saved instead of shown
         thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null, // small preview for cards
     };

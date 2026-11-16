@@ -12,8 +12,12 @@ public static class VideoView
     /// </summary>
     public static string PlayKey(FileListItem f) => f.VideoStatus == VideoStatuses.Ready && f.VideoLargeKey is not null ? f.VideoLargeKey : f.StorageKey;
 
-    /// <summary>The extra fields of a video in a list (null for anything else): status, the 720p for small screens, heights.</summary>
-    public static object? For(FileListItem f, IFileUrlProvider urls, VideoSettings? settings, string? downloadName = null)
+    /// <summary>
+    /// The extra fields of a video in a list (null for anything else): status, the 720p for small screens, heights; in a staff list
+    /// (<paramref name="staff"/>, never a presentation) also whether the original is kept - the viewer then offers Hi-res to an Admin /
+    /// Data person (the API checks that again).
+    /// </summary>
+    public static object? For(FileListItem f, IFileUrlProvider urls, VideoSettings? settings, string? downloadName = null, bool staff = false)
     {
         if (settings is null || f.VideoStatus is null)
         {
@@ -28,6 +32,7 @@ public static class VideoView
             urlSmall = ready && f.VideoSmallKey is not null ? (downloadName is null ? urls.GetUrl(f.VideoSmallKey) : urls.GetUrl(f.VideoSmallKey, downloadName)) : null,
             heights = cues.Count == 0 ? null : cues,
             heightsOn = settings.HeightsOnByDefault,
+            hiRes = staff && f.VideoHasOriginal ? f.FileAttachmentId : (long?)null,
         };
     }
 }

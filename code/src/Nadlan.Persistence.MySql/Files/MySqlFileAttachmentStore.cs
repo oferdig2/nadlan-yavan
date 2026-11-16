@@ -40,7 +40,8 @@ public sealed class MySqlFileAttachmentStore : IFileAttachmentStore
         var rows = await conn.QueryAsync<FileListItem>(new CommandDefinition("""
             SELECT f.file_attachment_id, f.file_type_id, t.code AS file_type_code, t.name AS file_type_name, t.category,
                    f.attached_to_type, f.attached_to_id, f.storage_key, f.original_file_name, f.mime_type, f.file_size,
-                   f.caption, f.notes, f.sort_order, f.uploaded_utc, f.has_thumbnail, m.taken_local, vr.status AS video_status, vr.small_key AS video_small_key, vr.large_key AS video_large_key, vr.heights_json AS video_heights_json, COALESCE(vr.takeoff_offset_m, 0) AS video_offset_m, vr.duration_ms AS video_duration_ms
+                   f.caption, f.notes, f.sort_order, f.uploaded_utc, f.has_thumbnail, m.taken_local, vr.status AS video_status, vr.small_key AS video_small_key, vr.large_key AS video_large_key, vr.heights_json AS video_heights_json, COALESCE(vr.takeoff_offset_m, 0) AS video_offset_m, vr.duration_ms AS video_duration_ms,
+                   (vr.original_key IS NOT NULL AND vr.original_deleted_utc IS NULL AND vr.status <> 'Failed') AS video_has_original
             FROM file_attachment f
             JOIN file_type t ON t.file_type_id = f.file_type_id
             LEFT JOIN file_media_metadata m ON m.file_attachment_id = f.file_attachment_id

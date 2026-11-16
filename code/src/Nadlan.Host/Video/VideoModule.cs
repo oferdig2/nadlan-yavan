@@ -15,6 +15,8 @@ public static class VideoModule
 
     public sealed record OffsetDto(decimal OffsetM);
 
+    public sealed record CaptureDto(int? AtMs);
+
     public static IServiceCollection AddNadlanVideo(this IServiceCollection services, IConfiguration configuration)
     {
         var options = configuration.GetSection("Nadlan:Video").Get<NadlanOptions.VideoOptions>() ?? new NadlanOptions.VideoOptions();
@@ -82,14 +84,58 @@ public static class VideoModule
                 throw new DomainValidationException("VIDEO_FRAMES_NONE", "Tick at least one frame.");
             }
 
-            var types = await files.ListTypesAsync(ct);
-            var videoType = types.FirstOrDefault(t => t.Id == file.FileTypeId);
-            var code = videoType?.Code.StartsWith("DRONE", StringComparison.OrdinalIgnoreCase) == true ? "DRONE_PHOTO" : "PHOTO";
-            var photo = types.FirstOrDefault(t => t.Code == code && t.IsActive) ?? types.FirstOrDefault(t => t.Code == "PHOTO" && t.IsActive)
-                        ?? throw new DomainValidationException("FILE_TYPE_REQUIRED", "The file type Photo isn't on the list (any more).");
+            var photo = await PhotoTypeAsync(file, files, ct);
             await policy.RequireFileUploadAsync(me, file.AttachedToType, file.AttachedToId, photo.Category, ct);
             var ids = await video.AddFramesAsync(fileAttachmentId, dto.Indexes, me.UserId, photo, ct);
             return Results.Ok(new { added = ids.Count, fileAttachmentIds = ids });
+        });
+
+        // Hi-res (owner, 2026-11-16): the original, for an Admin / Data person, while it is kept. A signed link straight to storage:
+        // the browser plays it from there (our server never handles video bytes).
+        group.MapGet("/original", async (long fileAttachmentId, UserAccess me, AccessPolicy policy, IFileAttachmentStore files, FileService service,
+            IVideoStore store, VideoService video, IFileUrlProvider urls, CancellationToken ct) =>
+        {
+            await VisibleVideoAsync(fileAttachmentId, me, policy, files, service, ct);
+            MapDropService.RequireMapDrop(me);
+            var r = await store.GetAsync(fileAttachmentId, ct);
+            if (!VideoService.HasOriginal(r))
+            {
+                throw new DomainValidationException("VIDEO_ORIGINAL_GONE", "The original of this video is no longer kept.");
+            }
+
+            return Results.Ok(new
+            {
+                url = urls.GetUrl(r!.OriginalKey!),
+                size = r.OriginalSize,
+                durationMs = r.DurationMs,
+                keptUntilUtc = r.CompletedUtc is { } done && r.LargeKey != r.OriginalKey ? done.AddDays(video.Settings.OriginalRetentionDays) : (DateTime?)null,
+                canCatch = video.IsActive,
+            });
+        });
+
+        // Catch image: the exact frame at that moment, cut from the original at full size by the worker; a photo of the same
+        // Parcel / Asset within about a minute.
+        group.MapPost("/capture", async (long fileAttachmentId, CaptureDto dto, UserAccess me, AccessPolicy policy, IFileAttachmentStore files,
+            FileService service, VideoService video, CancellationToken ct) =>
+        {
+            var (file, _) = await VisibleVideoAsync(fileAttachmentId, me, policy, files, service, ct);
+            MapDropService.RequireMapDrop(me);
+            var photo = await PhotoTypeAsync(file, files, ct);
+            await policy.RequireFileUploadAsync(me, file.AttachedToType, file.AttachedToId, photo.Category, ct);
+            var id = await video.RequestCaptureAsync(fileAttachmentId, dto.AtMs ?? -1, photo, me.UserId, ct);
+            return Results.Ok(new { captureId = id });
+        });
+
+        // How the caught frames of this video are doing (the viewer asks every few seconds after Catch image).
+        group.MapGet("/captures", async (long fileAttachmentId, UserAccess me, AccessPolicy policy, IFileAttachmentStore files, FileService service,
+            IVideoStore store, CancellationToken ct) =>
+        {
+            await VisibleVideoAsync(fileAttachmentId, me, policy, files, service, ct);
+            MapDropService.RequireMapDrop(me);
+            return Results.Ok((await store.ListCapturesAsync(fileAttachmentId, 20, ct)).Select(c => new
+            {
+                c.CaptureId, c.AtMs, c.Status, c.PhotoFileId, error = c.ErrorMessage, c.CreatedUtc,
+            }));
         });
 
         // "Take-off was 5 m above the plot": added to every height shown.
@@ -140,6 +186,16 @@ public static class VideoModule
         });
     }
 
+    /// <summary>A drone video's frames are drone photos; any other video's, photos.</summary>
+    private static async Task<FileType> PhotoTypeAsync(FileAttachment file, IFileAttachmentStore files, CancellationToken ct)
+    {
+        var types = await files.ListTypesAsync(ct);
+        var videoType = types.FirstOrDefault(t => t.Id == file.FileTypeId);
+        var code = videoType?.Code.StartsWith("DRONE", StringComparison.OrdinalIgnoreCase) == true ? "DRONE_PHOTO" : "PHOTO";
+        return types.FirstOrDefault(t => t.Code == code && t.IsActive) ?? types.FirstOrDefault(t => t.Code == "PHOTO" && t.IsActive)
+               ?? throw new DomainValidationException("FILE_TYPE_REQUIRED", "The file type Photo isn't on the list (any more).");
+    }
+
     private static async Task<(FileAttachment File, string Category)> VisibleVideoAsync(long fileAttachmentId, UserAccess me, AccessPolicy policy,
         IFileAttachmentStore files, FileService service, CancellationToken ct)
     {
@@ -156,7 +212,7 @@ public static class VideoModule
 }
 
 /// <summary>
-/// Every 30 s: queue, send and collect conversions. Every 5 minutes: no worker left running (owner, 2026-11-15). Once a day: delete
+/// Every 30 s: queue, send and collect conversions and caught frames. Every 5 minutes: no worker left running (owner, 2026-11-15). Once a day: delete
 /// originals whose waiting period is over.
 /// </summary>
 public sealed class VideoWorker : BackgroundService
