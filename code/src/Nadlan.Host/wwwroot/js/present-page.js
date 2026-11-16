@@ -125,7 +125,7 @@
   // group: one per property, so the viewer's "‹" / "›" step through that property's photos and videos (remark 6).
   function mediaButton(m, cls, group) {
     var thumb = thumbOf(m);
-    return "<button type=\"button\" class=\"" + cls + "\" data-view-file=\"" + esc(m.kind) + "\" data-url=\"" + esc(m.url) + "\" data-name=\"" + esc(m.caption || "") + "\"" +
+    return "<button type=\"button\" class=\"" + cls + "\"" + Nadlan.mediaViewer.videoAttrs(m.video) + " data-view-file=\"" + esc(m.kind) + "\" data-url=\"" + esc(m.url) + "\" data-name=\"" + esc(m.caption || "") + "\"" +
       " data-view-group=\"" + esc(group) + "\"" + (m.downloadUrl ? " data-download=\"" + esc(m.downloadUrl) + "\"" : "") +
       (thumb ? " style=\"background-image:url('" + esc(thumb).replace(/'/g, "%27") + "')\"" : "") + " title=\"" + (m.kind === "video" ? "Play" : "View") + "\">" +
       (m.kind === "video" ? "<span class=\"pres-play\">▶</span>" : "") + "</button>";

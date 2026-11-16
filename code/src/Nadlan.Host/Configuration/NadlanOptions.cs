@@ -16,6 +16,72 @@ public sealed class NadlanOptions
 
     public GeoOptions Geo { get; set; } = new();
 
+    public VideoOptions Video { get; set; } = new();
+
+    /// <summary>
+    /// Large videos made light (migration 028; owner 2026-11-10/15): ffmpeg in a container on AWS Fargate, started per video in the
+    /// bucket's region. Off until switched on with the cluster's subnets (from the CloudShell setup script).
+    /// </summary>
+    public sealed class VideoOptions
+    {
+        public bool Enabled { get; set; }
+
+        public string Cluster { get; set; } = "nadlan-video";
+
+        public string TaskDefinition { get; set; } = "nadlan-video-worker";
+
+        public string Subnets { get; set; } = "";
+
+        public string SecurityGroup { get; set; } = "";
+
+        public int Cpu { get; set; } = 4096;
+
+        public int MemoryMb { get; set; } = 8192;
+
+        public int StorageGb { get; set; } = 50;
+
+        public int MaxRunMinutes { get; set; } = 90;
+
+        public double CostPerVcpuHour { get; set; } = 0.0356;
+
+        public double CostPerGbHour { get; set; } = 0.00392;
+
+        public int FrameCount { get; set; } = 10;
+
+        public bool HeightsOnByDefault { get; set; } = true;
+
+        public double FloorHeightM { get; set; } = 3.0;
+
+        public double EyeHeightM { get; set; } = 1.6;
+
+        public int OriginalRetentionDays { get; set; } = 7;
+
+        /// <summary>yyyy-MM-dd: videos uploaded since then are converted by themselves. Empty = every video (older ones too).</summary>
+        public string QueueUploadedAfter { get; set; } = "";
+
+        public Nadlan.Core.Video.VideoSettings ToSettings() => new()
+        {
+            Enabled = Enabled,
+            Cluster = (Cluster ?? "").Trim(),
+            TaskDefinition = (TaskDefinition ?? "").Trim(),
+            Subnets = (Subnets ?? "").Trim(),
+            SecurityGroup = (SecurityGroup ?? "").Trim(),
+            Cpu = Cpu is 1024 or 2048 or 4096 or 8192 or 16384 ? Cpu : 4096,
+            MemoryMb = Math.Clamp(MemoryMb, 2048, 32768),
+            StorageGb = Math.Clamp(StorageGb, 21, 200),
+            MaxRunMinutes = Math.Clamp(MaxRunMinutes, 10, 600),
+            CostPerVcpuHour = CostPerVcpuHour > 0 ? CostPerVcpuHour : 0.0356,
+            CostPerGbHour = CostPerGbHour > 0 ? CostPerGbHour : 0.00392,
+            FrameCount = Math.Clamp(FrameCount, 0, 30),
+            HeightsOnByDefault = HeightsOnByDefault,
+            FloorHeightM = FloorHeightM is > 1 and < 10 ? FloorHeightM : 3.0,
+            EyeHeightM = EyeHeightM is >= 0 and < 5 ? EyeHeightM : 1.6,
+            OriginalRetentionDays = Math.Clamp(OriginalRetentionDays, 1, 365),
+            QueueUploadedAfterUtc = DateTime.TryParseExact((QueueUploadedAfter ?? "").Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var d) ? d : DateTime.MinValue,
+        };
+    }
+
     /// <summary>
     /// Where a visitor's IP is placed (analytics, migration 026): MaxMind GeoLite2 files on this machine, no call to anyone.
     /// Empty or a missing file = the IP is kept and the place left empty (filled in later by the daily job).

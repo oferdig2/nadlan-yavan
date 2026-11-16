@@ -24,6 +24,16 @@ public static class AppConfigLimits
         ["Nadlan:Auth:Email:SmtpPort"] = (1, 65535),
         ["Nadlan:Places:SeaDistanceMaxKm"] = (0.1, 50),
         ["Nadlan:Places:SeaSearchKm"] = (0.5, 50),
+        ["Nadlan:Video:FrameCount"] = (0, 30),
+        ["Nadlan:Video:Cpu"] = (1024, 16384),
+        ["Nadlan:Video:MemoryMb"] = (2048, 32768),
+        ["Nadlan:Video:StorageGb"] = (21, 200),
+        ["Nadlan:Video:MaxRunMinutes"] = (10, 600),
+        ["Nadlan:Video:CostPerVcpuHour"] = (0.001, 1),
+        ["Nadlan:Video:CostPerGbHour"] = (0.0001, 0.1),
+        ["Nadlan:Video:FloorHeightM"] = (2, 6),
+        ["Nadlan:Video:EyeHeightM"] = (0, 3),
+        ["Nadlan:Video:OriginalRetentionDays"] = (1, 365),
         ["Nadlan:Storage:PartSizeMb"] = (5, 512),          // S3: parts of at least 5 MB
         ["Nadlan:Storage:MaxFileSizeGb"] = (1, 1000),
         ["Nadlan:Storage:UploadUrlMinutes"] = (1, 1440),
@@ -37,6 +47,10 @@ public static class AppConfigLimits
         "Nadlan:Maps:DefaultCenterLon",
         "Nadlan:Places:SeaDistanceMaxKm",
         "Nadlan:Places:SeaSearchKm",
+        "Nadlan:Video:FloorHeightM",
+        "Nadlan:Video:EyeHeightM",
+        "Nadlan:Video:CostPerVcpuHour",
+        "Nadlan:Video:CostPerGbHour",
     };
 
     /// <summary>On/off settings: true or false only.</summary>
@@ -44,6 +58,8 @@ public static class AppConfigLimits
     {
         "Nadlan:Auth:TrustForwardedHeaders",
         "Nadlan:Auth:Email:EnableSsl",
+        "Nadlan:Video:Enabled",
+        "Nadlan:Video:HeightsOnByDefault",
     };
 
     /// <summary>

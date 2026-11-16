@@ -25,7 +25,7 @@ public static class FileEndpoints
 
         // Files of one entity, only in the categories the caller may see (Scenario 23: hidden files are not even listed).
         group.MapGet("/", async (string? attachedToType, long attachedToId, UserAccess me, AccessPolicy policy,
-            IFileAttachmentStore files, IMapDropStore mapDrop, IFileUrlProvider urls, CancellationToken ct) =>
+            IFileAttachmentStore files, IMapDropStore mapDrop, IFileUrlProvider urls, Nadlan.Core.Video.VideoSettings video, CancellationToken ct) =>
         {
             var type = FileTargetTypes.Normalize(attachedToType)
                 ?? throw new DomainValidationException("FILE_TARGET_INVALID", "Unknown attachedToType.");
@@ -33,7 +33,7 @@ public static class FileEndpoints
             var items = (await files.ListReadyAsync(type, attachedToId, ct)).ToList();
             if (type != FileTargetTypes.Parcel)
             {
-                return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls)));
+                return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls, null, video)));
             }
 
             // A Parcel also shows videos of other Parcels that fly over it (Map drop time frames), each with its frames here -
@@ -48,7 +48,7 @@ public static class FileEndpoints
 
             var frames = await mapDrop.ListSegmentsOnParcelAsync(attachedToId, ct);
             return Results.Ok(items.Where(f => me.CanSeeFileCategory(f.Category)).Select(f => ToDto(f, urls,
-                frames.TryGetValue(f.FileAttachmentId, out var mine) ? mine : null)));
+                frames.TryGetValue(f.FileAttachmentId, out var mine) ? mine : null, video)));
         });
 
         // What the Files dialog may offer for this entity.
@@ -201,7 +201,8 @@ public static class FileEndpoints
     }
 
     /// <param name="segments">a video's time frames on the Parcel being listed (Map drop); null = none</param>
-    internal static object ToDto(FileListItem f, IFileUrlProvider urls, IReadOnlyList<FileSegment>? segments = null) => new
+    internal static object ToDto(FileListItem f, IFileUrlProvider urls, IReadOnlyList<FileSegment>? segments = null,
+        Nadlan.Core.Video.VideoSettings? video = null) => new
     {
         segments = segments?.Select(s => new { startMs = s.StartMs, endMs = s.EndMs, source = s.Source }),
         fileAttachmentId = f.FileAttachmentId,
@@ -219,7 +220,8 @@ public static class FileEndpoints
         sortOrder = f.SortOrder,
         uploadedUtc = f.UploadedUtc,
         takenLocal = f.TakenLocal, // under the thumbnail: "taken 19 Oct 2026"
-        url = urls.GetUrl(f.StorageKey), // direct, signed, expiring - for the viewer and downloads
+        url = urls.GetUrl(Nadlan.Host.Video.VideoView.PlayKey(f)), // direct, signed, expiring - for the viewer (a video: its 1080p once converted)
+        video = Nadlan.Host.Video.VideoView.For(f, urls, video), // a converted video: 720p for small screens, heights
         downloadUrl = urls.GetDownloadUrl(f.StorageKey, f.OriginalFileName), // the same file, saved instead of shown
         thumbUrl = f.HasThumbnail ? urls.GetUrl(FileAttachment.ThumbnailKey(f.StorageKey)) : null, // small preview for cards
     };

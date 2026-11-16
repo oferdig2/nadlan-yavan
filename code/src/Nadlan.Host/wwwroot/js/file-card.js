@@ -12,10 +12,19 @@
     return "doc";
   }
 
+  // A converted video's extras on its play button (migration 028): the 720p for small screens, the heights (subtitle cues) and
+  // whether they show at first. Used by the Files cards and the presentation.
+  function videoAttrs(video) {
+    var esc = Nadlan.format.escapeHtml;
+    if (!video) { return ""; }
+    return (video.urlSmall ? " data-url-small=\"" + esc(video.urlSmall) + "\"" : "") +
+      (video.heights ? " data-heights=\"" + esc(JSON.stringify(video.heights)) + "\" data-heights-on=\"" + (video.heightsOn ? "1" : "0") + "\"" : "");
+  }
+
   // Round button on media thumbnails: ▶ plays the video, ⤢ shows the image, in the full-screen viewer.
   function viewButton(file, mediaKind) {
     var esc = Nadlan.format.escapeHtml;
-    return "<button type=\"button\" class=\"file-view-btn\" data-view-file=\"" + esc(mediaKind) + "\" data-url=\"" + esc(file.url) +
+    return "<button type=\"button\" class=\"file-view-btn\"" + videoAttrs(file.video) + " data-view-file=\"" + esc(mediaKind) + "\" data-url=\"" + esc(file.url) +
       (file.downloadUrl ? "\" data-download=\"" + esc(file.downloadUrl) : "") +
       "\" data-name=\"" + esc(file.caption || file.originalFileName) + "\" title=\"" + (mediaKind === "video" ? "Play" : "View") + "\">" +
       (mediaKind === "video" ? "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M9 7l9 5-9 5z\"/></svg>"
@@ -40,6 +49,7 @@
       "<div class=\"media-viewer" + (info ? " has-info" : "") + "\" role=\"dialog\">" +
         "<div class=\"media-viewer-bar\"><span class=\"media-viewer-name\"></span>" +
           (items.length > 1 ? "<span class=\"media-viewer-count\"></span>" : "") +
+          "<button type=\"button\" class=\"media-viewer-heights\" hidden title=\"Show or hide the height above take-off\">Heights</button>" +
           "<a class=\"media-viewer-open\" target=\"_blank\" rel=\"noopener\">Open in new tab</a>" +
           "<button type=\"button\" class=\"media-viewer-close\" title=\"Close (Esc)\">×</button></div>" +
         "<div class=\"media-viewer-stage\"></div>" +
@@ -50,9 +60,36 @@
           : "") +
       "</div>").appendTo(document.body);
     var $stage = $viewer.find(".media-viewer-stage");
+    var heightsShown = null; // the viewer's choice once the Heights button was used (else each video's default)
+    var trackUrl = null;
 
     function stopVideo() {
       $stage.find("video").each(function () { this.pause(); this.removeAttribute("src"); this.load(); }); // stop downloading
+      if (trackUrl) { URL.revokeObjectURL(trackUrl); trackUrl = null; }
+    }
+
+    // Phones and small windows get the 720p copy; a big screen the 1080p (already in url once converted).
+    function playUrl(it) {
+      return it.urlSmall && (window.innerWidth < 900 || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches)) ? it.urlSmall : it.url;
+    }
+
+    // Heights as a subtitle track (also in a phone's full screen, where an overlay wouldn't show): cues from the server.
+    function addHeights(video, it) {
+      var $btn = $viewer.find(".media-viewer-heights");
+      if (!it.heights || !it.heights.length || !window.Blob) { $btn.prop("hidden", true); return; }
+      var two = function (n) { return ("0" + n).slice(-2); };
+      var ts = function (ms) { var s = Math.floor(ms / 1000); return two(Math.floor(s / 3600)) + ":" + two(Math.floor(s / 60) % 60) + ":" + two(s % 60) + "." + ("00" + (ms % 1000)).slice(-3); };
+      var nl = String.fromCharCode(10);
+      var vtt = "WEBVTT" + nl + nl + it.heights.map(function (c) { return ts(c[0]) + " --> " + ts(c[1]) + " line:8%" + nl + c[2] + nl; }).join(nl);
+      trackUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
+      var track = document.createElement("track");
+      track.kind = "subtitles"; track.label = "Heights"; track.srclang = "en"; track.src = trackUrl;
+      video.appendChild(track);
+      var on = heightsShown === null ? !!it.heightsOn : heightsShown;
+      var apply = function () { if (video.textTracks[0]) { video.textTracks[0].mode = on ? "showing" : "hidden"; } $btn.toggleClass("active", on).attr("aria-pressed", on ? "true" : "false"); };
+      track.addEventListener("load", apply);
+      apply();
+      $btn.prop("hidden", false).off("click").on("click", function () { on = !on; heightsShown = on; apply(); });
     }
 
     // A video whose picture the browser can't decode (e.g. H.265 / HEVC from many phones in a browser without it) plays
@@ -74,13 +111,14 @@
       $viewer.attr("aria-label", it.name || "");
       $viewer.find(".media-viewer-name").text((it.name || "") + frame);
       $viewer.find(".media-viewer-count").text((i + 1) + " / " + items.length);
-      $viewer.find(".media-viewer-open").attr("href", it.url);
+      $viewer.find(".media-viewer-open").attr("href", it.kind === "video" ? playUrl(it) : it.url);
       $stage.html(it.kind === "video"
-        ? "<video class=\"media-viewer-media\" controls autoplay playsinline src=\"" + esc(it.url) + "\"></video>"
+        ? "<video class=\"media-viewer-media\" controls autoplay playsinline src=\"" + esc(playUrl(it)) + "\"></video>"
         : "<img class=\"media-viewer-media\" src=\"" + esc(it.url) + "\" alt=\"" + esc(it.name || "") + "\">");
       var video = $stage.find("video")[0];
       if (set && set.onShow) { try { set.onShow(i, it, via || "open", video || null); } catch (e) { /* the page's hook never breaks the viewer */ } }
-      if (!video) { return; }
+      if (!video) { $viewer.find(".media-viewer-heights").prop("hidden", true); return; }
+      addHeights(video, it);
       video.addEventListener("loadedmetadata", function () {
         if (!video.videoWidth) { cantPlay(it); return; } // sound only: the picture can't be decoded
         if (frame && startMs > 0) { video.currentTime = startMs / 1000; }
@@ -121,7 +159,10 @@
   // The set a view button belongs to: the buttons with the same data-view-group (a presentation property), or those in
   // the nearest [data-view-set] container (a Files list, a card's thumbnails). A time-frame button stays on its own.
   function viewItem(b) {
-    return { kind: b.getAttribute("data-view-file"), url: b.getAttribute("data-url"), name: b.getAttribute("data-name"), download: b.getAttribute("data-download") };
+    var heights = null;
+    try { heights = b.getAttribute("data-heights") ? JSON.parse(b.getAttribute("data-heights")) : null; } catch (e) { heights = null; }
+    return { kind: b.getAttribute("data-view-file"), url: b.getAttribute("data-url"), name: b.getAttribute("data-name"), download: b.getAttribute("data-download"),
+      urlSmall: b.getAttribute("data-url-small"), heights: heights, heightsOn: b.getAttribute("data-heights-on") === "1" };
   }
 
   function viewSet(b) {
@@ -190,7 +231,7 @@
     var esc = Nadlan.format.escapeHtml;
     if (!file.segments || !file.segments.length || kind(file) !== "video") { return ""; }
     return "<div class=\"file-segments\">" + file.segments.map(function (s) {
-      return "<button type=\"button\" class=\"file-segment\" data-view-file=\"video\" data-url=\"" + esc(file.url) + "\" data-name=\"" +
+      return "<button type=\"button\" class=\"file-segment\"" + videoAttrs(file.video) + " data-view-file=\"video\" data-url=\"" + esc(file.url) + "\" data-name=\"" +
         esc(file.caption || file.originalFileName) + "\" data-start=\"" + s.startMs + "\" data-end=\"" + s.endMs + "\" title=\"Play this part\">&#9654; " +
         fmtTime(s.startMs) + "–" + fmtTime(s.endMs) + "</button>";
     }).join("") + "</div>";
@@ -212,6 +253,7 @@
       "<div class=\"file-title\">" + esc(file.caption || file.originalFileName) + "</div>" +
       "<div class=\"file-sub muted\">" + esc(file.fileTypeName) + " · " + Nadlan.formatFileSize(file.fileSize) + "</div>" +
       (file.takenLocal ? "<div class=\"file-sub file-taken muted\">taken " + esc(takenDate(file.takenLocal)) + "</div>" : "") +
+      (file.video && (file.video.status === "Queued" || file.video.status === "Submitted") ? "<div class=\"file-sub file-optimizing\">Optimizing for playing…</div>" : "") +
       segmentsHtml(file) +
       "</div>";
     // On a Parcel with time frames, ▶ on the picture starts at the first one too.
@@ -222,7 +264,7 @@
   }
 
   Nadlan.renderFileCard = renderFileCard;
-  Nadlan.mediaViewer = { open: openViewer, formatTime: fmtTime };
+  Nadlan.mediaViewer = { open: openViewer, formatTime: fmtTime, videoAttrs: videoAttrs };
   Nadlan.fileKind = kind;
   Nadlan.takenDate = takenDate;
 })(window, jQuery);

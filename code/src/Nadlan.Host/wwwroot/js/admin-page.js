@@ -36,6 +36,7 @@
       Nadlan.initializeAdminSettings($panel);
     } else if (tab === "costs") {
       Nadlan.initializeAdminCosts($panel);
+      if (Nadlan.initializeVideoRuns) { Nadlan.initializeVideoRuns($panel); } // the video worker's runs and costs
     } else {
       Nadlan.initializeMetadataTableEditor($panel, $.extend({ table: tab }, LISTS[tab]));
     }

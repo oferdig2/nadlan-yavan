@@ -193,9 +193,11 @@ public sealed class MySqlMapDropStore : IMapDropStore
     {
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<FileListItem>(new CommandDefinition($"""
-            SELECT {FileColumns}
+            SELECT {FileColumns}, vr.status AS video_status, vr.small_key AS video_small_key, vr.large_key AS video_large_key,
+                   vr.heights_json AS video_heights_json, COALESCE(vr.takeoff_offset_m, 0) AS video_offset_m, vr.duration_ms AS video_duration_ms
             FROM file_attachment f
             JOIN file_type t ON t.file_type_id = f.file_type_id
+            LEFT JOIN video_rendition vr ON vr.file_attachment_id = f.file_attachment_id
             WHERE f.upload_status = 'Ready'
               AND NOT (f.attached_to_type = 'Parcel' AND f.attached_to_id = @parcelId)
               AND f.attached_to_type <> 'MapDrop'
