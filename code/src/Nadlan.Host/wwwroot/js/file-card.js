@@ -121,15 +121,21 @@
       if (!fileId) { return { failed: function () { return false; } }; }
       var url = "/api/files/" + encodeURIComponent(fileId) + "/video";
       var note = function (text) { if (mine === shown) { $note.text(text).prop("hidden", !text); } };
+      // The moment and play state are taken when Hi-res is pressed: a source that fails resets the player's time to 0.
+      var moment = 0, playing = false, pending = null;
       var swap = function (src, onBad) {
-        var t = video.currentTime, playing = !video.paused;
-        video.addEventListener("loadedmetadata", function () {
+        if (pending) { video.removeEventListener("loadedmetadata", pending); }
+        pending = function () {
+          pending = null;
           if (onBad && !video.videoWidth) { onBad(); return; } // sound only: the picture can't be decoded
-          try { video.currentTime = t; } catch (e) { /* not seekable yet */ }
+          try { video.currentTime = moment; } catch (e) { /* not seekable yet */ }
           if (playing) { var p = video.play(); if (p && p.catch) { p.catch(function () { /* the user presses play */ }); } }
-        }, { once: true });
+        };
+        video.addEventListener("loadedmetadata", pending, { once: true });
+        video.autoplay = playing; // paused on a frame stays paused (to catch it)
         video.src = src;
       };
+      var keep = function () { moment = video.currentTime; playing = !video.paused; };
       // The original's picture can't be played here (e.g. H.265): the light copy again at the same moment; Catch image still
       // cuts the frame from the original.
       var fallBack = function () {
@@ -139,12 +145,13 @@
         note("The original can't play in this browser (probably H.265): you see the light copy. Catch image still takes the full-size frame.");
       };
       $hi.on("click", function () {
-        if (on) { on = false; $hi.removeClass("active"); $catch.prop("hidden", true); note(""); swap(light); return; }
+        if (on) { on = false; keep(); $hi.removeClass("active"); $catch.prop("hidden", true); note(""); swap(light); return; }
         $hi.prop("disabled", true).text("Loading…");
         Nadlan.api.get(url + "/original").then(function (o) {
           if (mine !== shown) { return; }
           $hi.prop("disabled", false).text("Hi-res").addClass("active");
           on = true;
+          keep();
           swap(o.url, fallBack);
           $catch.prop("hidden", !o.canCatch);
           note("Original" + (o.size ? " · " + Math.round(o.size / 1048576) + " MB" : "") +
