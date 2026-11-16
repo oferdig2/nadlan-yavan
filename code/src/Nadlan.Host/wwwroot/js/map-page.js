@@ -235,7 +235,8 @@
 
     var filters = Nadlan.initializeMapFilterPanel(document.getElementById("filters"), {
       reference: ref,
-      onApply: reload,
+      // Apply / Enter (not a pan, not a ticked colour): a search that finds exactly one Parcel / Asset zooms to it and selects it.
+      onApply: function (how) { state.focusSingle = !!(how && how.submitted); reload(); },
       onScopeChange: function (scope) {
         state.scope = scope;
         if (scope !== "rectangle") { rectangle.cancel(); } // leaving rectangle mode must give the map its gestures back
@@ -316,6 +317,8 @@
       // Claim a sequence number first: any search still in flight (maybe for the other mode) is now stale,
       // even if this reload can't run a search of its own.
       var seq = ++requestSeq;
+      var focusSingle = state.focusSingle; // once, for this search only: the zoom that follows must not repeat it
+      state.focusSingle = false;
       var mode = state.mode;
       var filter = filters.getFilter(mode);
       if (!filter) { clearResults("Fix the filter to search."); return; }
@@ -342,6 +345,7 @@
         results.setItems(res.items, res.truncated);
         if (state.fitAfterLoad) { state.fitAfterLoad = false; fitItems(res.items); }
         setStatus(state.doneMessage);
+        if (focusSingle) { focusOnlyResult(res.items, filter); }
         if (state.standingAt) { showWhereIStand(res.items); }
         if (state.pinAt) { showPinnedParcel(res.items); }
       }, function (err) {
@@ -483,6 +487,21 @@
       if (state.mode === "assets") { assetOverlay.focus(parcels[0].parcelId); } else { parcelOverlay.select(parcels[0].parcelId); }
       popups.showParcel(parcels[0]);
       setStatus(where + " is in Parcel " + name(parcels[0]) + ".");
+    }
+
+    // After Apply: exactly one Parcel (or one Asset's Parcel) found - zoom to it and select it. None found in the visible map
+    // with a KAEK / OT / plot typed: it may simply be just outside the view (2026-11-16: a Parcel under the right panel).
+    function focusOnlyResult(items, filter) {
+      var parcels = [];
+      items.forEach(function (it) { if (parcels.indexOf(it.summary.parcelId) < 0) { parcels.push(it.summary.parcelId); } });
+      if (parcels.length === 1) {
+        fitGeometry(items[0].geometry, 18);
+        if (state.mode === "assets") { assetOverlay.focus(parcels[0]); } else { parcelOverlay.select(parcels[0]); }
+        return;
+      }
+      if (!items.length && state.scope === "view" && (filter.registryId || filter.ot || filter.plot)) {
+        setStatus("Not in the visible map. Set \"Search in\" to Everywhere, or move the map, to find it.");
+      }
     }
 
     function fitItems(items) {

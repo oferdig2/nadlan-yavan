@@ -32,7 +32,7 @@
 
   /**
    * @param {jQuery|HTMLElement} container
-   * @param {{ reference: object, onApply: function(): void, onScopeChange: function(string): void,
+   * @param {{ reference: object, onApply: function(object=): void, onScopeChange: function(string): void,
    *           onDrawRectangle: function(): void, onClearRectangle: function(): void, onShowArea?: function(number): void }} options
    *        onShowArea(geographicAreaId): the 📍 beside an area name - the map shows that whole area
    */
@@ -108,7 +108,7 @@
 
     $root.find("form").on("submit", function (e) {
       e.preventDefault();
-      options.onApply();
+      options.onApply({ submitted: true }); // Apply / Enter: one result is zoomed to (owner, 2026-11-16)
       // On a phone: close the keyboard and show the results, which sit below the filters in the same scrolling panel.
       if (window.matchMedia && window.matchMedia("(max-width: 600px)").matches) {
         if (document.activeElement && document.activeElement.blur) { document.activeElement.blur(); }
