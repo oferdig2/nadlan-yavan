@@ -53,6 +53,7 @@
         "<div class=\"media-viewer-bar\"><span class=\"media-viewer-name\"></span>" +
           (items.length > 1 ? "<span class=\"media-viewer-count\"></span>" : "") +
           "<span class=\"media-viewer-note\" hidden></span>" +
+          "<span class=\"media-viewer-left\" hidden title=\"Then the original is deleted (the light copy stays). Extend keeps it 7 days longer.\"></span>" +
           "<button type=\"button\" class=\"media-viewer-extend\" hidden title=\"Keeping original big videos is charged - cents per GB per day. Keeps this original 7 days longer.\">Extend 7 days</button>" +
           "<button type=\"button\" class=\"media-viewer-catch\" hidden title=\"Add this moment to the tray; Get images makes full-size photos of them. Frame grabbing runs on a separate server and has a cost - usually a fraction of a cent, but please don't overuse it.\">Grab frame</button>" +
           "<button type=\"button\" class=\"media-viewer-hires\" hidden title=\"Play the original upload at full resolution (kept for a few weeks)\">Hi-res</button>" +
@@ -120,11 +121,12 @@
     // conversion: the time left shows, and Extend keeps it 7 days more.
     function hiResFor(video, it) {
       var $hi = $viewer.find(".media-viewer-hires"), $catch = $viewer.find(".media-viewer-catch"), $note = $viewer.find(".media-viewer-note");
-      var $extend = $viewer.find(".media-viewer-extend"), $tray = $viewer.find(".media-viewer-tray"), $get = $tray.find(".media-viewer-get");
+      var $extend = $viewer.find(".media-viewer-extend"), $left = $viewer.find(".media-viewer-left"), $tray = $viewer.find(".media-viewer-tray"), $get = $tray.find(".media-viewer-get");
       var mine = shown, fileId = it.hiRes, light = playUrl(it), on = false, tray = [], original = null;
       $hi.removeClass("active").prop("disabled", false).text("Hi-res").prop("hidden", !fileId).off("click");
       $catch.prop("hidden", true).prop("disabled", false).off("click");
       $extend.prop("hidden", true).prop("disabled", false).off("click");
+      $left.prop("hidden", true).text("");
       $get.prop("disabled", false).off("click");
       $tray.prop("hidden", true).find(".media-viewer-tray-items").empty().off("click");
       $note.text("").prop("hidden", true);
@@ -142,7 +144,9 @@
       };
       var showOriginal = function () {
         if (!original) { return; }
-        note("Original" + (original.size ? " · " + Math.round(original.size / 1048576) + " MB" : "") + (original.keptUntilUtc ? " · " + left(original.keptUntilUtc) : ""));
+        // The time left has its own label (owner, 2026-11-17): the note line is reused by the grab and H.265 messages.
+        note("Original" + (original.size ? " · " + Math.round(original.size / 1048576) + " MB" : ""));
+        $left.text(original.keptUntilUtc ? left(original.keptUntilUtc) : "").prop("hidden", !original.keptUntilUtc);
         $extend.prop("hidden", !original.keptUntilUtc);
       };
       // The moment and play state are taken when Hi-res is pressed: a source that fails resets the player's time to 0.
@@ -169,7 +173,7 @@
         note("The original can't play in this browser (probably H.265): you see the light copy. Grabbed frames still come from the original, full size.");
       };
       $hi.on("click", function () {
-        if (on) { on = false; keep(); $hi.removeClass("active"); $catch.prop("hidden", true); $extend.prop("hidden", true); note(""); swap(light); return; }
+        if (on) { on = false; keep(); $hi.removeClass("active"); $catch.prop("hidden", true); $extend.prop("hidden", true); $left.prop("hidden", true); note(""); swap(light); return; }
         $hi.prop("disabled", true).text("Loading…");
         Nadlan.api.get(url + "/original").then(function (o) {
           if (mine !== shown) { return; }
@@ -291,7 +295,7 @@
       var video = $stage.find("video")[0];
       if (set && set.onShow) { try { set.onShow(i, it, via || "open", video || null); } catch (e) { /* the page's hook never breaks the viewer */ } }
       current = null;
-      if (!video) { $viewer.find(".media-viewer-heights, .media-viewer-hires, .media-viewer-catch, .media-viewer-extend, .media-viewer-tray, .media-viewer-note").prop("hidden", true); return; }
+      if (!video) { $viewer.find(".media-viewer-heights, .media-viewer-hires, .media-viewer-catch, .media-viewer-extend, .media-viewer-left, .media-viewer-tray, .media-viewer-note").prop("hidden", true); return; }
       addHeights(video, it);
       var hi = current = hiResFor(video, it);
       video.addEventListener("loadedmetadata", function () {
