@@ -1,16 +1,28 @@
 // Adds a set of Assets to an existing Portfolio or to a new one. Membership is an explicit snapshot:
 // Assets that match the same filter later are NOT added automatically.
 // Resolves with { portfolioId, name, added } or null when cancelled.
+// The portfolio last added to is chosen at the start (owner, 2026-11-17: "remembers the selection for next add to portfolio"):
+// kept in this browser only; forgotten when adding to it fails (e.g. it was deleted).
 (function (window, $) {
   "use strict";
 
   var Nadlan = window.Nadlan = window.Nadlan || {};
 
+  var LastKey = "nadlan.portfolioPicker.last";
+
+  function readLast() {
+    try { var v = JSON.parse(window.localStorage.getItem(LastKey) || "null"); return v && v.portfolioId ? v : null; } catch (e) { return null; }
+  }
+
+  function writeLast(v) {
+    try { if (v) { window.localStorage.setItem(LastKey, JSON.stringify(v)); } else { window.localStorage.removeItem(LastKey); } } catch (e) { /* private window */ }
+  }
+
   function open(assetIds) {
     return Nadlan.reference.load().then(function (ref) {
       return new Promise(function (resolve) {
         var esc = Nadlan.format.escapeHtml;
-        var chosen = null;
+        var chosen = readLast();
         var done = false;
         var $form = $(
           "<form class=\"form\">" +
@@ -25,6 +37,11 @@
               "<label>Description<textarea class=\"input\" name=\"description\" rows=\"2\"></textarea></label>" +
             "</div>" +
           "</form>");
+
+        if (chosen) {
+          $form.find(".picker-chosen").removeClass("muted").html(esc(chosen.name) + (chosen.typeName ? " <span class=\"muted\">(" + esc(chosen.typeName) + ")</span>" : "") +
+            " <span class=\"muted\">- last used</span>");
+        }
 
         Nadlan.initializeEntitySelector($form.find(".picker-search"), {
           source: Nadlan.entitySources.portfolio,
@@ -57,13 +74,21 @@
           var call;
           if (isNew) {
             var data = Nadlan.dialog.readForm($form.find(".mode-new"));
+            var typeName = $form.find("[name=portfolioTypeId] option:selected").text();
             call = Nadlan.api.post("/api/portfolios", {
               name: data.name, portfolioTypeId: data.portfolioTypeId || 0, description: data.description, assetIds: assetIds
-            });
+            }).then(function (r) { writeLast({ portfolioId: r.portfolioId, name: r.name, typeName: typeName }); return r; });
           } else {
             if (!chosen) { d.showError("Choose a portfolio, or create a new one."); return; }
-            call = Nadlan.api.post("/api/portfolios/" + chosen.portfolioId + "/assets", { assetIds: assetIds })
-              .then(function (r) { return { portfolioId: chosen.portfolioId, name: chosen.name, added: r.added }; });
+            var picked = chosen;
+            call = Nadlan.api.post("/api/portfolios/" + picked.portfolioId + "/assets", { assetIds: assetIds })
+              .then(function (r) {
+                writeLast({ portfolioId: picked.portfolioId, name: picked.name, typeName: picked.typeName });
+                return { portfolioId: picked.portfolioId, name: picked.name, added: r.added };
+              }, function (err) {
+                if (readLast() && readLast().portfolioId === picked.portfolioId) { writeLast(null); }
+                throw err;
+              });
           }
           d.busy(true);
           call.then(function (result) {

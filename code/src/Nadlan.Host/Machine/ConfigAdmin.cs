@@ -93,7 +93,7 @@ public sealed class ConfigAdmin
         new ConfigField("Nadlan:Video:HeightsOnByDefault", "Heights on by default", "bool", "Drone videos with a flight track show '18 m · ≈ 5th floor view' when they start; viewers can turn it off."),
         new ConfigField("Nadlan:Video:FloorHeightM", "Floor height (m)", "number", "Floor to floor, for the floor in the heights."),
         new ConfigField("Nadlan:Video:EyeHeightM", "Eye height (m)", "number", "Above the floor."),
-        new ConfigField("Nadlan:Video:OriginalRetentionDays", "Keep originals (days)", "integer", "After a verified conversion; then the original is deleted and the 1080p copy is the file."),
+        new ConfigField("Nadlan:Video:OriginalRetentionDays", "Keep originals (days)", "integer", "After a verified conversion; then the original is deleted and the 1080p copy is the file. An Admin / Data person can keep one 7 days longer (Hi-res > Extend)."),
         new ConfigField("Nadlan:Video:QueueUploadedAfter", "Convert videos uploaded since", "text", "yyyy-MM-dd. Empty = every video, older ones too."),
         new ConfigField("Nadlan:Storage:Bucket", "Bucket", "text", "Empty = file features off (the rest of the app still runs)."),
         new ConfigField("Nadlan:Storage:Region", "Region", "text", "e.g. eu-north-1"),

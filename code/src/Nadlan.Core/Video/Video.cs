@@ -66,7 +66,7 @@ public sealed record VideoSettings
     public double EyeHeightM { get; init; } = 1.6;
 
     /// <summary>Days the original is kept after a verified conversion.</summary>
-    public int OriginalRetentionDays { get; init; } = 30;
+    public int OriginalRetentionDays { get; init; } = 7;
 
     /// <summary>Videos uploaded from this moment on are queued by themselves; older ones by "Optimize" (one or all).</summary>
     public DateTime QueueUploadedAfterUtc { get; init; } = DateTime.MaxValue;
@@ -101,6 +101,8 @@ public sealed record VideoRendition
     public long? OriginalSize { get; init; }
     public string? OriginalMime { get; init; }
     public DateTime? OriginalDeletedUtc { get; init; }
+    /// <summary>Set by Extend (migration 030): the original is kept until then.</summary>
+    public DateTime? OriginalKeepUntilUtc { get; init; }
     public DateTime? FramesDeletedUtc { get; init; }
 
     public IReadOnlyList<int> OfferedFrames => string.IsNullOrEmpty(FramesJson) ? Array.Empty<int>() : JsonSerializer.Deserialize<int[]>(FramesJson) ?? Array.Empty<int>();
@@ -154,7 +156,10 @@ public interface IVideoStore
     Task SetHeightsAsync(long fileAttachmentId, string? heightsJson, CancellationToken ct = default);
 
     /// <summary>Ready conversions whose original is still there and which completed before the cutoff.</summary>
-    Task<IReadOnlyList<VideoRendition>> ListOriginalsDueAsync(DateTime completedBeforeUtc, int limit, CancellationToken ct = default);
+    /// <summary>Originals whose time is over: kept until (Extend) or completed + <paramref name="retentionDays"/>, before <paramref name="nowUtc"/>.</summary>
+    Task<IReadOnlyList<VideoRendition>> ListOriginalsDueAsync(DateTime nowUtc, int retentionDays, int limit, CancellationToken ct = default);
+
+    Task SetOriginalKeepUntilAsync(long fileAttachmentId, DateTime keepUntilUtc, CancellationToken ct = default);
 
     /// <summary>
     /// The file now points at its 1080p MP4 (size, type, name), only while it still points at the original. True if switched.
@@ -178,7 +183,8 @@ public interface IVideoStore
     Task<IReadOnlyList<VideoWorkerRun>> ListOpenRunsAsync(CancellationToken ct = default);
 
     // ---- Catch image (migration 029) ----
-    Task<long> AddCaptureAsync(long fileAttachmentId, int atMs, int fileTypeId, long userId, CancellationToken ct = default);
+    /// <summary>Several moments in one statement (one worker run takes them all): their ids, in the order given.</summary>
+    Task<IReadOnlyList<long>> AddCapturesAsync(long fileAttachmentId, IReadOnlyList<int> atMs, int fileTypeId, long userId, CancellationToken ct = default);
 
     Task<IReadOnlyList<VideoCapture>> ListCapturesAsync(long fileAttachmentId, int limit, CancellationToken ct = default);
 

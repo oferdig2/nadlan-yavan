@@ -46,6 +46,8 @@
             (a.canEdit ? "<button type=\"button\" class=\"btn btn-small\" data-edit=\"" + a.assetId + "\">Edit</button>" : "") +
             "<button type=\"button\" class=\"btn btn-small\" data-files=\"" + a.assetId + "\">Files</button>" +
             "<button type=\"button\" class=\"btn btn-small\" data-history=\"" + a.assetId + "\">History</button>" +
+            // Add this one Asset to a portfolio; the picker starts on the last one used (owner, 2026-11-17). Not a beach.
+            (a.isBeach ? "" : "<button type=\"button\" class=\"btn btn-small\" data-portfolio=\"" + a.assetId + "\" title=\"Add this asset to a portfolio (the one you used last is chosen)\">+ Portfolio</button>") +
           "</span>" +
           // The Asset's own photos and videos (remark 13), filled in by loadAssetMedia; a set of its own for the viewer.
           "<div class=\"card-asset-media\" data-asset-media=\"" + a.assetId + "\" data-view-set hidden></div>" +
@@ -263,6 +265,14 @@
       $card.on("click", ".card-asset-media .file-card", function () {
         var assetId = Number($(this).closest("[data-asset-media]").data("assetMedia"));
         options.onOpenFiles("Asset", assetId, "Asset #" + assetId + " - files", state.parcelId);
+      });
+      $card.on("click", "[data-portfolio]", function () {
+        var $btn = $(this);
+        Nadlan.portfolioPicker.open([Number($btn.data("portfolio"))]).then(function (r) {
+          if (!r) { return; }
+          $btn.text(r.added ? "✓ Added" : "✓ Already in").attr("title", r.added ? "Added to \"" + r.name + "\"" : "It was already in \"" + r.name + "\"");
+          setTimeout(function () { $btn.text("+ Portfolio").attr("title", "Add this asset to a portfolio (the one you used last is chosen)"); }, 4000);
+        }).catch(function (err) { $btn.attr("title", err.message); });
       });
       $card.on("click", "[data-files]", function () {
         var assetId = Number($(this).data("files"));

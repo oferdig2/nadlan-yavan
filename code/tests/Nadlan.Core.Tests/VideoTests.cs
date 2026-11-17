@@ -525,7 +525,7 @@ public class VideoTests
             }
 
             var id = await VideoAsync("asset/3/a.mp4", "DJI_0963.MP4");
-            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCaptureAsync(id, 1000, photo, 1)); // not queued yet
+            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCapturesAsync(id, new[] { 1000 }, photo, 1)); // not queued yet
             await video.TickAsync();
             storage.Objects[VideoKeys.Small(id)] = 100;
             storage.Objects[VideoKeys.Large(id)] = 200;
@@ -534,9 +534,13 @@ public class VideoTests
             Assert.Equal(VideoStatuses.Ready, (await store.GetAsync(id))!.Status);
             Assert.True(VideoService.HasOriginal(await store.GetAsync(id)));
 
-            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCaptureAsync(id, 95_000, photo, 1)); // past the end
-            var a = await video.RequestCaptureAsync(id, 83_400, photo, 1);
-            var b = await video.RequestCaptureAsync(id, 89_990, photo, 1);
+            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCapturesAsync(id, new[] { 1000, 95_000 }, photo, 1)); // one past the end
+            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCapturesAsync(id, Array.Empty<int>(), photo, 1));
+            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCapturesAsync(id, Enumerable.Range(1, 41).Select(i => i * 1000).ToArray(), photo, 1));
+            Assert.Empty(await store.ListCapturesAsync(id, 10)); // a refused batch adds nothing
+            var ids = await video.RequestCapturesAsync(id, new[] { 89_990, 83_400, 83_400 }, photo, 1); // grabbed in any order, a moment twice
+            Assert.Equal(2, ids.Count);
+            var (a, b) = (ids[0], ids[1]); // in time order
 
             // Another video's conversion holds the one conversion worker: a frame someone waits for still gets its lane.
             await VideoAsync("asset/3/b.mp4", "other.mp4");
@@ -575,10 +579,25 @@ public class VideoTests
             Assert.Equal((1024, 2048, "finished"), (cost.Cpu, cost.MemoryMb, cost.StoppedBy));
             Assert.Equal(VideoRules.RunCost(clock.Now, clock.Now.AddSeconds(50), 1024, 2048, 21, Settings), cost.CostUsd);
 
+            // Extend: 7 days more than the (passed) day, counted from now; the sweep leaves it until then.
+            var due = video.OriginalDueUtc(await store.GetAsync(id))!.Value;
+            var until = await video.ExtendOriginalAsync(id);
+            Assert.InRange(until, clock.Now.AddDays(7).AddMinutes(-1), clock.Now.AddDays(7).AddMinutes(1));
+            Assert.True(due < until);
+            Assert.Equal(until, video.OriginalDueUtc(await store.GetAsync(id))!.Value, TimeSpan.FromMilliseconds(5));
+            Assert.Equal(0, await video.SweepAsync());
+            for (var i = 0; i < 11; i++) { await video.ExtendOriginalAsync(id); } // 84 days ahead
+            await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.ExtendOriginalAsync(id)); // past 90 days
+            await using (var c = await db.OpenAsync())
+            {
+                await c.ExecuteAsync("UPDATE video_rendition SET original_keep_until_utc = UTC_TIMESTAMP(3) - INTERVAL 1 HOUR WHERE file_attachment_id = @id", new { id });
+            }
+
             // Nothing waits any more: the original goes, and with it Hi-res and Catch image.
             Assert.Equal(1, await video.SweepAsync());
+            Assert.Null(video.OriginalDueUtc(await store.GetAsync(id)));
             Assert.False(VideoService.HasOriginal(await store.GetAsync(id)));
-            var gone = await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCaptureAsync(id, 1000, photo, 1));
+            var gone = await Assert.ThrowsAsync<Nadlan.Core.Validation.DomainValidationException>(() => video.RequestCapturesAsync(id, new[] { 1000 }, photo, 1));
             Assert.Equal("VIDEO_ORIGINAL_GONE", gone.Code);
         }
         finally

@@ -398,7 +398,8 @@ public sealed class VideoService
     }
 
     /// <summary>
-    /// Once a day: originals of conversions verified more than <see cref="VideoSettings.OriginalRetentionDays"/> ago are deleted
+    /// Once a day: originals of conversions verified more than <see cref="VideoSettings.OriginalRetentionDays"/> ago (or kept until a later
+    /// day by Extend) are deleted
     /// (owner, 2026-11-11: "customer doesn't want to pay tons for storage"); the file then IS its 1080p MP4. The frames go too
     /// (the photos someone added are copies). Returns how many originals were deleted.
     /// </summary>
@@ -410,7 +411,7 @@ public sealed class VideoService
         }
 
         var n = 0;
-        foreach (var r in await _store.ListOriginalsDueAsync(Now.AddDays(-Math.Max(1, _settings.OriginalRetentionDays)), 50, ct))
+        foreach (var r in await _store.ListOriginalsDueAsync(Now, Math.Max(1, _settings.OriginalRetentionDays), 50, ct))
         {
             var file = await _files.GetAsync(r.FileAttachmentId, ct);
             var large = r.LargeKey is null ? null : await _storage.GetObjectSizeAsync(r.LargeKey, ct);
@@ -523,6 +524,42 @@ public sealed class VideoService
         return id;
     }
 
+    // ---- The original's waiting time (owner, 2026-11-17: 7 days, "show the time left and add an extend button of 7 more days") ----
+
+    public const int ExtendDays = 7;
+
+    /// <summary>A keep-until at most this far ahead: Extend is for a while, not for ever (storage is paid by the GB-day).</summary>
+    public const int MaxKeepDaysAhead = 90;
+
+    /// <summary>
+    /// When the original will be deleted, or null when it never will (it is the kept file, or its copy is not smaller) or is gone.
+    /// </summary>
+    public DateTime? OriginalDueUtc(VideoRendition? r)
+    {
+        if (r is not { Status: VideoStatuses.Ready, OriginalDeletedUtc: null, CompletedUtc: { } done, OriginalKey: not null }
+            || r.LargeKey == r.OriginalKey || (r.OriginalSize is long os && r.LargeSize is long ls && ls >= os))
+        {
+            return null;
+        }
+
+        return r.OriginalKeepUntilUtc ?? done.AddDays(Math.Max(1, _settings.OriginalRetentionDays));
+    }
+
+    /// <summary>Extend: the original is kept 7 days longer than it would have been. Returns the new day.</summary>
+    public async Task<DateTime> ExtendOriginalAsync(long fileAttachmentId, CancellationToken ct = default)
+    {
+        var due = OriginalDueUtc(await _store.GetAsync(fileAttachmentId, ct))
+                  ?? throw new DomainValidationException("VIDEO_ORIGINAL_NOT_DUE", "This video's original is not waiting to be deleted.");
+        var until = (due > Now ? due : Now).AddDays(ExtendDays);
+        if (until > Now.AddDays(MaxKeepDaysAhead))
+        {
+            throw new DomainValidationException("VIDEO_ORIGINAL_KEEP_MAX", $"An original can be kept at most {MaxKeepDaysAhead} days ahead.");
+        }
+
+        await _store.SetOriginalKeepUntilAsync(fileAttachmentId, until, ct);
+        return until;
+    }
+
     // ---- Catch image (owner, 2026-11-16) ----
 
     /// <summary>A capture worker that runs longer than this is stopped (one frame takes seconds; 40 take a few minutes).</summary>
@@ -532,31 +569,41 @@ public sealed class VideoService
     public static bool HasOriginal(VideoRendition? r) => r is { OriginalKey: not null, OriginalDeletedUtc: null } && r.Status != VideoStatuses.Failed;
 
     /// <summary>
-    /// "Catch image": records the moment; a small worker cuts that exact frame from the original at full size within about a minute
-    /// and it becomes a photo of the video's Parcel / Asset. The caller checked the right to add that photo there.
+    /// "Get images": the moments the person grabbed (owner, 2026-11-17: collect a few, then one worker run cuts them all). A small
+    /// worker cuts each exact frame from the original at full size within about a minute; each becomes a photo of the video's
+    /// Parcel / Asset. The caller checked the right to add those photos there. Returns the capture ids, in the order given.
     /// </summary>
-    public async Task<long> RequestCaptureAsync(long fileAttachmentId, int atMs, FileType photoType, long userId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<long>> RequestCapturesAsync(long fileAttachmentId, IReadOnlyList<int> atMs, FileType photoType, long userId,
+        CancellationToken ct = default)
     {
         RequireActive();
         var r = await _store.GetAsync(fileAttachmentId, ct);
         if (!HasOriginal(r) || await _files.GetAsync(fileAttachmentId, ct) is null)
         {
             throw new DomainValidationException("VIDEO_ORIGINAL_GONE",
-                $"The original of this video is no longer kept (only {_settings.OriginalRetentionDays} days after it is converted). Add one of the photos under the video instead.");
+                $"The original of this video is no longer kept ({_settings.OriginalRetentionDays} days after it is converted, unless extended). Add one of the photos under the video instead.");
         }
 
-        if (atMs < 0 || (r!.DurationMs is int d && d > 0 && atMs > d))
+        var moments = atMs.Distinct().Order().ToList();
+        if (moments.Count == 0)
+        {
+            throw new DomainValidationException("VIDEO_CAPTURE_NONE", "Grab at least one frame.");
+        }
+
+        if (moments.Any(ms => ms < 0 || (r!.DurationMs is int d && d > 0 && ms > d)))
         {
             throw new DomainValidationException("VIDEO_CAPTURE_TIME", "That moment is outside the video.");
         }
 
         var waiting = (await _store.ListCapturesAsync(fileAttachmentId, 200, ct)).Count(c => c.Status is VideoCaptureStatuses.Pending or VideoCaptureStatuses.Running);
-        if (waiting >= VideoCaptureWorker.MaxPerRun)
+        if (waiting + moments.Count > VideoCaptureWorker.MaxPerRun)
         {
-            throw new DomainValidationException("VIDEO_CAPTURE_BUSY", $"{waiting} images of this video are still being caught. Wait a minute and try again.");
+            throw new DomainValidationException("VIDEO_CAPTURE_BUSY", waiting == 0
+                ? $"At most {VideoCaptureWorker.MaxPerRun} frames at a time."
+                : $"{waiting} images of this video are still being made. Wait a minute and try again.");
         }
 
-        return await _store.AddCaptureAsync(fileAttachmentId, atMs, photoType.Id, userId, ct);
+        return await _store.AddCapturesAsync(fileAttachmentId, moments, photoType.Id, userId, ct);
     }
 
     /// <summary>Collects finished capture runs, then starts one for each video with frames waiting. Returns the photos added.</summary>
