@@ -53,11 +53,14 @@
         "<div class=\"media-viewer-bar\"><span class=\"media-viewer-name\"></span>" +
           (items.length > 1 ? "<span class=\"media-viewer-count\"></span>" : "") +
           "<span class=\"media-viewer-note\" hidden></span>" +
-          "<button type=\"button\" class=\"media-viewer-catch\" hidden title=\"Add this exact moment as a full-size photo of the parcel / asset\">Catch image</button>" +
+          "<button type=\"button\" class=\"media-viewer-extend\" hidden title=\"Keeping original big videos is charged - cents per GB per day. Keeps this original 7 days longer.\">Extend 7 days</button>" +
+          "<button type=\"button\" class=\"media-viewer-catch\" hidden title=\"Add this moment to the tray; Get images makes full-size photos of them. Frame grabbing runs on a separate server and has a cost - usually a fraction of a cent, but please don't overuse it.\">Grab frame</button>" +
           "<button type=\"button\" class=\"media-viewer-hires\" hidden title=\"Play the original upload at full resolution (kept for a few weeks)\">Hi-res</button>" +
           "<button type=\"button\" class=\"media-viewer-heights\" hidden title=\"Show or hide the height above take-off\">Heights</button>" +
           "<a class=\"media-viewer-open\" target=\"_blank\" rel=\"noopener\">Open in new tab</a>" +
           "<button type=\"button\" class=\"media-viewer-close\" title=\"Close (Esc)\">×</button></div>" +
+        "<div class=\"media-viewer-tray\" hidden><div class=\"media-viewer-tray-items\"></div>" +
+          "<button type=\"button\" class=\"media-viewer-get\" title=\"Full-size photos of these moments, added to the files. Frame grabbing runs on a separate server and has a cost - usually a fraction of a cent, but please don't overuse it.\">Get images</button></div>" +
         "<div class=\"media-viewer-stage\"></div>" +
         (info ? "<aside class=\"media-viewer-info\">" + info + "</aside>" : "") +
         (items.length > 1
@@ -68,7 +71,8 @@
     var $stage = $viewer.find(".media-viewer-stage");
     var heightsShown = null; // the viewer's choice once the Heights button was used (else each video's default)
     var trackUrl = null;
-    var shown = 0; // which show() a late answer belongs to (Hi-res, Catch image)
+    var shown = 0; // which show() a late answer belongs to (Hi-res, grabbed frames)
+    var current = null; // the shown video's Hi-res controls (frames grabbed but not sent)
 
     function stopVideo() {
       $stage.find("video").each(function () { this.pause(); this.removeAttribute("src"); this.load(); }); // stop downloading
@@ -109,18 +113,38 @@
         "<a class=\"media-viewer-download\" href=\"" + esc(it.download || it.url) + "\" download>Download the video</a></div>");
     }
 
-    // Hi-res and Catch image (owner, 2026-11-16; Admin / Data person, while the original is kept). The original plays straight
-    // from storage over a signed link (our server never handles video bytes). Catch image sends only the moment: a worker cuts
-    // that exact frame from the original at full size and it becomes a photo of the video's parcel / asset in about a minute.
+    // Hi-res and frame grabbing (owner, 2026-11-16/17; Admin / Data person, while the original is kept). The original plays straight
+    // from storage over a signed link (our server never handles video bytes). Grab frame only notes the moment in a tray (a small
+    // preview, its time, x to drop it); Get images sends them all: one worker run cuts each exact frame from the original at full
+    // size, and they become photos of the video's parcel / asset in about a minute. The original is deleted some days after the
+    // conversion: the time left shows, and Extend keeps it 7 days more.
     function hiResFor(video, it) {
       var $hi = $viewer.find(".media-viewer-hires"), $catch = $viewer.find(".media-viewer-catch"), $note = $viewer.find(".media-viewer-note");
-      var mine = shown, fileId = it.hiRes, light = playUrl(it), on = false;
+      var $extend = $viewer.find(".media-viewer-extend"), $tray = $viewer.find(".media-viewer-tray"), $get = $tray.find(".media-viewer-get");
+      var mine = shown, fileId = it.hiRes, light = playUrl(it), on = false, tray = [], original = null;
       $hi.removeClass("active").prop("disabled", false).text("Hi-res").prop("hidden", !fileId).off("click");
       $catch.prop("hidden", true).prop("disabled", false).off("click");
+      $extend.prop("hidden", true).prop("disabled", false).off("click");
+      $get.prop("disabled", false).off("click");
+      $tray.prop("hidden", true).find(".media-viewer-tray-items").empty().off("click");
       $note.text("").prop("hidden", true);
-      if (!fileId) { return { failed: function () { return false; } }; }
+      var none = { failed: function () { return false; }, pending: function () { return 0; } };
+      if (!fileId) { return none; }
       var url = "/api/files/" + encodeURIComponent(fileId) + "/video";
       var note = function (text) { if (mine === shown) { $note.text(text).prop("hidden", !text); } };
+      var at = function (ms) { return fmtTime(ms) + "." + Math.floor((ms % 1000) / 100); };
+      // "5 days left" / "18 hours left": until the original is deleted (none: it is the kept file).
+      var left = function (iso) {
+        var h = (new Date(iso).getTime() - Date.now()) / 3600000;
+        if (h >= 48) { return Math.floor(h / 24) + " days left"; }
+        if (h >= 24) { return "1 day left"; }
+        return h >= 1 ? Math.floor(h) + " hours left" : "less than an hour left";
+      };
+      var showOriginal = function () {
+        if (!original) { return; }
+        note("Original" + (original.size ? " · " + Math.round(original.size / 1048576) + " MB" : "") + (original.keptUntilUtc ? " · " + left(original.keptUntilUtc) : ""));
+        $extend.prop("hidden", !original.keptUntilUtc);
+      };
       // The moment and play state are taken when Hi-res is pressed: a source that fails resets the player's time to 0.
       var moment = 0, playing = false, pending = null;
       var swap = function (src, onBad) {
@@ -132,61 +156,122 @@
           if (playing) { var p = video.play(); if (p && p.catch) { p.catch(function () { /* the user presses play */ }); } }
         };
         video.addEventListener("loadedmetadata", pending, { once: true });
-        video.autoplay = playing; // paused on a frame stays paused (to catch it)
+        video.autoplay = playing; // paused on a frame stays paused (to grab it)
         video.src = src;
       };
       var keep = function () { moment = video.currentTime; playing = !video.paused; };
-      // The original's picture can't be played here (e.g. H.265): the light copy again at the same moment; Catch image still
-      // cuts the frame from the original.
+      // The original's picture can't be played here (e.g. H.265): the light copy again at the same moment; the grabbed frames are
+      // still cut from the original.
       var fallBack = function () {
         on = false;
         $hi.removeClass("active");
         swap(light);
-        note("The original can't play in this browser (probably H.265): you see the light copy. Catch image still takes the full-size frame.");
+        note("The original can't play in this browser (probably H.265): you see the light copy. Grabbed frames still come from the original, full size.");
       };
       $hi.on("click", function () {
-        if (on) { on = false; keep(); $hi.removeClass("active"); $catch.prop("hidden", true); note(""); swap(light); return; }
+        if (on) { on = false; keep(); $hi.removeClass("active"); $catch.prop("hidden", true); $extend.prop("hidden", true); note(""); swap(light); return; }
         $hi.prop("disabled", true).text("Loading…");
         Nadlan.api.get(url + "/original").then(function (o) {
           if (mine !== shown) { return; }
           $hi.prop("disabled", false).text("Hi-res").addClass("active");
           on = true;
+          original = o;
           keep();
           swap(o.url, fallBack);
           $catch.prop("hidden", !o.canCatch);
-          note("Original" + (o.size ? " · " + Math.round(o.size / 1048576) + " MB" : "") +
-            (o.keptUntilUtc ? " · kept until " + new Date(o.keptUntilUtc).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""));
+          showOriginal();
         }, function (err) {
           $hi.prop("disabled", false).text("Hi-res");
           note(err && err.message ? err.message : "The original could not be opened.");
         });
       });
+      $extend.on("click", function () {
+        $extend.prop("disabled", true);
+        Nadlan.api.post(url + "/original/extend", {}).then(function (res) {
+          $extend.prop("disabled", false);
+          if (original) { original.keptUntilUtc = res.keptUntilUtc; }
+          showOriginal();
+        }, function (err) {
+          $extend.prop("disabled", false);
+          note(err && err.message ? err.message : "Could not keep it longer.");
+        });
+      });
+
+      // ---- the tray: grabbed moments, nothing sent until Get images ----
+      var renderTray = function () {
+        var $items = $tray.find(".media-viewer-tray-items").empty();
+        tray.sort(function (a, b) { return a.ms - b.ms; }).forEach(function (t) {
+          var $item = $("<div class=\"media-viewer-tray-item\" title=\"Show this moment\"></div>").attr("data-ms", t.ms);
+          $item.append(t.canvas).append($("<span class=\"media-viewer-tray-time\"></span>").text(at(t.ms)))
+            .append("<button type=\"button\" class=\"media-viewer-tray-drop\" title=\"Remove\" aria-label=\"Remove\">×</button>");
+          $items.append($item);
+        });
+        $get.text("Get images (" + tray.length + ")");
+        $tray.prop("hidden", !tray.length);
+      };
+      $tray.find(".media-viewer-tray-items").on("click", function (e) {
+        var $item = $(e.target).closest(".media-viewer-tray-item");
+        if (!$item.length) { return; }
+        var ms = Number($item.attr("data-ms"));
+        if ($(e.target).closest(".media-viewer-tray-drop").length) {
+          tray = tray.filter(function (t) { return t.ms !== ms; });
+          renderTray();
+          return;
+        }
+        video.pause();
+        try { video.currentTime = ms / 1000; } catch (err) { /* not seekable yet */ }
+      });
       $catch.on("click", function () {
         var ms = Math.round(video.currentTime * 1000);
-        var at = fmtTime(ms) + "." + Math.floor((ms % 1000) / 100);
         video.pause();
-        $catch.prop("disabled", true);
-        Nadlan.api.post(url + "/capture", { atMs: ms }).then(function (res) {
-          $catch.prop("disabled", false);
-          note("Caught " + at + " - the full-size photo is added to the files in about a minute.");
+        if (tray.some(function (t) { return Math.abs(t.ms - ms) < 40; })) { note("Frame " + at(ms) + " is already in the tray."); return; }
+        if (tray.length >= 40) { note("At most 40 frames at a time: press Get images first."); return; }
+        // The preview is drawn from the player (any picture it shows); the photo itself is cut from the original.
+        var canvas = document.createElement("canvas");
+        canvas.width = 112;
+        canvas.height = Math.max(1, Math.round(112 * (video.videoHeight || 9) / (video.videoWidth || 16)));
+        try { canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height); } catch (err) { /* no preview */ }
+        tray.push({ ms: ms, canvas: canvas });
+        renderTray();
+        note("Frame " + at(ms) + " grabbed. Grab more, then Get images.");
+      });
+      $get.on("click", function () {
+        var batch = tray.map(function (t) { return t.ms; });
+        if (!batch.length) { return; }
+        $get.prop("disabled", true);
+        Nadlan.api.post(url + "/capture", { atMs: batch }).then(function (res) {
+          $get.prop("disabled", false);
+          tray = [];
+          renderTray();
+          var ids = res.captureIds || [], n = ids.length;
+          note("Getting " + n + (n === 1 ? " image" : " images") + " - added to the files in about a minute.");
           var tries = 0;
           (function poll() {
             if (mine !== shown || !document.body.contains($viewer[0]) || ++tries > 60) { return; }
             setTimeout(function () {
               Nadlan.api.get(url + "/captures").then(function (list) {
-                var c = (list || []).filter(function (x) { return x.captureId === res.captureId; })[0];
-                if (c && c.status === "Done") { note("Photo " + at + " added to the files."); }
-                else if (c && c.status === "Failed") { note("Photo " + at + " failed: " + (c.error || "unknown error")); }
-                else { poll(); }
+                var mineNow = (list || []).filter(function (x) { return ids.indexOf(x.captureId) >= 0; });
+                var done = mineNow.filter(function (x) { return x.status === "Done"; }).length;
+                var failed = mineNow.filter(function (x) { return x.status === "Failed"; });
+                if (done + failed.length < n) { poll(); return; }
+                note(failed.length
+                  ? done + " of " + n + " added to the files; " + failed.length + " failed: " + (failed[0].error || "unknown error")
+                  : (n === 1 ? "The image was" : "All " + n + " images were") + " added to the files.");
               }, poll);
             }, 5000);
           })();
         }, function (err) {
-          $catch.prop("disabled", false);
-          note(err && err.message ? err.message : "Could not catch the image.");
+          $get.prop("disabled", false);
+          note(err && err.message ? err.message : "Could not get the images.");
         });
       });
-      return { failed: function () { if (on) { fallBack(); return true; } return false; } };
+      return { failed: function () { if (on) { fallBack(); return true; } return false; }, pending: function () { return tray.length; } };
+    }
+
+    // Grabbed frames not sent yet: leaving this video drops them - ask first.
+    function leaveOk() {
+      var n = current ? current.pending() : 0;
+      return !n || window.confirm("Drop the " + n + " grabbed frame" + (n === 1 ? "" : "s") + " not sent yet? (Get images keeps them.)");
     }
 
     function show(i, via) {
@@ -205,9 +290,10 @@
         : "<img class=\"media-viewer-media\" src=\"" + esc(it.url) + "\" alt=\"" + esc(it.name || "") + "\">");
       var video = $stage.find("video")[0];
       if (set && set.onShow) { try { set.onShow(i, it, via || "open", video || null); } catch (e) { /* the page's hook never breaks the viewer */ } }
-      if (!video) { $viewer.find(".media-viewer-heights, .media-viewer-hires, .media-viewer-catch, .media-viewer-note").prop("hidden", true); return; }
+      current = null;
+      if (!video) { $viewer.find(".media-viewer-heights, .media-viewer-hires, .media-viewer-catch, .media-viewer-extend, .media-viewer-tray, .media-viewer-note").prop("hidden", true); return; }
       addHeights(video, it);
-      var hi = hiResFor(video, it);
+      var hi = current = hiResFor(video, it);
       video.addEventListener("loadedmetadata", function () {
         if (!video.videoWidth) { cantPlay(it); return; } // sound only: the picture can't be decoded
         if (frame && startMs > 0) { video.currentTime = startMs / 1000; }
@@ -225,9 +311,10 @@
       }
     }
 
-    function step(by, via) { if (items.length > 1) { show((index + by + items.length) % items.length, via); } }
+    function step(by, via) { if (items.length > 1 && leaveOk()) { show((index + by + items.length) % items.length, via); } }
 
     function close() {
+      if (!leaveOk()) { return; }
       stopVideo();
       $viewer.remove();
       document.removeEventListener("keydown", onKey, true);

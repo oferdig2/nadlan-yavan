@@ -110,10 +110,18 @@ video.media-viewer-media { width: min(100%, 1600px); }
 /* A converted video (migration 028): the Heights toggle in the viewer, subtitles near the top, "Optimizing…" on cards, frames. */
 .media-viewer-heights { flex: 0 0 auto; background: transparent; color: #cbd5e1; border: 1px solid #64748b; border-radius: 6px; padding: 3px 10px; font: inherit; cursor: pointer; }
 .media-viewer-heights.active { background: #2563eb; border-color: #2563eb; color: #fff; }
-.media-viewer-hires, .media-viewer-catch { flex: 0 0 auto; background: transparent; color: #cbd5e1; border: 1px solid #64748b; border-radius: 6px; padding: 3px 10px; font: inherit; cursor: pointer; }
+.media-viewer-hires, .media-viewer-catch, .media-viewer-extend { flex: 0 0 auto; background: transparent; color: #cbd5e1; border: 1px solid #64748b; border-radius: 6px; padding: 3px 10px; font: inherit; cursor: pointer; }
 .media-viewer-hires.active { background: #2563eb; border-color: #2563eb; color: #fff; }
 .media-viewer-catch { background: #b45309; border-color: #b45309; color: #fff; }
-.media-viewer-hires:disabled, .media-viewer-catch:disabled { opacity: 0.6; cursor: default; }
+.media-viewer-hires:disabled, .media-viewer-catch:disabled, .media-viewer-extend:disabled, .media-viewer-get:disabled { opacity: 0.6; cursor: default; }
+.media-viewer-tray { position: absolute; top: 48px; right: 12px; z-index: 2; max-width: calc(100% - 24px); display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(15, 23, 42, 0.88); border-radius: 8px; }
+.media-viewer-tray-items { display: flex; gap: 6px; overflow-x: auto; min-width: 0; }
+.media-viewer-tray-item { position: relative; flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; cursor: pointer; }
+.media-viewer-tray-item canvas { display: block; width: 112px; height: auto; border-radius: 4px; background: #0f172a; }
+.media-viewer-tray-time { color: #e2e8f0; font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.media-viewer-tray-drop { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: rgba(15, 23, 42, 0.8); color: #fff; font: 14px/20px inherit; cursor: pointer; }
+.media-viewer-get { flex: 0 0 auto; background: #b45309; border: 1px solid #b45309; color: #fff; border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+@media (max-width: 640px) { .media-viewer-tray { top: 92px; left: 12px; right: 12px; } }
 .media-viewer-bar .media-viewer-note { flex: 0 1 auto; min-width: 0; color: #cbd5e1; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 640px) { .media-viewer-bar .media-viewer-note { position: absolute; top: 44px; left: 12px; right: 12px; white-space: normal; } }
 .media-viewer-media::cue { background: rgba(15, 23, 42, 0.72); color: #fff; font-size: 0.9em; }

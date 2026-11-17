@@ -10,7 +10,7 @@ public sealed class MySqlVideoStore : IVideoStore
     private const string Columns = """
         file_attachment_id, status, job_id, attempts, with_audio, queued_utc, submitted_utc, completed_utc, error_message,
         small_key, small_size, large_key, large_size, duration_ms, frame_count, frames_json, poster_index, heights_json,
-        takeoff_offset_m, original_key, original_size, original_mime, original_deleted_utc, frames_deleted_utc
+        takeoff_offset_m, original_key, original_size, original_mime, original_deleted_utc, original_keep_until_utc, frames_deleted_utc
         """;
 
     // A video on a Parcel or an Asset, with what the page read from inside it (size; a stored flight track).
@@ -100,16 +100,17 @@ public sealed class MySqlVideoStore : IVideoStore
     public Task SetHeightsAsync(long fileAttachmentId, string? heightsJson, CancellationToken ct = default) =>
         UpdateAsync("heights_json = @heightsJson", new { fileAttachmentId, heightsJson }, ct);
 
-    public async Task<IReadOnlyList<VideoRendition>> ListOriginalsDueAsync(DateTime completedBeforeUtc, int limit, CancellationToken ct = default)
+    public async Task<IReadOnlyList<VideoRendition>> ListOriginalsDueAsync(DateTime nowUtc, int retentionDays, int limit, CancellationToken ct = default)
     {
         await using var conn = await _db.OpenAsync(ct);
         return (await conn.QueryAsync<VideoRendition>(new CommandDefinition($"""
             SELECT {Columns} FROM video_rendition
-            WHERE status = 'Ready' AND original_deleted_utc IS NULL AND frames_deleted_utc IS NULL AND completed_utc < @completedBeforeUtc
+            WHERE status = 'Ready' AND original_deleted_utc IS NULL AND frames_deleted_utc IS NULL
+              AND COALESCE(original_keep_until_utc, completed_utc + INTERVAL @retentionDays DAY) < @nowUtc
               AND NOT EXISTS (SELECT 1 FROM video_capture c WHERE c.file_attachment_id = video_rendition.file_attachment_id
                               AND c.status IN ('Pending', 'Running')) -- a frame being caught keeps its original until it is done
             ORDER BY completed_utc LIMIT @limit
-            """, new { completedBeforeUtc, limit }, cancellationToken: ct))).ToList();
+            """, new { nowUtc, retentionDays, limit }, cancellationToken: ct))).ToList();
     }
 
     public async Task<bool> SwitchToLargeAsync(long fileAttachmentId, string originalKey, string largeKey, long largeSize, string fileName, CancellationToken ct = default)
@@ -121,6 +122,9 @@ public sealed class MySqlVideoStore : IVideoStore
             WHERE file_attachment_id = @fileAttachmentId AND storage_key = @originalKey
             """, new { fileAttachmentId, originalKey, largeKey, largeSize, fileName }, cancellationToken: ct)) == 1;
     }
+
+    public Task SetOriginalKeepUntilAsync(long fileAttachmentId, DateTime keepUntilUtc, CancellationToken ct = default) =>
+        UpdateAsync("original_keep_until_utc = @keepUntilUtc", new { fileAttachmentId, keepUntilUtc }, ct);
 
     public Task MarkFramesDeletedAsync(long fileAttachmentId, CancellationToken ct = default) =>
         UpdateAsync("frames_deleted_utc = UTC_TIMESTAMP(3)", new { fileAttachmentId }, ct);
@@ -171,13 +175,29 @@ public sealed class MySqlVideoStore : IVideoStore
         capture_id, file_attachment_id, at_ms, file_type_id, requested_by_user_id, status, job_id, photo_file_id, created_utc, error_message
         """;
 
-    public async Task<long> AddCaptureAsync(long fileAttachmentId, int atMs, int fileTypeId, long userId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<long>> AddCapturesAsync(long fileAttachmentId, IReadOnlyList<int> atMs, int fileTypeId, long userId, CancellationToken ct = default)
     {
+        if (atMs.Count == 0)
+        {
+            return Array.Empty<long>();
+        }
+
+        // One INSERT: the background round never sees half of a batch (it would start a second worker for the rest).
+        var args = new DynamicParameters(new { fileAttachmentId, fileTypeId, userId, count = atMs.Count });
+        var rows = new List<string>();
+        for (var i = 0; i < atMs.Count; i++)
+        {
+            args.Add("at" + i, atMs[i]);
+            rows.Add($"(@fileAttachmentId, @at{i}, @fileTypeId, @userId)");
+        }
+
         await using var conn = await _db.OpenAsync(ct);
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition("""
-            INSERT INTO video_capture (file_attachment_id, at_ms, file_type_id, requested_by_user_id) VALUES (@fileAttachmentId, @atMs, @fileTypeId, @userId);
-            SELECT LAST_INSERT_ID();
-            """, new { fileAttachmentId, atMs, fileTypeId, userId }, cancellationToken: ct));
+        return (await conn.QueryAsync<long>(new CommandDefinition($"""
+            INSERT INTO video_capture (file_attachment_id, at_ms, file_type_id, requested_by_user_id) VALUES {string.Join(", ", rows)};
+            SELECT capture_id FROM video_capture
+            WHERE capture_id >= LAST_INSERT_ID() AND file_attachment_id = @fileAttachmentId AND requested_by_user_id = @userId
+            ORDER BY capture_id LIMIT @count;
+            """, args, cancellationToken: ct))).ToList();
     }
 
     public async Task<IReadOnlyList<VideoCapture>> ListCapturesAsync(long fileAttachmentId, int limit, CancellationToken ct = default)

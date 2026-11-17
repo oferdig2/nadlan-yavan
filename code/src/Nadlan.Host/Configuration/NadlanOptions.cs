@@ -56,7 +56,7 @@ public sealed class NadlanOptions
 
         public double EyeHeightM { get; set; } = 1.6;
 
-        public int OriginalRetentionDays { get; set; } = 30;
+        public int OriginalRetentionDays { get; set; } = 7;
 
         /// <summary>yyyy-MM-dd: videos uploaded since then are converted by themselves. Empty = every video (older ones too).</summary>
         public string QueueUploadedAfter { get; set; } = "";

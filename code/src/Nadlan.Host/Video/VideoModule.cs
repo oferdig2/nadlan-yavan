@@ -15,7 +15,7 @@ public static class VideoModule
 
     public sealed record OffsetDto(decimal OffsetM);
 
-    public sealed record CaptureDto(int? AtMs);
+    public sealed record CaptureDto(int[]? AtMs);
 
     public static IServiceCollection AddNadlanVideo(this IServiceCollection services, IConfiguration configuration)
     {
@@ -53,8 +53,7 @@ public static class VideoModule
                 largeSize = r?.LargeSize,
                 originalSize = r?.OriginalSize,
                 originalDeletedUtc = r?.OriginalDeletedUtc,
-                originalDeleteDueUtc = r is { Status: VideoStatuses.Ready, OriginalDeletedUtc: null, CompletedUtc: { } done }
-                    ? done.AddDays(video.Settings.OriginalRetentionDays) : (DateTime?)null,
+                originalDeleteDueUtc = video.OriginalDueUtc(r),
                 frames = framesThere
                     ? r!.OfferedFrames.Select(i => new { index = i, at = VideoService.FrameTimeText(i), thumbUrl = urls.GetUrl(VideoKeys.Frame(fileAttachmentId, i, small: true)) })
                     : null,
@@ -108,13 +107,22 @@ public static class VideoModule
                 url = urls.GetUrl(r!.OriginalKey!),
                 size = r.OriginalSize,
                 durationMs = r.DurationMs,
-                keptUntilUtc = r.CompletedUtc is { } done && r.LargeKey != r.OriginalKey ? done.AddDays(video.Settings.OriginalRetentionDays) : (DateTime?)null,
+                keptUntilUtc = video.OriginalDueUtc(r), // null: kept for good (it is the file)
                 canCatch = video.IsActive,
             });
         });
 
-        // Catch image: the exact frame at that moment, cut from the original at full size by the worker; a photo of the same
-        // Parcel / Asset within about a minute.
+        // Extend (owner, 2026-11-17): keep this original 7 days longer. Storage of big originals is paid per GB-day.
+        group.MapPost("/original/extend", async (long fileAttachmentId, UserAccess me, AccessPolicy policy, IFileAttachmentStore files,
+            FileService service, VideoService video, CancellationToken ct) =>
+        {
+            await VisibleVideoAsync(fileAttachmentId, me, policy, files, service, ct);
+            MapDropService.RequireMapDrop(me);
+            return Results.Ok(new { keptUntilUtc = await video.ExtendOriginalAsync(fileAttachmentId, ct) });
+        });
+
+        // Get images: the grabbed moments, cut from the original at full size by one worker run; photos of the same Parcel / Asset
+        // within about a minute.
         group.MapPost("/capture", async (long fileAttachmentId, CaptureDto dto, UserAccess me, AccessPolicy policy, IFileAttachmentStore files,
             FileService service, VideoService video, CancellationToken ct) =>
         {
@@ -122,11 +130,11 @@ public static class VideoModule
             MapDropService.RequireMapDrop(me);
             var photo = await PhotoTypeAsync(file, files, ct);
             await policy.RequireFileUploadAsync(me, file.AttachedToType, file.AttachedToId, photo.Category, ct);
-            var id = await video.RequestCaptureAsync(fileAttachmentId, dto.AtMs ?? -1, photo, me.UserId, ct);
-            return Results.Ok(new { captureId = id });
+            var ids = await video.RequestCapturesAsync(fileAttachmentId, dto.AtMs ?? Array.Empty<int>(), photo, me.UserId, ct);
+            return Results.Ok(new { captureIds = ids });
         });
 
-        // How the caught frames of this video are doing (the viewer asks every few seconds after Catch image).
+        // How the grabbed frames of this video are doing (the viewer asks every few seconds after Get images).
         group.MapGet("/captures", async (long fileAttachmentId, UserAccess me, AccessPolicy policy, IFileAttachmentStore files, FileService service,
             IVideoStore store, CancellationToken ct) =>
         {
