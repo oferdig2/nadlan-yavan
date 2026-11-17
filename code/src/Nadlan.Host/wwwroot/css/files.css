@@ -123,6 +123,7 @@ video.media-viewer-media { width: min(100%, 1600px); }
 .media-viewer-get { flex: 0 0 auto; background: #b45309; border: 1px solid #b45309; color: #fff; border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
 @media (max-width: 640px) { .media-viewer-tray { top: 92px; left: 12px; right: 12px; } }
 .media-viewer-bar .media-viewer-note { flex: 0 1 auto; min-width: 0; color: #cbd5e1; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-viewer-bar .media-viewer-left { flex: 0 0 auto; color: #fbbf24; font-size: 0.85em; white-space: nowrap; }
 @media (max-width: 640px) { .media-viewer-bar .media-viewer-note { position: absolute; top: 44px; left: 12px; right: 12px; white-space: normal; } }
 .media-viewer-media::cue { background: rgba(15, 23, 42, 0.72); color: #fff; font-size: 0.9em; }
 .file-optimizing { color: #b45309; }
