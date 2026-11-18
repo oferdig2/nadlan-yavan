@@ -93,7 +93,7 @@
       var two = function (n) { return ("0" + n).slice(-2); };
       var ts = function (ms) { var s = Math.floor(ms / 1000); return two(Math.floor(s / 3600)) + ":" + two(Math.floor(s / 60) % 60) + ":" + two(s % 60) + "." + ("00" + (ms % 1000)).slice(-3); };
       var nl = String.fromCharCode(10);
-      var vtt = "WEBVTT" + nl + nl + it.heights.map(function (c) { return ts(c[0]) + " --> " + ts(c[1]) + " line:-2 position:2% align:left" + nl + c[2] + nl; }).join(nl);
+      var vtt = "WEBVTT" + nl + nl + it.heights.map(function (c) { return ts(c[0]) + " --> " + ts(c[1]) + " line:-1 position:2% align:left" + nl + c[2] + nl; }).join(nl);
       trackUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
       var track = document.createElement("track");
       track.kind = "subtitles"; track.label = "Heights"; track.srclang = "en"; track.src = trackUrl;
