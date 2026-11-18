@@ -136,7 +136,7 @@
         html += "<div class=\"video-offset\"><span>Heights: take-off was</span><input class=\"input\" data-video=\"offset\" inputmode=\"decimal\" value=\"" + esc(String(v.offsetM || 0)) +
           "\"" + (v.canEdit ? "" : " disabled") + "><span>m above the plot</span>" +
           (v.canEdit ? "<button type=\"button\" class=\"btn btn-small\" data-video=\"save-offset\">Save</button>" : "") + "</div>" +
-          "<div class=\"muted md-small\">Shown as \"18 m · ≈ 5th floor view\" while the video plays; 0 when it took off from the plot itself.</div>";
+          "<div class=\"muted md-small\">Shown as \"8 m · ≈ 2nd floor view\" while the video plays; 0 when it took off from the plot itself.</div>";
       }
 
       $box.html(html + "<div class=\"video-msg muted md-small\"></div>").prop("hidden", false);

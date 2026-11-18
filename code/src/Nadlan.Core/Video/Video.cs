@@ -375,7 +375,7 @@ public static class VideoRules
     }
 
     /// <summary>
-    /// Subtitle cues for the player: [startMs, endMs, "18 m · ≈ 5th floor view"] - a new cue only when the text changes.
+    /// Subtitle cues for the player: [startMs, endMs, "8 m · ≈ 2nd floor view"] - a new cue only when the text changes.
     /// Height = above take-off + the video's correction ("take-off was 5 m above the plot").
     /// </summary>
     public static IReadOnlyList<object[]> HeightCues(string? heightsJson, decimal offsetM, VideoSettings s, int? durationMs)
@@ -400,7 +400,7 @@ public static class VideoRules
         return cues.Select((c, i) => new object[] { c.Start, i + 1 < cues.Count ? cues[i + 1].Start : end, c.Text }).ToList();
     }
 
-    /// <summary>"18 m · ≈ 5th floor view"; ground floor at eye height; above ~40 m only metres; below the plot only metres.</summary>
+    /// <summary>"8 m · ≈ 2nd floor view": ground floor, 1st, 2nd floor, roof (eye height on each); higher, metres only; below the plot, "N m below take-off".</summary>
     public static string HeightLabel(double metres, VideoSettings s)
     {
         var m = (int)Math.Round(metres);
@@ -409,13 +409,15 @@ public static class VideoRules
             return (-m).ToString(CultureInfo.InvariantCulture) + " m below take-off"; // flying down a slope, below where it took off
         }
 
-        if (metres > 40)
+        // A house here has a ground floor, a 1st and a 2nd floor and a roof; a little higher, metres only (owner + Alon, 2026-11-18).
+        var floor = Math.Max(0, (int)Math.Round((metres - s.EyeHeightM) / Math.Max(0.5, s.FloorHeightM)));
+        if (floor > 3)
         {
             return m.ToString(CultureInfo.InvariantCulture) + " m";
         }
 
-        var floor = Math.Max(0, (int)Math.Round((metres - s.EyeHeightM) / Math.Max(0.5, s.FloorHeightM)));
-        return m.ToString(CultureInfo.InvariantCulture) + " m · ≈ " + (floor == 0 ? "ground floor" : Ordinal(floor) + " floor") + " view";
+        var level = floor switch { 0 => "ground floor", 3 => "roof", _ => Ordinal(floor) + " floor" };
+        return m.ToString(CultureInfo.InvariantCulture) + " m · ≈ " + level + " view";
     }
 
     private static string Ordinal(int n) => n + ((n % 100) is 11 or 12 or 13 ? "th" : (n % 10) switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" });
