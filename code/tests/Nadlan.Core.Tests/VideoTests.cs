@@ -41,12 +41,16 @@ public class VideoTests
         var cues = VideoRules.HeightCues(heights, 0m, Settings, 10_000);
         Assert.Equal(new object[] { 0, 1000, "0 m · ≈ ground floor view" }, cues[0]);
         Assert.Equal(new object[] { 1000, 2000, "3 m · ≈ 1st floor view" }, cues[1]); // nearer the 1st floor's eye height (4.6 m)
-        Assert.Equal(new object[] { 2000, 10_000, "18 m · ≈ 5th floor view" }, cues[2]);
-        Assert.Equal("23 m · ≈ 7th floor view", VideoRules.HeightCues(heights, 5m, Settings, null)[^1][2]); // took off 5 m above the plot
+        Assert.Equal(new object[] { 2000, 10_000, "18 m" }, cues[2]); // above the roof: metres only
+        Assert.Equal("23 m", VideoRules.HeightCues(heights, 5m, Settings, null)[^1][2]); // took off 5 m above the plot
         Assert.Equal("52 m", VideoRules.HeightLabel(52, Settings));
         Assert.Equal("4 m below take-off", VideoRules.HeightLabel(-4, Settings));
         Assert.Equal("6 m · ≈ 1st floor view", VideoRules.HeightLabel(6, Settings));
-        Assert.Equal("37 m · ≈ 12th floor view", VideoRules.HeightLabel(37, Settings));
+        Assert.Equal("37 m", VideoRules.HeightLabel(37, Settings));
+        Assert.Equal("2 m · ≈ ground floor view", VideoRules.HeightLabel(2, Settings));
+        Assert.Equal("8 m · ≈ 2nd floor view", VideoRules.HeightLabel(8, Settings));
+        Assert.Equal("11 m · ≈ roof view", VideoRules.HeightLabel(11, Settings));
+        Assert.Equal("14 m", VideoRules.HeightLabel(14, Settings)); // a little above the roof: metres only
         Assert.Null(VideoRules.HeightsFromTrack(null));
         Assert.Empty(VideoRules.HeightCues(null, 0m, Settings, null));
     }
@@ -248,7 +252,7 @@ public class VideoTests
 
             // The take-off correction moves every height.
             await video.SetOffsetAsync(vid, 5m);
-            Assert.Equal("23 m · ≈ 7th floor view", video.Cues(await store.GetAsync(vid))[0][2]);
+            Assert.Equal("23 m", video.Cues(await store.GetAsync(vid))[0][2]);
 
             // Before the waiting period nothing is deleted; after it the file IS the 1080p and the original and frames are gone.
             Assert.Equal(0, await video.SweepAsync());
