@@ -109,7 +109,7 @@ video.media-viewer-media { width: min(100%, 1600px); }
 }
 /* A converted video (migration 028): the Heights toggle in the viewer, subtitles near the top, "Optimizing…" on cards, frames. */
 .media-viewer-heights { flex: 0 0 auto; background: transparent; color: #cbd5e1; border: 1px solid #64748b; border-radius: 6px; padding: 3px 10px; font: inherit; cursor: pointer; }
-.media-viewer-heights.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+.media-viewer-heights.active { background: #16a34a; border-color: #16a34a; color: #fff; font-weight: 600; }
 .media-viewer-hires, .media-viewer-catch, .media-viewer-extend { flex: 0 0 auto; background: transparent; color: #cbd5e1; border: 1px solid #64748b; border-radius: 6px; padding: 3px 10px; font: inherit; cursor: pointer; }
 .media-viewer-hires.active { background: #2563eb; border-color: #2563eb; color: #fff; }
 .media-viewer-catch { background: #b45309; border-color: #b45309; color: #fff; }
@@ -125,7 +125,9 @@ video.media-viewer-media { width: min(100%, 1600px); }
 .media-viewer-bar .media-viewer-note { flex: 0 1 auto; min-width: 0; color: #cbd5e1; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-viewer-bar .media-viewer-left { flex: 0 0 auto; color: #fbbf24; font-size: 0.85em; white-space: nowrap; }
 @media (max-width: 640px) { .media-viewer-bar .media-viewer-note { position: absolute; top: 44px; left: 12px; right: 12px; white-space: normal; } }
-.media-viewer-media::cue { background: rgba(15, 23, 42, 0.72); color: #fff; font-size: 0.9em; }
+/* The height label: big, bold, white with a dark outline and shadow - readable on any background (2026-11-18). */
+.media-viewer-media::cue { background: rgba(0, 0, 0, 0.35); color: #fff; font-weight: 800; font-size: 150%; line-height: 1.25;
+  text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 0 8px rgba(0, 0, 0, 0.9); }
 .file-optimizing { color: #b45309; }
 .video-box { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
 .video-box .video-state { margin: 2px 0 6px; }

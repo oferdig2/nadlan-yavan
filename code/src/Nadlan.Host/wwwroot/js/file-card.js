@@ -57,7 +57,7 @@
           "<button type=\"button\" class=\"media-viewer-extend\" hidden title=\"Keeping original big videos is charged - cents per GB per day. Keeps this original 7 days longer.\">Extend 7 days</button>" +
           "<button type=\"button\" class=\"media-viewer-catch\" hidden title=\"Add this moment to the tray; Get images makes full-size photos of them. Frame grabbing runs on a separate server and has a cost - usually a fraction of a cent, but please don't overuse it.\">Grab frame</button>" +
           "<button type=\"button\" class=\"media-viewer-hires\" hidden title=\"Play the original upload at full resolution (kept for a few weeks)\">Hi-res</button>" +
-          "<button type=\"button\" class=\"media-viewer-heights\" hidden title=\"Show or hide the height above take-off\">Heights</button>" +
+          "<button type=\"button\" class=\"media-viewer-heights\" hidden title=\"The height above take-off, from the drone's flight log (.srt): show or hide it\">Height: ON</button>" +
           "<a class=\"media-viewer-open\" target=\"_blank\" rel=\"noopener\">Open in new tab</a>" +
           "<button type=\"button\" class=\"media-viewer-close\" title=\"Close (Esc)\">×</button></div>" +
         "<div class=\"media-viewer-tray\" hidden><div class=\"media-viewer-tray-items\"></div>" +
@@ -86,19 +86,20 @@
     }
 
     // Heights as a subtitle track (also in a phone's full screen, where an overlay wouldn't show): cues from the server.
+    // Bottom left, big and outlined so it reads on sky, sea or trees; the button says ON / OFF (owner + Alon, 2026-11-18).
     function addHeights(video, it) {
       var $btn = $viewer.find(".media-viewer-heights");
       if (!it.heights || !it.heights.length || !window.Blob) { $btn.prop("hidden", true); return; }
       var two = function (n) { return ("0" + n).slice(-2); };
       var ts = function (ms) { var s = Math.floor(ms / 1000); return two(Math.floor(s / 3600)) + ":" + two(Math.floor(s / 60) % 60) + ":" + two(s % 60) + "." + ("00" + (ms % 1000)).slice(-3); };
       var nl = String.fromCharCode(10);
-      var vtt = "WEBVTT" + nl + nl + it.heights.map(function (c) { return ts(c[0]) + " --> " + ts(c[1]) + " line:8%" + nl + c[2] + nl; }).join(nl);
+      var vtt = "WEBVTT" + nl + nl + it.heights.map(function (c) { return ts(c[0]) + " --> " + ts(c[1]) + " line:-2 position:2% align:left" + nl + c[2] + nl; }).join(nl);
       trackUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
       var track = document.createElement("track");
       track.kind = "subtitles"; track.label = "Heights"; track.srclang = "en"; track.src = trackUrl;
       video.appendChild(track);
       var on = heightsShown === null ? !!it.heightsOn : heightsShown;
-      var apply = function () { if (video.textTracks[0]) { video.textTracks[0].mode = on ? "showing" : "hidden"; } $btn.toggleClass("active", on).attr("aria-pressed", on ? "true" : "false"); };
+      var apply = function () { if (video.textTracks[0]) { video.textTracks[0].mode = on ? "showing" : "hidden"; } $btn.toggleClass("active", on).attr("aria-pressed", on ? "true" : "false").text(on ? "Height: ON" : "Height: OFF"); };
       track.addEventListener("load", apply);
       apply();
       $btn.prop("hidden", false).off("click").on("click", function () { on = !on; heightsShown = on; apply(); });
