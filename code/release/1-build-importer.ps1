@@ -43,6 +43,21 @@ if (-not (Read-YesNo "Build all three (Windows, Mac Apple Silicon, Mac Intel)?" 
     if ($targets.Count -eq 0) { throw "Nothing to build." }
 }
 
+# The importer code must be what is on main (2026-11-19: 1.0.4 went out without the Theologos fix).
+Write-Step "Checking the importer code"
+& git -C $CodeRoot fetch --quiet origin 2>$null
+$head = (& git -C $CodeRoot rev-parse --short=12 HEAD).Trim()
+$importerCode = @("src/Nadlan.KaekImporter", "installer")
+$dirty = (& git -C $CodeRoot status --porcelain -- $importerCode)
+& git -C $CodeRoot diff --quiet origin/main -- $importerCode
+$differs = $LASTEXITCODE -ne 0
+Write-Host "Building from commit $head"
+if ($dirty -or $differs) {
+    if ($dirty) { Write-Warning "The importer code has uncommitted changes:"; $dirty | ForEach-Object { Write-Host "  $_" } }
+    if ($differs) { Write-Warning "The importer code differs from origin/main (this checkout is not on the newest main)." }
+    if (-not (Read-YesNo "Build anyway (a test build, not for Admin > Downloads)?" $false)) { throw "Stopped: update this checkout to main first (git pull)." }
+}
+
 Write-Step "Building importer $Version for $ApiUrl"
 & (Join-Path $CodeRoot "installer\Publish-KaekImporter.ps1") -ApiUrl $ApiUrl -Version $Version -Targets $targets
 
