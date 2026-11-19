@@ -22,11 +22,33 @@ $rids = @{ "windows" = "win-x64"; "mac-apple-silicon" = "osx-arm64"; "mac-intel"
 # Windows' own tar (bsdtar) - it can set Unix file modes, which a Mac needs to run the app.
 $tar = Join-Path $env:SystemRoot "System32\tar.exe"
 
+# Every build carries "<version>+<commit>" (the assembly's informational version; the app still shows the plain version), and
+# each package is checked for it: 1.0.4 was published without the code it should have had (2026-11-19, Theologos), so a
+# package now proves which commit it was built from. The importer's bin/obj are removed first: a clean build, no leftovers.
+$commit = (& git -C $code rev-parse --short=12 HEAD 2>$null)
+if ($LASTEXITCODE -ne 0 -or -not $commit) { throw "Not a git checkout: can't stamp the build with its commit." }
+$stamp = "$Version+$($commit.Trim())"
+foreach ($leftover in @("bin", "obj")) {
+    $dir = Join-Path (Split-Path -Parent $project) $leftover
+    if (Test-Path $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+}
+Write-Host "Clean build of $stamp" -ForegroundColor Cyan
+
+function Assert-Stamp([string]$output) {
+    $dll = Join-Path $output "NadlanKaekImporter.dll"
+    if (-not (Test-Path $dll)) { throw "No NadlanKaekImporter.dll in $output." }
+    $bytes = [IO.File]::ReadAllBytes($dll)
+    $text = [Text.Encoding]::ASCII.GetString($bytes)
+    if ($text.IndexOf($stamp, [StringComparison]::Ordinal) -lt 0) { throw "The build in $output is not stamped $stamp - stale output? Nothing was packaged." }
+}
+
 function Publish-App([string]$rid, [string]$output) {
     Write-Host "Building $rid ..." -ForegroundColor Cyan
+    if (Test-Path $output) { Remove-Item -LiteralPath $output -Recurse -Force } # never package files from an older build
     # Out-Host: a function returns everything written to its output, and callers expect just the package path.
-    & dotnet publish $project -c Release -r $rid --self-contained -p:Version=$Version -o $output --nologo -v quiet | Out-Host
+    & dotnet publish $project -c Release -r $rid --self-contained -p:Version=$Version -p:InformationalVersion=$stamp -o $output --nologo -v quiet | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $rid" }
+    Assert-Stamp $output
     $settings = [ordered]@{ apiUrl = $ApiUrl }
     $settings | ConvertTo-Json | Set-Content -Path (Join-Path $output "importer.json") -Encoding ASCII
 }
