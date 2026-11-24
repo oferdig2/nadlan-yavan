@@ -33,7 +33,7 @@ public static class MachineEndpoints
 
         // ------------------------------------------------------------ Server: workload, services, restarts
 
-        group.MapGet("/status", async (MachineMonitor monitor, ServiceControl control, IWebHostEnvironment env, CancellationToken ct) =>
+        group.MapGet("/status", async (MachineMonitor monitor, ServiceControl control, Parcels.ParcelCoverageService coverage, IWebHostEnvironment env, CancellationToken ct) =>
         {
             var (latest, history) = await monitor.GetAsync(ct);
             double? Mb(double? total, double? free) => total is { } t && free is { } f ? t - f : null;
@@ -49,6 +49,7 @@ public static class MachineEndpoints
                 latest,
                 control = control.GetState(),
                 services = ServiceDescriptor.All.Select(s => new { s.Key, s.Title, s.Unit }),
+                coverage = coverage.Status,
                 // Column-wise and rounded: an hour of history stays a few KB.
                 history = new
                 {
@@ -69,6 +70,14 @@ public static class MachineEndpoints
         });
 
         group.MapGet("/mysql/tables", async (MachineMonitor monitor, CancellationToken ct) => Results.Ok(await monitor.MySql.ReadTablesAsync(ct)));
+
+        // The zoomed-out map surface: built again now, whatever its fingerprint says (the old one is served meanwhile).
+        group.MapPost("/coverage/rebuild", (UserAccess me, Parcels.ParcelCoverageService coverage, ILogger<Parcels.ParcelCoverageService> log) =>
+        {
+            log.LogInformation("Map overview rebuild asked for by {Email}.", me.Email);
+            coverage.RequestRebuild();
+            return Results.Accepted(value: new { message = "The map overview is being rebuilt; the current one is shown until it is ready." });
+        });
 
         group.MapPost("/services/{key}/restart", (string key, UserAccess me, ServiceControl control) =>
         {
