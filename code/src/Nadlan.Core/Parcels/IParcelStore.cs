@@ -104,7 +104,7 @@ public interface IParcelStore
 
     Task<IReadOnlyList<ParcelOverlap>> FindOverlapsAsync(double minOverlapSqm, CancellationToken ct = default);
 
-    /// <summary>Changes whenever a Parcel is added, edited or deleted (cheap: count, max id, last update).</summary>
+    /// <summary>Changes whenever a Parcel is added, edited or deleted, or a beach Asset is linked or unlinked (cheap queries).</summary>
     Task<ParcelFingerprint> GetFingerprintAsync(CancellationToken ct = default);
 
     /// <summary>Every Parcel's polygon and whether its KAEK is provisional - input for the zoomed-out surface.</summary>
@@ -148,7 +148,11 @@ public sealed record ParcelNumbersWrite(ParcelNumbers Numbers, string? ExpectedV
 /// <summary>The Parcels that actually changed, and every written Parcel's version after the save.</summary>
 public sealed record ParcelNumbersResult(IReadOnlyList<long> Changed, IReadOnlyDictionary<long, string> Versions);
 
-public readonly record struct ParcelFingerprint(long Count, long MaxId, DateTime? LastUpdatedUtc);
+/// <summary>
+/// Changes whenever the zoomed-out surface would: Parcels added, edited or deleted (count, max id, last update), and the
+/// set of Parcels a beach Asset stands on (their colour is "done"): its size and the sum of its Parcel ids.
+/// </summary>
+public readonly record struct ParcelFingerprint(long Count, long MaxId, DateTime? LastUpdatedUtc, long BeachParcels = 0, long BeachParcelIdSum = 0);
 
 /// <summary>Where a set of Parcels lies, for the map's start view.</summary>
 public static class ParcelExtent

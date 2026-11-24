@@ -11,16 +11,17 @@ WorkingDirectory=/opt/nadlan/current/app
 ExecStart=/opt/nadlan/current/app/Nadlan.Host
 # The app's only input: NADLAN_MYSQL_CS. Every other setting lives in the app_config table (sudo nadlan-db config ...).
 EnvironmentFile=/etc/nadlan/nadlan.env
-# Fixed runtime settings for a small (t3.micro, 1 GB) instance: workstation GC, managed heap capped at 200 MB.
+# Fixed runtime settings for a small (t3.micro, 1 GB) instance: workstation GC, managed heap capped at 350 MB (was 200 MB;
+# raised 2026-11-24: 36,646 parcels - Athens alone 16,643 - ran the zoomed-out surface out of memory). Swap (1 GB) takes peaks.
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=DOTNET_gcServer=0
-Environment=DOTNET_GCHeapHardLimit=0xC800000
+Environment=DOTNET_GCHeapHardLimit=0x15E00000
 Environment=DOTNET_GCConserveMemory=5
 Environment=DOTNET_NOLOGO=1
 Environment=HOME=/var/lib/nadlan
 StateDirectory=nadlan
-MemoryHigh=350M
-MemoryMax=450M
+MemoryHigh=550M
+MemoryMax=700M
 Restart=always
 RestartSec=5
 TimeoutStopSec=20

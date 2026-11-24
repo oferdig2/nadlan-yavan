@@ -1,5 +1,6 @@
 // Admin page, Server tab: machine and service workload (last hour), MySQL, and Restart buttons.
-// Data: GET /api/admin/machine/status (sampled every 10 s on the server), /mysql/tables on demand.
+// Data: GET /api/admin/machine/status (sampled every 10 s on the server), /mysql/tables on demand; the map overview's state
+// comes with the status, POST /coverage/rebuild builds it again.
 (function (window, $) {
   "use strict";
 
@@ -43,6 +44,10 @@
       M().restartService(key, title, report).then(function (done) { if (done) { load(); } }, function (err) { report(title + ": " + err.message); });
     });
     $body.on("click", "[data-act=tables]", function () { loadTables($(this).closest(".tables-box")); });
+    $body.on("click", "[data-act=rebuild-coverage]", function () {
+      $(this).prop("disabled", true);
+      Nadlan.api.post("/api/admin/machine/coverage/rebuild").then(function (r) { report(r.message); load(); }, function (err) { report("Map overview: " + err.message); });
+    });
 
     load();
     schedule();
@@ -85,6 +90,11 @@
       L.services.forEach(function (svc) { $services.append(serviceCard(s, svc)); });
       $body.append("<h4 class=\"server-h\">Services</h4>", $services);
 
+
+      // Map overview: the zoomed-out Parcel surface (ParcelCoverageService)
+      if (s.coverage) {
+        $body.append("<h4 class=\"server-h\">Map overview</h4>", coverageBox(s.coverage));
+      }
       // Recent restarts
       if (s.control.lastResults.length || s.control.pending.length) {
         var $list = $("<ul class=\"restart-log\"></ul>");
@@ -99,6 +109,32 @@
 
       $body.append("<h4 class=\"server-h\">Database tables</h4>",
         "<div class=\"tables-box\"><button type=\"button\" class=\"btn\" data-act=\"tables\">Show table sizes</button></div>");
+    }
+
+    function coverageBox(c) {
+      var at = function (iso) { return iso ? M().time(Date.parse(iso)) : "—"; };
+      var $box = $("<div class=\"coverage-box\"></div>");
+      var line = function (text, cls) { $box.append($("<div></div>").addClass(cls || "").text(text)); };
+      if (c.builtUtc) {
+        line("Built " + at(c.builtUtc) + " from " + M().num(c.builtParcels) + " parcels in " + M().num(c.buildSeconds, 1) + " s" +
+          (c.fromFile ? " (loaded from the saved file at start)." : "."));
+      } else {
+        line(c.building ? "Being built for the first time…" : "Not built yet: the zoomed-out map shows “Preparing the overview…”.", "warn");
+      }
+      if (c.stale) {
+        line("The database now has " + M().num(c.databaseParcels) + " parcels → " +
+          (c.building ? "rebuilding now." : c.nextTryUtc ? "waiting for the next try." : "rebuilding within a minute."));
+      } else if (c.building) {
+        line("Rebuilding now…");
+      }
+      if (c.failedUtc) {
+        line("Last attempt failed " + at(c.failedUtc) + ": " + c.failure + " – next try " + at(c.nextTryUtc) +
+          (c.failures > 1 ? " (" + c.failures + " failures in a row)." : "."), "form-error");
+      }
+      $box.append($("<div class=\"btn-row\"></div>").append(
+        $("<button type=\"button\" class=\"btn\" data-act=\"rebuild-coverage\">Rebuild map overview</button>").prop("disabled", c.building)
+          .attr("title", "Builds the zoomed-out map surface again now. The current one is shown until the new one is ready.")));
+      return $box;
     }
 
     function serviceCard(s, svc) {

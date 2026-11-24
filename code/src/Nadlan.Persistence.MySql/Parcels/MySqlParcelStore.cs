@@ -4,6 +4,7 @@ using Nadlan.Core.Activity;
 using Nadlan.Core.Editing;
 using Nadlan.Core.Geo;
 using Nadlan.Core.Parcels;
+using Nadlan.Core.Places;
 using Nadlan.Core.Validation;
 using Nadlan.Persistence.MySql.Activity;
 using Nadlan.Persistence.MySql.Editing;
@@ -208,7 +209,14 @@ public sealed class MySqlParcelStore : IParcelStore
         await using var conn = await _db.OpenAsync(ct);
         var row = await conn.QuerySingleAsync<(long Count, long? MaxId, DateTime? LastUpdated)>(new CommandDefinition(
             "SELECT COUNT(*), MAX(parcel_id), MAX(updated_utc) FROM parcel", cancellationToken: ct));
-        return new ParcelFingerprint(row.Count, row.MaxId ?? 0, row.LastUpdated);
+        // A beach Asset makes its Parcels "done" (KindSql): linking, unlinking or retyping one changes this set.
+        var beach = await conn.QuerySingleAsync<(long Count, decimal? IdSum)>(new CommandDefinition(
+            """
+            SELECT COUNT(*), SUM(b.parcel_id) FROM (
+              SELECT DISTINCT bap.parcel_id FROM asset_parcel bap JOIN asset ba ON ba.asset_id = bap.asset_id
+              JOIN property_type bpt ON bpt.property_type_id = ba.property_type_id WHERE bpt.code = @code) b
+            """, new { code = Beaches.BeachTypeCode }, cancellationToken: ct));
+        return new ParcelFingerprint(row.Count, row.MaxId ?? 0, row.LastUpdated, beach.Count, (long)(beach.IdSum ?? 0));
     }
 
     public async Task<IReadOnlyList<(string Kind, GeoPolygon Geometry)>> ListAllGeometriesAsync(CancellationToken ct = default)

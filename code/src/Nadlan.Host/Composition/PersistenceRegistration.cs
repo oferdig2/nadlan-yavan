@@ -74,7 +74,10 @@ public static class PersistenceRegistration
         services.AddSingleton<ReferenceAdminService>();
         services.AddSingleton<AccessPolicy>();
         services.AddSingleton<ParcelDeletionService>();
-        services.AddSingleton<Nadlan.Host.Parcels.ParcelCoverageService>();
+        // The last good map overview is saved in the state directory and served from it after a restart.
+        services.AddSingleton(sp => new Nadlan.Host.Parcels.ParcelCoverageService(sp.GetRequiredService<IParcelStore>(),
+            sp.GetRequiredService<ILogger<Nadlan.Host.Parcels.ParcelCoverageService>>(),
+            Nadlan.Host.Parcels.ParcelCoverageService.DefaultSnapshotPath(sp.GetRequiredService<IHostEnvironment>().ContentRootPath)));
         services.AddHostedService(sp => sp.GetRequiredService<Nadlan.Host.Parcels.ParcelCoverageService>());
         services.AddSingleton<AuthService>();
         services.AddSingleton<UserAdminService>();
