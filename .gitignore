@@ -50,3 +50,6 @@ MediaAssets/
 *.DNG
 *.heic
 *.HEIC
+
+# Owner documents and research with personal data (Ktimatologio owners, deeds): never in the repo
+/Docs/
