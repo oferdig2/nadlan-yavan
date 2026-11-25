@@ -60,7 +60,7 @@ app.MapParcelEndpoints();
 app.MapAssetEndpoints();
 app.MapAssetTableEndpoints();
 app.MapSeaDistanceEndpoints();
-app.MapCadastreEndpoints(); // owners & sales from the Cadastre's lawyer service, Admin only (Nadlan.Host/Cadastre, migration 033)
+app.MapCadastreEndpoints(); // owners & sales from the Cadastre's lawyer service, Admin only (Nadlan.Host/Cadastre, migration 031)
 app.MapContactEndpoints();
 app.MapPortfolioEndpoints();
 app.MapFileEndpoints();

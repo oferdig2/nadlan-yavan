@@ -20,7 +20,7 @@
     return utc ? new Date(utc).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
   }
 
-  var TYPE = { Sale: "sale", Auction: "auction", Seizure: "seizure", ParentalGift: "parental gift", Inheritance: "inheritance" };
+  var TYPE = { Sale: "sale", Auction: "auction", Seizure: "seizure", SeizureLifted: "seizure lifted", ParentalGift: "parental gift", Inheritance: "inheritance" };
   function typeName(a) { return TYPE[a.actTypeCode] || (a.actTypeText || "other"); }
   function unitName(u) { return u.unitV === null ? "" : u.unitV + "/" + u.unitH; }
 

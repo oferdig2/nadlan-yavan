@@ -4,7 +4,7 @@ using Nadlan.Core.Validation;
 namespace Nadlan.Core.Tests;
 
 /// <summary>
-/// The server's side of the Cadastre records (migration 033): the checks on what the importer sends - above all the 400 on a
+/// The server's side of the Cadastre records (migration 031): the checks on what the importer sends - above all the 400 on a
 /// person's ΑΦΜ, the second guard behind the importer's - and what the parcel card shows. Made-up names and numbers only.
 /// </summary>
 public class CadastreRecordsServerTests
@@ -119,5 +119,22 @@ public class CadastreRecordsServerTests
         var open = Assert.Single(CadastreReading.OpenSeizures(snap));
         Assert.Equal((new DateOnly(2026, 11, 5), 20000m), (open.Date!.Value, open.Claim!.Value));
         Assert.Equal("Auction", CadastreReading.LastSale(snap)!.ActTypeCode);
+    }
+
+    [Fact]
+    public void A_lifted_seizure_is_no_longer_shown()
+    {
+        CadastreActInput Act(string code, string text, DateOnly d) => new("Summary", "778", d.Year, "ΔΟΚΙΜΩΝ", code, text, d, "778", code == "Seizure" ? 20000 : null,
+            null, Kaek + "/0/4", Array.Empty<CadastrePartyInput>());
+
+        // Seized, then lifted (e.g. the debt was paid): no warning.
+        var lifted = Snapshot(Unit(4, 60, new[] { Person() }, Act("Seizure", "Αναγκαστική κατάσχεση", new DateOnly(2025, 2, 1)),
+            Act("SeizureLifted", "Άρση κατάσχεσης", new DateOnly(2025, 9, 1))));
+        Assert.Empty(CadastreReading.OpenSeizures(lifted));
+
+        // A lifting before a newer seizure doesn't close the newer one.
+        var again = Snapshot(Unit(4, 60, new[] { Person() }, Act("SeizureLifted", "Άρση κατάσχεσης", new DateOnly(2025, 9, 1)),
+            Act("Seizure", "Αναγκαστική κατάσχεση", new DateOnly(2026, 11, 5))));
+        Assert.Equal(new DateOnly(2026, 11, 5), Assert.Single(CadastreReading.OpenSeizures(again)).Date);
     }
 }

@@ -39,7 +39,7 @@ public static class PersistenceRegistration
         services.AddSingleton<IFileAttachmentStore, MySqlFileAttachmentStore>();
         services.AddSingleton<IMapDropStore, MySqlMapDropStore>();
         services.AddSingleton<ISeaDistanceStore, MySqlSeaDistanceStore>();
-        services.AddSingleton<Nadlan.Core.Cadastre.ICadastreStore, Nadlan.Persistence.MySql.Cadastre.MySqlCadastreStore>(); // owners & sales (033)
+        services.AddSingleton<Nadlan.Core.Cadastre.ICadastreStore, Nadlan.Persistence.MySql.Cadastre.MySqlCadastreStore>(); // owners & sales (031)
         services.AddSingleton<IAgentShareStore, MySqlAgentShareStore>();
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
         services.AddSingleton<MySqlActivityLog>();

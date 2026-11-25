@@ -150,7 +150,7 @@ public sealed class RecordsModule(IBrowserContext context, NadlanApiClient clien
             }
             catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                return "GreekPlot refused the area's KAEK list (HTTP 404): the server needs the Cadastre records update (database change 033), and the user must be an Admin.";
+                return "GreekPlot refused the area's KAEK list (HTTP 404): the server needs the Cadastre records update (database change 031), and the user must be an Admin.";
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
             {

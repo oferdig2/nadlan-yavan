@@ -5,7 +5,7 @@ using Nadlan.Core.Validation;
 namespace Nadlan.Core.Cadastre;
 
 // Owners and sales from the Cadastre's lawyer research service (brief AI/Remarks/CodingAgent-KtimaRecords-2026-11-24.md,
-// migration 033). The KAEK importer reads them in the lawyer's own session and sends one KAEK at a time; each send is a new
+// migration 031). The KAEK importer reads them in the lawyer's own session and sends one KAEK at a time; each send is a new
 // snapshot of that KAEK and the older ones are kept. These are the Cadastre's records, separate from parcel_legal_owner
 // (the contacts the office manages). Admin only for now (owner, 2026-11-24).
 
@@ -15,7 +15,7 @@ public static class CadastreCodes
     public static readonly IReadOnlySet<string> UnitStatuses = new HashSet<string> { "Found", "NeedsOcr", "Error" };
     public static readonly IReadOnlySet<string> Kinds = new HashSet<string> { "Person", "LegalEntity", "Unknown" };
     public static readonly IReadOnlySet<string> Sources = new HashSet<string> { "Summary", "OldTitle", "RecordTitle" };
-    public static readonly IReadOnlySet<string> ActTypes = new HashSet<string> { "Sale", "Auction", "Seizure", "ParentalGift", "Inheritance", "Other" };
+    public static readonly IReadOnlySet<string> ActTypes = new HashSet<string> { "Sale", "Auction", "Seizure", "SeizureLifted", "ParentalGift", "Inheritance", "Other" };
     public static readonly IReadOnlySet<string> Roles = new HashSet<string> { "Acquirer", "Transferor", "Other" };
 
     public const string LegalEntity = "LegalEntity";
@@ -246,12 +246,18 @@ public static class CadastreReading
         return new CadastreSale(unit.UnitV, unit.UnitH, act.ActTypeCode, act.ActDate, act.TransactionValue, perSqm, act.RegNo, act.RegYear);
     }
 
-    /// <summary>Seizures newer than the last sale or auction (an older one ended with it): a possible auction, so a lead.</summary>
+    /// <summary>
+    /// Seizures still open: newer than the last sale or auction (an older one ended with it), and not lifted by a later
+    /// "Άρση κατάσχεσης" (SeizureLifted, on or after the seizure's date). A possible auction, so a lead.
+    /// </summary>
     public static IReadOnlyList<CadastreSeizure> OpenSeizures(CadastreSnapshot snapshot)
     {
         var last = LastSale(snapshot)?.Date;
-        return snapshot.Units.SelectMany(u => u.Acts)
-            .Where(a => a.Source == "Summary" && a.ActTypeCode == "Seizure" && (last is null || a.ActDate is null || a.ActDate > last))
+        var acts = snapshot.Units.SelectMany(u => u.Acts).Where(a => a.Source == "Summary").ToList();
+        var lifts = acts.Where(a => a.ActTypeCode == "SeizureLifted").Select(a => a.ActDate).ToList();
+        bool Lifted(DateOnly? seized) => lifts.Any(l => l is null || seized is null || l >= seized);
+        return acts
+            .Where(a => a.ActTypeCode == "Seizure" && (last is null || a.ActDate is null || a.ActDate > last) && !Lifted(a.ActDate))
             .GroupBy(a => (a.RegNo, a.RegYear, a.ActDate)).Select(g => g.First())
             .OrderByDescending(a => a.ActDate)
             .Select(a => new CadastreSeizure(a.ActDate, a.TransactionValue, a.RegNo, a.RegYear)).ToList();

@@ -5,7 +5,7 @@ using Nadlan.Core.Cadastre;
 namespace Nadlan.Persistence.MySql.Cadastre;
 
 /// <summary>
-/// The Cadastre records (migration 033). A snapshot = the cadastre_fetch rows of one KAEK with the same fetched_utc. A
+/// The Cadastre records (migration 031). A snapshot = the cadastre_fetch rows of one KAEK with the same fetched_utc. A
 /// KAEK-level Error (unit_v NULL, status Error) is an attempt that failed: it never hides the last good snapshot and doesn't
 /// count as fetched.
 /// </summary>

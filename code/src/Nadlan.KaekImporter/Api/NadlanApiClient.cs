@@ -97,7 +97,7 @@ public sealed class NadlanApiClient : IDisposable
             if (IsRefused(response.StatusCode)) TokenRejected?.Invoke();
             if (response.StatusCode == HttpStatusCode.NotFound && ParseError(text) is null)
             {
-                return "HTTP 404: this GreekPlot server has no Cadastre records yet (it needs the update with database change 033).";
+                return "HTTP 404: this GreekPlot server has no Cadastre records yet (it needs the update with database change 031).";
             }
 
             var firstLine = text.Split('\n', 2)[0].Trim();

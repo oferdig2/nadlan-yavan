@@ -27,6 +27,8 @@ public static class ActType
     public const string Sale = "Sale";
     public const string Auction = "Auction";
     public const string Seizure = "Seizure";
+    /// <summary>"Άρση κατάσχεσης": lifts the earlier seizures (they are no longer a lead).</summary>
+    public const string SeizureLifted = "SeizureLifted";
     public const string ParentalGift = "ParentalGift";
     public const string Inheritance = "Inheritance";
     public const string Other = "Other";

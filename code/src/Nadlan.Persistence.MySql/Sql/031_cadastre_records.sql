@@ -1,4 +1,4 @@
--- 033: owners and sales from the Cadastre's lawyer research service (brief AI/Remarks/CodingAgent-KtimaRecords-2026-11-24.md,
+-- 031: owners and sales from the Cadastre's lawyer research service (brief AI/Remarks/CodingAgent-KtimaRecords-2026-11-24.md,
 -- owner's decisions of 2026-11-24/25). New tables only; nothing existing changes. 031 and 032 are taken by the deals branches.
 --
 -- The KAEK importer reads a KAEK in the lawyer's own session and sends it; each send is a new snapshot of that KAEK, and the
@@ -66,7 +66,7 @@ CREATE TABLE cadastre_act (
   reg_no VARCHAR(20) NULL COMMENT 'registration number, e.g. 5413 of 5413/2024',
   reg_year INT NULL,
   office VARCHAR(100) NULL COMMENT 'cadastral office, e.g. ΣΤΕΡΕΑΣ ΕΛΛΑΔΑΣ',
-  act_type_code VARCHAR(20) NOT NULL COMMENT 'Sale | Auction | Seizure | ParentalGift | Inheritance | Other',
+  act_type_code VARCHAR(20) NOT NULL COMMENT 'Sale | Auction | Seizure | SeizureLifted | ParentalGift | Inheritance | Other',
   act_type_text VARCHAR(200) NULL COMMENT 'the Greek text, e.g. Αγοραπωλησία',
   act_date DATE NULL,
   deed_no VARCHAR(30) NULL,

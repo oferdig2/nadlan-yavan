@@ -6,7 +6,7 @@ using Nadlan.Core.Validation;
 namespace Nadlan.Host.Cadastre;
 
 /// <summary>
-/// Owners and sales from the Cadastre's lawyer service (migration 033). Admin only for now (owner, 2026-11-24): checked with
+/// Owners and sales from the Cadastre's lawyer service (migration 031). Admin only for now (owner, 2026-11-24): checked with
 /// IsAdmin, not a permission, and everyone else gets 404 as if none of this existed. Never on presentations, public links or
 /// deal portals - only the map's parcel card asks.
 /// </summary>

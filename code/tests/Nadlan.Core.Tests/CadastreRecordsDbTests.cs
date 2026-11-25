@@ -23,7 +23,7 @@ public sealed class InProcessAppCollection
     public const string Name = "App in process";
 }
 
-/// <summary>The SQL side of the Cadastre records (migration 033) on a throwaway MySQL (NADLAN_TEST_MYSQL). Made-up data only.</summary>
+/// <summary>The SQL side of the Cadastre records (migration 031) on a throwaway MySQL (NADLAN_TEST_MYSQL). Made-up data only.</summary>
 public class MySqlCadastreTests : IClassFixture<ScratchMySql>
 {
     private readonly MySqlDatabase? _db;

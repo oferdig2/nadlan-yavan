@@ -401,6 +401,7 @@ public static partial class SummaryPdf
         bool Starts(string greek) => t.StartsWith(string.Join(' ', LegalEntityRule.Tokens(greek)), StringComparison.Ordinal);
         if (Starts("ΑΓΟΡΑΠΩΛΗΣΙΑ")) return ActType.Sale;
         if (Starts("ΠΕΡΙΛΗΨΗ ΚΑΤΑΚΥΡΩΤΙΚΗΣ") || Starts("ΚΑΤΑΚΥΡΩΤΙΚΗ") || Starts("ΚΑΤΑΚΥΡΩΣΗ")) return ActType.Auction;
+        if (Starts("ΑΡΣΗ ΚΑΤΑΣΧΕΣΗΣ") || Starts("ΑΡΣΗ ΑΝΑΓΚΑΣΤΙΚΗΣ ΚΑΤΑΣΧΕΣΗΣ") || Starts("ΑΡΣΗ ΣΥΝΤΗΡΗΤΙΚΗΣ ΚΑΤΑΣΧΕΣΗΣ")) return ActType.SeizureLifted;
         if (Starts("ΑΝΑΓΚΑΣΤΙΚΗ ΚΑΤΑΣΧΕΣΗ") || Starts("ΚΑΤΑΣΧΕΣΗ") || Starts("ΣΥΝΤΗΡΗΤΙΚΗ ΚΑΤΑΣΧΕΣΗ")) return ActType.Seizure;
         if (Starts("ΓΟΝΙΚΗ ΠΑΡΟΧΗ")) return ActType.ParentalGift;
         if (Starts("ΑΠΟΔΟΧΗ ΚΛΗΡΟΝΟΜΙΑΣ") || Starts("ΑΠΟΔΟΧΗ ΚΛΗΡΟΝΟΜΗΣ")) return ActType.Inheritance;

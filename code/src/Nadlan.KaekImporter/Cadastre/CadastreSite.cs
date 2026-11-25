@@ -95,12 +95,15 @@ public static partial class CadastreAllowList
             (method === 'GET' && body == null && p === '/professionals/inquiry/main/searchbyestate' && q === '');
           if (!ok) blocked(method + ' ' + url.pathname);
 
-          const init = { method, credentials: 'same-origin', redirect: 'follow' };
+          // Never follow a redirect: the browser would request its target before anything could check it against the
+          // allow-list. 'manual' hands back an opaque reply instead (status 0, no body), which stops the run as trouble.
+          const init = { method, credentials: 'same-origin', redirect: 'manual' };
           if (method === 'POST') {
             init.body = body;
             init.headers = { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' };
           }
           const r = await fetch(url.pathname + url.search, init);
+          if (r.type === 'opaqueredirect') return { status: 0, url: '', redirected: true, contentType: '' };
           const out = { status: r.status, url: r.url, redirected: r.redirected, contentType: r.headers.get('content-type') || '' };
           if (expectPdf && r.ok) {
             const b = new Uint8Array(await r.arrayBuffer());
@@ -269,22 +272,17 @@ public static class CadastreReplyCheck
 {
     public static void ThrowOnTrouble(string method, string path, bool expectPdf, SiteResponse r)
     {
+        // Any redirect is trouble: the request script never follows one (its target could be anything, e.g. the sign-in
+        // page or a filing), so the run stops before the target is ever requested.
+        if (r.Redirected)
+        {
+            throw new CadastreTroubleException(
+                $"The site tried to send {method} {ShortPath(path)} elsewhere (signed out?). Nothing was followed; sign in again and restart.");
+        }
+
         if (r.Status != 200)
         {
             throw new CadastreTroubleException($"The site answered HTTP {r.Status} to {method} {ShortPath(path)}.");
-        }
-
-        if (r.Redirected)
-        {
-            var to = Uri.TryCreate(r.Url, UriKind.Absolute, out var u) ? u.PathAndQuery : r.Url;
-            try
-            {
-                CadastreAllowList.Check("GET", to, null);
-            }
-            catch (CadastreBlockedException)
-            {
-                throw new CadastreTroubleException($"The site sent {ShortPath(path)} on to {ShortPath(to)} (signed out?).");
-            }
         }
 
         if (r.Text is not null && CadastrePages.IsSignInPage(r.Text))

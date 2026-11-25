@@ -173,6 +173,35 @@ public class CadastreRecordsImporterTests
         Assert.Equal(1, CountOf(script, "fetch(")); // the one place that sends
     }
 
+    [Fact]
+    public void The_page_script_never_follows_a_redirect()
+    {
+        // A followed redirect is requested by the browser before anything could check its target (review, 2026-11-25).
+        var script = CadastreAllowList.RequestScript;
+        Assert.Contains("redirect: 'manual'", script);
+        Assert.DoesNotContain("redirect: 'follow'", script);
+        Assert.Contains("opaqueredirect", script);
+    }
+
+    [Fact]
+    public void Any_redirect_is_trouble_even_to_an_allowed_page()
+    {
+        var to = new SiteResponse(0, "", true, "", null, null);
+        Assert.Throws<CadastreTroubleException>(() => CadastreReplyCheck.ThrowOnTrouble("GET", "/Professionals/Inquiry/Main/SearchByEstate", false, to));
+        var followed = new SiteResponse(200, "https://ktimatologio.gov.gr/Professionals/Inquiry/Main/SearchByEstate", true, "text/html", "<html></html>", null);
+        Assert.Throws<CadastreTroubleException>(() => CadastreReplyCheck.ThrowOnTrouble("GET", "/Professionals/Inquiry/Main/SearchByEstate", false, followed));
+    }
+
+    [Theory]
+    [InlineData("Άρση κατάσχεσης", ActType.SeizureLifted)]
+    [InlineData("ΑΡΣΗ ΑΝΑΓΚΑΣΤΙΚΗΣ ΚΑΤΑΣΧΕΣΗΣ", ActType.SeizureLifted)]
+    [InlineData("Αναγκαστική κατάσχεση", ActType.Seizure)]
+    [InlineData("Περίληψη κατακυρωτικής έκθεσης", ActType.Auction)]
+    public void A_lifted_seizure_has_its_own_type(string text, string code)
+    {
+        Assert.Equal(code, SummaryPdf.ActTypeCode(text));
+    }
+
     private static int CountOf(string text, string what) => (text.Length - text.Replace(what, "").Length) / what.Length;
 
     [Fact]
@@ -222,6 +251,15 @@ public class CadastreRecordsImporterTests
     [InlineData("ΙΕΡΟΣ ΝΑΟΣ ΑΓΙΟΥ ΔΟΚΙΜΟΥ", true)]
     [InlineData("ΙΔΡΥΜΑ ΔΟΚΙΜΩΝ (Ν.Π.Ι.Δ.)", true)]
     [InlineData("ΔΟΚΙΜΑΣΤΙΚΗ AE", true)]                           // Latin A and E
+    [InlineData("ΟΡΦΑΝΟΤΡΟΦΕΙΟ ΔΟΚΙΜΩΝ", true)]                 // added at review, 2026-11-25
+    [InlineData("ΔΟΚΙΜΑΣΤΙΚΗ ΕΤΑΙΡΙΑ", true)]
+    [InlineData("ΚΛΗΡΟΔΟΤΗΜΑ ΔΟΚΙΜΟΥ", true)]
+    [InlineData("ΝΟΣΟΚΟΜΕΙΟ ΔΟΚΙΜΩΝ", true)]
+    [InlineData("ΙΕΡΑ ΜΗΤΡΟΠΟΛΗ ΔΟΚΙΜΩΝ", true)]
+    [InlineData("ΕΝΟΡΙΑ ΑΓΙΟΥ ΔΟΚΙΜΟΥ", true)]
+    [InlineData("ΥΠΟΥΡΓΕΙΟ ΔΟΚΙΜΩΝ", true)]
+    [InlineData("ΔΟΚΙΜΗ Α.Β.Ε.Ε.", true)]
+    [InlineData("ΔΟΚΙΜΗ ΑΤΕ", true)]
     [InlineData("ΔΗΜΟΣΘΕΝΟΥΣ", false)]                            // whole words only
     [InlineData("ΑΕΡΑΚΗΣ", false)]
     [InlineData("ΠΑΠΑΔΟΠΟΥΛΟΣ", false)]

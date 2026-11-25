@@ -24,6 +24,9 @@ public static partial class LegalEntityRule
         "Α.Ε.", "ΑΕ", "Ε.Π.Ε.", "ΕΠΕ", "Ι.Κ.Ε.", "ΙΚΕ", "Ο.Ε.", "Ε.Ε.", "ΑΝΩΝΥΜΗ ΕΤΑΙΡΕΙΑ", "ΕΤΑΙΡΕΙΑ",
         "ΔΗΜΟΣ", "ΚΟΙΝΟΤΗΤΑ", "ΠΕΡΙΦΕΡΕΙΑ", "ΕΛΛΗΝΙΚΟ ΔΗΜΟΣΙΟ", "ΔΗΜΟΣΙΟ", "ΙΕΡΑ", "ΜΟΝΗ", "ΕΚΚΛΗΣΙΑ", "ΝΑΟΣ", "ΙΔΡΥΜΑ",
         "ΣΥΛΛΟΓΟΣ", "ΣΩΜΑΤΕΙΟ", "ΣΥΝΕΤΑΙΡΙΣΜΟΣ", "ΤΑΜΕΙΟ", "ΟΡΓΑΝΙΣΜΟΣ", "ΤΡΑΠΕΖΑ", "Ν.Π.Δ.Δ.", "Ν.Π.Ι.Δ.",
+        // Added at review, 2026-11-25: common owners the first list missed (e.g. the orphanage of Korai & Stadiou).
+        "ΟΡΦΑΝΟΤΡΟΦΕΙΟ", "ΕΤΑΙΡΙΑ", "ΚΛΗΡΟΔΟΤΗΜΑ", "ΝΟΣΟΚΟΜΕΙΟ", "ΜΗΤΡΟΠΟΛΗ", "ΕΝΟΡΙΑ", "ΥΠΟΥΡΓΕΙΟ", "Α.Β.Ε.Ε.", "ΑΒΕΕ",
+        "Α.Τ.Ε.", "ΑΤΕ",
     };
 
     private static readonly string[][] EntityTokens = EntityWords.Select(Tokens).Distinct(new SequenceComparer()).ToArray();
