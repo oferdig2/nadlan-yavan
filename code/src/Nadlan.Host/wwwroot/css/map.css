@@ -272,3 +272,16 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .results-list .row-work { display: none; flex: none; margin-left: auto; align-self: center; }
 .results-list li.can-work:hover .row-work { display: inline-block; }
 .results-list .row-otplot { font-weight: 700; color: var(--text, #111827); white-space: nowrap; }
+
+/* The card's "Cadastre (lawyer research)" block (Admin only, cadastre-records.js). */
+.card-cadastre .cad-sale { margin-bottom: 4px; }
+.card-cadastre .cad-warn { margin: 2px 0 4px; padding: 3px 6px; border-radius: 4px; background: var(--warn-bg); color: var(--warn-text); }
+.card-cadastre .cad-unit { border-top: 1px dashed var(--border); padding: 4px 0; }
+.card-cadastre .cad-unit-head { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+.card-cadastre ul { list-style: none; margin: 0; padding: 0; }
+.card-cadastre .cad-owners > li { padding: 2px 0; }
+.card-cadastre .cad-others { margin: 2px 0 0 12px; }
+.card-cadastre .cad-history summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+.card-cadastre .cad-history li { padding: 3px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.card-cadastre .cad-parties { font-size: 12px; padding-left: 8px; }
+.card-cadastre .cad-foot { font-size: 11px; margin-top: 4px; }

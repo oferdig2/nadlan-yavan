@@ -5,6 +5,7 @@ using Nadlan.Host.Video;
 using Nadlan.Host.Admin;
 using Nadlan.Host.Assets;
 using Nadlan.Host.Auth;
+using Nadlan.Host.Cadastre;
 using Nadlan.Host.Composition;
 using Nadlan.Host.Configuration;
 using Nadlan.Host.Contacts;
@@ -59,6 +60,7 @@ app.MapParcelEndpoints();
 app.MapAssetEndpoints();
 app.MapAssetTableEndpoints();
 app.MapSeaDistanceEndpoints();
+app.MapCadastreEndpoints(); // owners & sales from the Cadastre's lawyer service, Admin only (Nadlan.Host/Cadastre, migration 033)
 app.MapContactEndpoints();
 app.MapPortfolioEndpoints();
 app.MapFileEndpoints();

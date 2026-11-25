@@ -4,6 +4,7 @@ using Microsoft.Playwright;
 using Nadlan.KaekImporter.Import;
 using Nadlan.KaekImporter.Ktimanet;
 using Nadlan.KaekImporter.Api;
+using Nadlan.KaekImporter.Cadastre;
 
 namespace Nadlan.KaekImporter;
 
@@ -57,7 +58,7 @@ public static class Program
             {
                 using var quick = new CancellationTokenSource(TimeSpan.FromSeconds(8));
                 connection.Areas = await client.ListActiveAreasAsync(quick.Token);
-                connection.UserName = await client.WhoAmIAsync(quick.Token);
+                (connection.UserName, connection.IsAdmin) = await client.MeAsync(quick.Token);
             }
             catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
             {
@@ -93,7 +94,11 @@ public static class Program
 
         // The panel asks for the connection state when it is built (also after a reload), so it is never stale.
         await context.ExposeFunctionAsync("nadlanState", () => connection.ToPanel());
-        await context.AddInitScriptAsync(LoadPanelScript());
+        await context.AddInitScriptAsync(LoadScript("panel.js"));
+
+        // "Inspect KAEK": the lawyer service in a tab of this same browser, with the records panel (owners & sales, Admin only).
+        var records = new RecordsModule(context, client, connection, Safely, Console.Out);
+        await records.RegisterAsync(LoadScript("records-panel.js"));
 
         var page = await context.NewPageAsync();
         var site = new KtimanetPage(page);
@@ -131,7 +136,7 @@ public static class Program
         {
             if (connection.Offline is not null) return "Offline: restart the importer when GreekPlot is reachable.";
             if (connecting) return "The GreekPlot tab is already open - sign in there and click Connect.";
-            if (current is not null || clicks is not null) return "Stop the running import first.";
+            if (current is not null || clicks is not null || records.Running) return "Stop the running import first.";
             connecting = true;
             try
             {
@@ -142,7 +147,7 @@ public static class Program
                 client.SetToken(token);
                 using var quick = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                 connection.Areas = await client.ListActiveAreasAsync(quick.Token);
-                connection.UserName = await client.WhoAmIAsync(quick.Token);
+                (connection.UserName, connection.IsAdmin) = await client.MeAsync(quick.Token);
                 connection.NeedsConnect = false;
                 AppHost.SaveUserToken(token);
                 Console.WriteLine($"Connected to GreekPlot as {connection.UserName}; the token is saved for next time.");
@@ -259,8 +264,10 @@ public static class Program
 
         // Let a stopped run or click session write its report before exiting.
         current?.Cancel();
+        records.Stop();
         if (clicks is not null) await clicks.StopAsync();
         if (currentRun is not null) await Task.WhenAny(currentRun, Task.Delay(TimeSpan.FromSeconds(10)));
+        if (records.RunTask is not null) await Task.WhenAny(records.RunTask, Task.Delay(TimeSpan.FromSeconds(10)));
         return 0;
     }
 
@@ -308,10 +315,11 @@ public static class Program
         int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
 
     /// <summary>What the panel shows: connected (areas, user), needs "Connect to Nadlan", or offline (why).</summary>
-    private sealed class Connection
+    private sealed class Connection : IRecordsConnection
     {
         public IReadOnlyList<GeographicAreaItem> Areas { get; set; } = Array.Empty<GeographicAreaItem>();
         public string? UserName { get; set; }
+        public bool IsAdmin { get; set; }
         public string? Offline { get; set; }
         public bool NeedsConnect { get; set; }
 
@@ -319,15 +327,16 @@ public static class Program
         {
             areas = Areas.Select(a => new { id = a.Id, name = a.Name }),
             userName = UserName,
+            isAdmin = IsAdmin,
             offline = Offline,
             needsConnect = NeedsConnect,
         };
     }
 
-    private static string LoadPanelScript()
+    private static string LoadScript(string name)
     {
-        using var stream = typeof(Program).Assembly.GetManifestResourceStream("panel.js")
-            ?? throw new InvalidOperationException("panel.js is not embedded.");
+        using var stream = typeof(Program).Assembly.GetManifestResourceStream(name)
+            ?? throw new InvalidOperationException(name + " is not embedded.");
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }

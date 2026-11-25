@@ -1,8 +1,8 @@
 // Injected into gis.ktimanet.gr/gis/map by NadlanKaekImporter. Draws the control panel and the progress
 // overlay; all the work happens in the .NET tool, which calls window.NadlanPanel.* and receives
 // window.nadlanStart(areaId) / window.nadlanStop() / window.nadlanClickMode(on, areaId) / window.nadlanConnect() and
-// window.nadlanState() -> { areas: [{ id, name }], userName, offline (null, or why nothing will be saved), needsConnect }
-// (all exposed by Playwright). The state is asked for when the panel is built, so a reload never shows stale data.
+// window.nadlanState() -> { areas: [{ id, name }], userName, isAdmin, offline (null, or why nothing will be saved), needsConnect }
+// and window.nadlanInspectKaek() (opens the lawyer service tab, Admins only; see records-panel.js) (all exposed by Playwright). The state is asked for when the panel is built, so a reload never shows stale data.
 (function () {
   "use strict";
   if (window.top !== window || !/\/gis\/map/i.test(location.pathname) || window.NadlanPanel) { return; }
@@ -51,7 +51,8 @@
       "#nadlan-connect{margin:-8px -10px 8px;padding:10px;background:#eff6ff;color:#1e3a8a;border-bottom:1px solid #bfdbfe;font-size:12px}" +
       "#nadlan-connect button{display:block;width:100%;margin:8px 0 6px;padding:7px;border-radius:6px;border:1px solid #1d4ed8;" +
       "background:#1d4ed8;color:#fff;font-weight:600;cursor:pointer}#nadlan-connect button:disabled{opacity:.6;cursor:default}" +
-      "#nadlan-user{font-weight:400;color:#64748b;font-size:12px;margin-left:6px}";
+      "#nadlan-user{font-weight:400;color:#64748b;font-size:12px;margin-left:6px}" +
+      "#nadlan-inspect{width:100%;padding:5px;margin:0 0 6px;border-radius:6px;border:1px solid #0f766e;background:#f0fdfa;color:#0f766e;font-weight:600;cursor:pointer}";
     document.head.appendChild(style);
 
     panel = document.createElement("div");
@@ -68,6 +69,8 @@
       "<label class=\"check\"><input type=\"checkbox\" id=\"nadlan-click\"> Import each parcel I click on the map</label>" +
       "<div class=\"actions\"><button type=\"button\" id=\"nadlan-start\">Acquire polygons</button>" +
       "<button type=\"button\" id=\"nadlan-stop\" disabled>Stop</button></div>" +
+      // Admin only: owners & sales from the Cadastre's lawyer service, in a new tab of this browser (records-panel.js).
+      "<button type=\"button\" id=\"nadlan-inspect\" hidden title=\"Open the Cadastre's lawyer service in a new tab: current owners and sales of KAEKs (Admin only)\">Inspect KAEK</button>" +
       "<div class=\"status\" id=\"nadlan-status\">Zoom in until the parcel lines show, then click Acquire polygons - or tick the box and click parcels yourself.</div>" +
       "<div class=\"counts\" id=\"nadlan-counts\"></div>" +
       "<div id=\"nadlan-log\"></div></div>";
@@ -109,6 +112,14 @@
         if (error) { status(error); log(error, "err"); } else { status("Connected. Zoom in and click Acquire polygons - or tick the box and click parcels."); }
         refreshState();
       }, function (e) { btn.disabled = false; btn.textContent = "Connect to GreekPlot"; status("Could not connect: " + e.message); });
+    };
+    document.getElementById("nadlan-inspect").onclick = function () {
+      var btn = this;
+      btn.disabled = true;
+      window.nadlanInspectKaek().then(function (error) {
+        btn.disabled = false;
+        if (error) { status(error); log(error, "err"); } else { status("The lawyer service is open in a new tab: sign in there, then use its GreekPlot panel."); }
+      }, function (e) { btn.disabled = false; status("Could not open the lawyer service: " + e.message); });
     };
     counts({});
     refreshState();
@@ -192,6 +203,7 @@
     document.getElementById("nadlan-connect").hidden = !needsConnect;
     document.getElementById("nadlan-area-label").hidden = !!offline || needsConnect;
     document.getElementById("nadlan-user").textContent = s.userName && !needsConnect && !offline ? "as " + s.userName : "";
+    document.getElementById("nadlan-inspect").hidden = !s.isAdmin || !!offline || needsConnect;
 
     var click = document.getElementById("nadlan-click");
     if (needsConnect && click.checked) { click.checked = false; }

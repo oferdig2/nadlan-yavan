@@ -65,6 +65,7 @@
         }).catch(function (err) { setStatus("Could not open the asset editor: " + err.message, true); });
       },
       onEditParcel: function (parcelId) { editParcel(parcelId); },
+      onShowParcel: function (parcelId) { showParcelById(parcelId); }, // the Cadastre block's "Other parcels of this owner"
       onOpenFiles: function (type, id, title, parcelId) {
         Nadlan.filesDialog.open({
           attachedToType: type, attachedToId: id, title: title,
