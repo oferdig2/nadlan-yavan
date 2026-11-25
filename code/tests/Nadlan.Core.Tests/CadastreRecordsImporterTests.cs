@@ -748,6 +748,40 @@ public class CadastreRecordsImporterTests
     }
 
     [Theory]
+    // The live refusal of 2026-11-25 ~17:10 UTC: "You have not activated the charging function". Saved as NotOperating
+    // it would have been skipped by every later area run; it must stop the run and show the site's text.
+    [InlineData("Δεν έχετε ενεργοποιήσει τη λειτουργία χρέωσης")]
+    [InlineData("<div id=\"GridEstates\"><span class=\"Error\">Δεν έχετε ενεργοποιήσει τη λειτουργία χρέωσης</span></div>")]
+    [InlineData("")]                                                                    // an empty reply
+    [InlineData("<div id=\"GridEstates\"><p>Κάτι πήγε στραβά</p></div>")]                 // any other message
+    public async Task Only_the_sites_empty_result_table_means_not_operating(string reply)
+    {
+        var transport = new FakeTransport();
+        transport.Replies[FetchEstates] = new SiteResponse(200, "https://ktimatologio.gov.gr/Professionals/Inquiry/Main/FetchEstates", false, "text/html",
+            reply, null);
+
+        var ex = await Assert.ThrowsAsync<CadastreTroubleException>(() =>
+            new CadastreFetcher(new GuardedCadastreSite(transport, new CountingPacer())).FetchAsync(Kaek, default));
+
+        Assert.Contains("The site said:", ex.Message);
+        if (reply.Contains("χρέωσης")) Assert.Contains("Δεν έχετε ενεργοποιήσει τη λειτουργία χρέωσης", ex.Message);
+        Assert.Single(transport.Sent); // nothing more was asked after it
+    }
+
+    [Fact]
+    public async Task Rows_for_other_KAEKs_only_are_trouble_too()
+    {
+        var other = "990000000099";
+        var transport = new FakeTransport();
+        transport.Replies[FetchEstates] = new SiteResponse(200, "https://ktimatologio.gov.gr/Professionals/Inquiry/Main/FetchEstates", false, "text/html",
+            "<table class=\"Grid\"><tr class=\"HeaderRow\"><th>ΚΑΕΚ</th></tr><tr class=\"NormalRow\"><td>" + other + "/0/ 0</td>" +
+            "<td class=\"RowCommands\"><a class=\"IconMore\" href=\"/Professionals/Inquiry/Main/viewResults/" + other + "-0-0?p=1\">…</a></td></tr></table>", null);
+
+        await Assert.ThrowsAsync<CadastreTroubleException>(() =>
+            new CadastreFetcher(new GuardedCadastreSite(transport, new CountingPacer())).FetchAsync(Kaek, default));
+    }
+
+    [Theory]
     [InlineData("status")]
     [InlineData("signin")]
     [InlineData("redirect")]

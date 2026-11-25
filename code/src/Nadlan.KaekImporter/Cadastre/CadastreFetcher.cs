@@ -16,10 +16,13 @@ public sealed class CadastreFetcher(ICadastreSite site, Action<string>? progress
         var estates = CadastrePages.ParseEstates(html).Where(e => e.Kaek == kaek).ToList();
         if (estates.Count == 0)
         {
-            // The search's fragment with no rows = not an operating Cadastre area. A whole page instead is something else.
-            if (CadastrePages.IsWholePage(html))
+            // "Not operating" ONLY for the site's real empty result: its results table with no rows. Anything else - a
+            // refusal such as "Δεν έχετε ενεργοποιήσει τη λειτουργία χρέωσης" (charging not activated, seen live
+            // 2026-11-25), a message, an empty reply, a whole page, or rows for other KAEKs - stops the run and shows the
+            // site's own text. Saved as NotOperating it would be skipped by every later area run.
+            if (CadastrePages.IsWholePage(html) || !CadastrePages.IsEmptyResultTable(html))
             {
-                throw new CadastreTroubleException("The search answered with a whole page instead of its result table.");
+                throw new CadastreTroubleException($"The search for {kaek} didn't return its result table. The site said: {CadastrePages.SiteText(html)}");
             }
 
             return new CadastreRecordDto(kaek, CadastreStatus.NotOperating, null, Array.Empty<CadastreUnitDto>());

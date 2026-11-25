@@ -72,6 +72,26 @@ public static partial class CadastrePages
         return rows;
     }
 
+    /// <summary>
+    /// The site's real empty search result: the results table (<c>table.Grid</c>) is there and has no result rows. Only this
+    /// means "the Cadastre isn't operating there" - any other reply without rows is trouble.
+    /// </summary>
+    public static bool IsEmptyResultTable(string html)
+    {
+        var doc = Parse(html);
+        return doc.QuerySelectorAll("table.Grid").Length > 0 && doc.QuerySelectorAll("table.Grid tr.NormalRow").Length == 0;
+    }
+
+    /// <summary>The reply's visible text, cleaned and shortened, to show the user what the site actually said.</summary>
+    public static string SiteText(string html)
+    {
+        var doc = Parse(html);
+        foreach (var s in doc.QuerySelectorAll("script, style")) s.Remove();
+        var text = CadastreText.Clean(doc.Body?.TextContent ?? doc.DocumentElement?.TextContent ?? html);
+        if (text.Length == 0) return "(an empty reply)";
+        return text.Length > 300 ? text[..300] + "…" : text;
+    }
+
     /// <summary>True when the reply is a whole HTML page rather than the search's table fragment.</summary>
     public static bool IsWholePage(string html) => WholePage().IsMatch(html);
 
