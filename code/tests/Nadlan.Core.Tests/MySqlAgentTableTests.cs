@@ -188,6 +188,8 @@ public class MySqlAgentTableTests : IClassFixture<ScratchMySql>
 
             // Back to version 17 - what production has - plus a role an Admin made there, then 018 again.
             await c.ExecuteAsync("""
+                DROP TABLE cadastre_act_party, cadastre_act, cadastre_owner, cadastre_fetch;
+                DELETE FROM schema_version WHERE version = 31;
                 DELETE FROM schema_version WHERE version = 30;
                 DROP TABLE video_capture;
                 DELETE FROM schema_version WHERE version = 29;

@@ -9,7 +9,8 @@
    * @param {{ container: HTMLElement, selection: object, onClose: function(): void,
    *           onCreateAsset: function(object): void, onEditAsset: function(number, object): void,
    *           onOpenFiles: function(string, number, string, number): void,   (type, id, title, parcelId)
-   *           onEditParcel: function(number): void }} options
+   *           onEditParcel: function(number): void,
+   *           onShowParcel?: function(number): void }} options   (opens another Parcel's card, e.g. "Other parcels of this owner")
    */
   function createMapEntityPopupManager(options) {
     var f = Nadlan.format;
@@ -90,6 +91,9 @@
           "<div class=\"card-section card-owners\" hidden><div class=\"card-section-head\"><span>Legal owners</span>" +
             "<button type=\"button\" class=\"btn btn-small\" data-action=\"add-owner\" hidden>+ Add</button></div>" +
             "<div class=\"card-owners-slot\"></div></div>" +
+          // Admin only (owner, 2026-11-24): owners and sales read from the Cadastre's lawyer service by the KAEK importer.
+          "<div class=\"card-section card-cadastre\" hidden><div class=\"card-section-head\"><span>Cadastre (lawyer research)</span></div>" +
+            "<div class=\"card-cadastre-slot\"></div></div>" +
           "<div class=\"card-section card-section-files\"><div class=\"card-section-head\"><span>Parcel files</span>" +
             "<button type=\"button\" class=\"btn btn-small\" data-action=\"parcel-files\">Files</button></div>" +
             "<div class=\"card-thumbs\" data-view-set></div></div>" +
@@ -122,6 +126,14 @@
         }, function (err) { $card.find(".card-assets-slot").html("<span class=\"error\">" + f.escapeHtml(err.message) + "</span>"); });
 
         loadThumbs();
+
+        // Cadastre records (lawyer research): Admins only; hidden until there is something to show.
+        var me = Nadlan.session && Nadlan.session.user();
+        if (me && me.isAdmin && Nadlan.cadastreRecords) {
+          Nadlan.cadastreRecords.render($card.find(".card-cadastre-slot"), state.parcelId, options.onShowParcel).then(function (shown) {
+            $card.find(".card-cadastre").prop("hidden", !shown);
+          });
+        }
 
         // Distance to the sea, after the card has opened (calculated once, then cached on the server). Shown only when short.
         Nadlan.api.get("/api/parcels/" + state.parcelId + "/sea-distance").then(function (r) {

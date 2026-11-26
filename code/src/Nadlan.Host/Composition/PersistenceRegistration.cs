@@ -39,6 +39,7 @@ public static class PersistenceRegistration
         services.AddSingleton<IFileAttachmentStore, MySqlFileAttachmentStore>();
         services.AddSingleton<IMapDropStore, MySqlMapDropStore>();
         services.AddSingleton<ISeaDistanceStore, MySqlSeaDistanceStore>();
+        services.AddSingleton<Nadlan.Core.Cadastre.ICadastreStore, Nadlan.Persistence.MySql.Cadastre.MySqlCadastreStore>(); // owners & sales (031)
         services.AddSingleton<IAgentShareStore, MySqlAgentShareStore>();
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
         services.AddSingleton<MySqlActivityLog>();
@@ -65,6 +66,7 @@ public static class PersistenceRegistration
         // Read once at startup, like every setting (Admin > Settings: "restart to apply").
         services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Nadlan.Host.Configuration.NadlanOptions>>().Value.Places.ToSettings());
         services.AddSingleton<SeaDistanceService>();
+        services.AddSingleton<Nadlan.Core.Cadastre.CadastreService>();
         services.AddSingleton<AgentShareService>();
         services.AddSingleton<AssetCreatorService>();
         services.AddSingleton<ContactService>();

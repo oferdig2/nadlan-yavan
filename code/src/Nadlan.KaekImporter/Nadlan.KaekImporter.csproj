@@ -18,10 +18,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Playwright" Version="1.50.0" />
+    <!-- Owners & sales (lawyer service, 2026-11-25): the record pages are read with AngleSharp, the summaries with PdfPig. -->
+    <PackageReference Include="AngleSharp" Version="1.10.4" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Browser\panel.js" LogicalName="panel.js" />
+    <EmbeddedResource Include="Browser\records-panel.js" LogicalName="records-panel.js" />
   </ItemGroup>
 
 </Project>

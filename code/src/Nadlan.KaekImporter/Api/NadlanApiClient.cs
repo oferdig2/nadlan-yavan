@@ -9,6 +9,9 @@ namespace Nadlan.KaekImporter.Api;
 
 public sealed record GeographicAreaItem(int Id, string? Code, string Name, bool IsActive);
 
+/// <summary>An area's KAEKs still to research: <see cref="Kaeks"/> (sorted), out of <see cref="Total"/> real KAEKs there.</summary>
+public sealed record AreaKaeks(int AreaId, int Total, int AlreadyFetched, IReadOnlyList<string> Kaeks);
+
 /// <summary>A Parcel already in Nadlan, with its outer ring and holes in lon/lat.</summary>
 public sealed record ExistingParcel(string RegistryId, bool IsProvisional, IReadOnlyList<IReadOnlyList<LonLat>> Rings);
 
@@ -55,8 +58,52 @@ public sealed class NadlanApiClient : IDisposable
 
     private static bool IsRefused(HttpStatusCode? status) => status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
 
-    /// <summary>Who the token signs in as (for the panel).</summary>
-    public async Task<string> WhoAmIAsync(CancellationToken ct) => (await GetJsonAsync<MeDto>("api/auth/me", ct)).DisplayName;
+
+    /// <summary>Who the token signs in as, and whether that user is an Admin (the records module is Admin-only).</summary>
+    public async Task<(string DisplayName, bool IsAdmin)> MeAsync(CancellationToken ct)
+    {
+        var me = await GetJsonAsync<MeDto>("api/auth/me", ct);
+        return (me.DisplayName, me.IsAdmin);
+    }
+
+    /// <summary>
+    /// The real KAEKs of a geographic area's Parcels that have no Cadastre record yet (any status but Error counts as fetched).
+    /// Admin only: anyone else gets 404.
+    /// </summary>
+    public async Task<AreaKaeks> GetAreaKaeksAsync(int areaId, CancellationToken ct) =>
+        await GetJsonAsync<AreaKaeks>(FormattableString.Invariant($"api/cadastre/kaeks?areaId={areaId}"), ct);
+
+    /// <summary>Saves one KAEK's record (a new snapshot; the older ones are kept). Returns null when saved, else why not.</summary>
+    public async Task<string?> SaveCadastreRecordAsync(Cadastre.CadastreRecordDto record, CancellationToken ct)
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.PostAsJsonAsync("api/cadastre/records", record, Json, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            return "GreekPlot could not be reached: " + ex.Message;
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return "GreekPlot did not answer in time.";
+        }
+
+        using (response)
+        {
+            if (response.IsSuccessStatusCode) return null;
+            var text = await response.Content.ReadAsStringAsync(CancellationToken.None);
+            if (IsRefused(response.StatusCode)) TokenRejected?.Invoke();
+            if (response.StatusCode == HttpStatusCode.NotFound && ParseError(text) is null)
+            {
+                return "HTTP 404: this GreekPlot server has no Cadastre records yet (it needs the update with database change 031).";
+            }
+
+            var firstLine = text.Split('\n', 2)[0].Trim();
+            return $"HTTP {(int)response.StatusCode}: " + (ParseError(text)?.Message ?? (firstLine.Length > 0 ? firstLine[..Math.Min(firstLine.Length, 300)] : "(empty reply)"));
+        }
+    }
 
     public async Task<IReadOnlyList<GeographicAreaItem>> ListActiveAreasAsync(CancellationToken ct)
     {
@@ -131,7 +178,7 @@ public sealed class NadlanApiClient : IDisposable
     public void Dispose() => _http.Dispose();
 
     private sealed record ReferenceDto(List<GeographicAreaItem> GeographicAreas);
-    private sealed record MeDto(string DisplayName);
+    private sealed record MeDto(string DisplayName, bool IsAdmin);
     private sealed record ParcelPageDto(List<ParcelItemDto> Items);
     private sealed record ParcelItemDto(ParcelSummaryDto Summary, PolygonDto? Geometry);
     private sealed record ParcelSummaryDto(string? RegistryId, bool RegistryIdIsProvisional);

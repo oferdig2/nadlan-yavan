@@ -109,6 +109,7 @@ public sealed class AnalyticsAppFixture : IAsyncLifetime
     }
 }
 
+[Collection(InProcessAppCollection.Name)] // one in-process app at a time (CadastreRecordsDbTests.cs)
 public partial class AnalyticsEndpointTests : IClassFixture<AnalyticsAppFixture>
 {
     private const string IPhone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
