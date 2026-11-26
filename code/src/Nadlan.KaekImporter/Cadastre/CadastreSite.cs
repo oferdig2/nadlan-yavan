@@ -145,7 +145,10 @@ public static partial class CadastreAllowList
     private static partial Regex ScansItem();
 }
 
-/// <summary>A person's pace (owner, 2026-11-25): one request to the site every 10 s ± 5 s at random, one at a time.</summary>
+/// <summary>
+/// A person's pace: one request to the site at a time, at least 20 s after the previous one plus 0-10 s at random (the lawyer,
+/// via the owner 2026-11-26: operate as a person would; was 5-15 s).
+/// </summary>
 public interface IRequestPacer
 {
     Task WaitTurnAsync(CancellationToken ct);
@@ -154,8 +157,8 @@ public interface IRequestPacer
 
 public sealed class RandomPacer : IRequestPacer
 {
-    public static readonly TimeSpan Min = TimeSpan.FromSeconds(5);
-    public static readonly TimeSpan Max = TimeSpan.FromSeconds(15);
+    public static readonly TimeSpan Min = TimeSpan.FromSeconds(20);
+    public static readonly TimeSpan Max = TimeSpan.FromSeconds(30);
 
     private readonly SemaphoreSlim _one = new(1, 1);
     private readonly Func<DateTime> _utcNow;
@@ -175,7 +178,7 @@ public sealed class RandomPacer : IRequestPacer
         _delay = delay;
     }
 
-    /// <summary>Waits until the previous request ended at least a random 5-15 s ago; only one request at a time.</summary>
+    /// <summary>Waits until the previous request ended at least a random 20-30 s ago; only one request at a time.</summary>
     public async Task WaitTurnAsync(CancellationToken ct)
     {
         await _one.WaitAsync(ct);

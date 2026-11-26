@@ -221,7 +221,7 @@ public class CadastreRecordsImporterTests
             pacer.Done();
         }
 
-        Assert.Equal(new[] { TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(10) }, waits);
+        Assert.Equal(new[] { TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(25) }, waits);
     }
 
     [Fact]

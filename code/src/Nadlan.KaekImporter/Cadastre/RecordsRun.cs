@@ -72,7 +72,7 @@ public sealed class RecordsRun(ICadastreSite site, IRecordsSink sink, IRecordsPa
             foreach (var kaek in kaeks)
             {
                 ct.ThrowIfCancellationRequested();
-                await panel.StatusAsync($"KAEK {done + 1} of {kaeks.Count}: {kaek} (one request every 5-15 s)");
+                await panel.StatusAsync($"KAEK {done + 1} of {kaeks.Count}: {kaek} (one request every 20-30 s)");
                 await panel.ProgressAsync(new RecordsProgress(done, kaeks.Count, kaek, owners, sales, lastPrice, notOperating, errors));
 
                 CadastreRecordDto record;

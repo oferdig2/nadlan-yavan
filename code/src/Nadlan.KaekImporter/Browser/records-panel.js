@@ -82,7 +82,7 @@
       "<div class=\"status\" id=\"nadlan-rec-status\"></div>" +
       "<div class=\"counts\" id=\"nadlan-rec-counts\"></div>" +
       "<div id=\"nadlan-rec-log\"></div>" +
-      "<footer>One request to the site every 5-15 s, one KAEK at a time (about a minute each). Don't use this tab during a run; " +
+      "<footer>Run it only on the PC in Greece (the lawyer's terms). One request to the site every 20-30 s, one KAEK at a time (a minute or two each; longer for buildings with many flats). Don't use this tab during a run; " +
         "closing the map tab closes the importer. Owners as listed by the Cadastre, updated weekly. For research, not legal use.</footer>" +
       "</div>";
     document.body.appendChild(panel);
