@@ -285,3 +285,10 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .card-cadastre .cad-history li { padding: 3px 0; border-top: 1px solid var(--border); font-size: 12px; }
 .card-cadastre .cad-parties { font-size: 12px; padding-left: 8px; }
 .card-cadastre .cad-foot { font-size: 11px; margin-top: 4px; }
+.card-cadastre .cad-docs { margin: 2px 0 4px; font-size: 12px; }
+.card-cadastre .cad-ot { margin: 2px 0 4px; font-size: 12px; }
+.card-cadastre .cad-details summary { cursor: pointer; color: var(--accent); font-size: 11px; }
+.card-cadastre .cad-details dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; margin: 2px 0 0 8px; font-size: 12px; }
+.card-cadastre .cad-details dt { color: var(--muted); }
+.card-cadastre .cad-details dd { margin: 0; overflow-wrap: anywhere; }
+.card-cadastre .cad-neighbours { font-size: 11px; margin-top: 4px; overflow-wrap: anywhere; }

@@ -73,35 +73,79 @@ public sealed class NadlanApiClient : IDisposable
     public async Task<AreaKaeks> GetAreaKaeksAsync(int areaId, CancellationToken ct) =>
         await GetJsonAsync<AreaKaeks>(FormattableString.Invariant($"api/cadastre/kaeks?areaId={areaId}"), ct);
 
-    /// <summary>Saves one KAEK's record (a new snapshot; the older ones are kept). Returns null when saved, else why not.</summary>
-    public async Task<string?> SaveCadastreRecordAsync(Cadastre.CadastreRecordDto record, CancellationToken ct)
+    /// <summary>
+    /// Saves one KAEK's record (a new snapshot; the older ones are kept). The reply names each unit's row, which the documents
+    /// are stored against (a V1 server names none).
+    /// </summary>
+    public async Task<Cadastre.RecordSaved> SaveCadastreRecordAsync(Cadastre.CadastreRecordDto record, CancellationToken ct)
+    {
+        var (problem, text) = await SendAsync(() => _http.PostAsJsonAsync("api/cadastre/records", record, Json, ct), ct);
+        if (problem is not null) return Cadastre.RecordSaved.Refused(problem);
+        var ids = new Dictionary<(int, int), long>();
+        try
+        {
+            var reply = JsonSerializer.Deserialize<SavedDto>(text, Json);
+            foreach (var u in reply?.Units ?? new List<SavedUnitDto>())
+            {
+                if (u.UnitV is int v && u.UnitH is int h) ids[(v, h)] = u.CadastreFetchId;
+            }
+        }
+        catch (JsonException)
+        {
+            // An older server's reply: saved, but without the units' rows (no documents can be stored).
+        }
+
+        return new Cadastre.RecordSaved(null, ids);
+    }
+
+    /// <summary>Stores one PDF of a saved record (Admin only). Returns null when stored, else why not.</summary>
+    public async Task<string?> UploadCadastreDocumentAsync(long cadastreFetchId, Cadastre.FetchedDocument doc, CancellationToken ct)
+    {
+        var url = FormattableString.Invariant($"api/cadastre/documents?fetchId={cadastreFetchId}&kind={doc.Kind}&textReadable={(doc.TextReadable ? "true" : "false")}")
+                  + (doc.RegNo is null ? "" : "&regNo=" + Uri.EscapeDataString(doc.RegNo))
+                  + (doc.RegYear is int y ? FormattableString.Invariant($"&regYear={y}") : "");
+        var (problem, _) = await SendAsync(() =>
+        {
+            var content = new ByteArrayContent(doc.Bytes);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+            return _http.PostAsync(url, content, ct);
+        }, ct);
+        return problem;
+    }
+
+    private sealed record SavedDto(List<SavedUnitDto>? Units);
+
+    private sealed record SavedUnitDto(int? UnitV, int? UnitH, long CadastreFetchId);
+
+    /// <summary>One call to GreekPlot: (null, reply text) when it succeeded, else (why not, "").</summary>
+    private async Task<(string? Problem, string Text)> SendAsync(Func<Task<HttpResponseMessage>> send, CancellationToken ct)
     {
         HttpResponseMessage response;
         try
         {
-            response = await _http.PostAsJsonAsync("api/cadastre/records", record, Json, ct);
+            response = await send();
         }
         catch (HttpRequestException ex)
         {
-            return "GreekPlot could not be reached: " + ex.Message;
+            return ("GreekPlot could not be reached: " + ex.Message, "");
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
-            return "GreekPlot did not answer in time.";
+            return ("GreekPlot did not answer in time.", "");
         }
 
         using (response)
         {
-            if (response.IsSuccessStatusCode) return null;
             var text = await response.Content.ReadAsStringAsync(CancellationToken.None);
+            if (response.IsSuccessStatusCode) return (null, text);
             if (IsRefused(response.StatusCode)) TokenRejected?.Invoke();
             if (response.StatusCode == HttpStatusCode.NotFound && ParseError(text) is null)
             {
-                return "HTTP 404: this GreekPlot server has no Cadastre records yet (it needs the update with database change 031).";
+                return ("HTTP 404: this GreekPlot server has no Cadastre records or documents yet (it needs the update with database changes 031 and 035).", "");
             }
 
             var firstLine = text.Split('\n', 2)[0].Trim();
-            return $"HTTP {(int)response.StatusCode}: " + (ParseError(text)?.Message ?? (firstLine.Length > 0 ? firstLine[..Math.Min(firstLine.Length, 300)] : "(empty reply)"));
+            return ($"HTTP {(int)response.StatusCode}: " + (ParseError(text)?.Message ?? (firstLine.Length > 0 ? firstLine[..Math.Min(firstLine.Length, 300)] : "(empty reply)")), "");
         }
     }
 

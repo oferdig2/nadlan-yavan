@@ -30,11 +30,19 @@ public static partial class KaekList
     private static partial Regex Kaek();
 }
 
-/// <summary>Where the run's results go: GreekPlot (POST api/cadastre/records).</summary>
+/// <summary>What GreekPlot answered to a record: null Problem = saved, with each unit's row id (the documents refer to them).</summary>
+public sealed record RecordSaved(string? Problem, IReadOnlyDictionary<(int UnitV, int UnitH), long> FetchIds)
+{
+    public static RecordSaved Refused(string problem) => new(problem, new Dictionary<(int, int), long>());
+}
+
+/// <summary>Where the run's results go: GreekPlot (POST api/cadastre/records, then POST api/cadastre/documents per PDF).</summary>
 public interface IRecordsSink
 {
-    /// <returns>null when saved, else why not.</returns>
-    Task<string?> SaveAsync(CadastreRecordDto record, CancellationToken ct);
+    Task<RecordSaved> SaveAsync(CadastreRecordDto record, CancellationToken ct);
+
+    /// <returns>null when stored, else why not.</returns>
+    Task<string?> UploadAsync(long cadastreFetchId, FetchedDocument document, CancellationToken ct);
 }
 
 /// <summary>What the records panel shows during a run.</summary>
@@ -46,25 +54,29 @@ public interface IRecordsPanel
     Task FinishedAsync(string text);
 }
 
-public sealed record RecordsProgress(int Done, int Total, string? Current, int Owners, int Sales, string? LastPrice, int NotOperating, int Errors);
+public sealed record RecordsProgress(int Done, int Total, string? Current, int Owners, int Sales, string? LastPrice, int NotOperating, int Errors,
+    int Documents = 0);
 
 /// <summary>
 /// A records run (brief §0): one KAEK at a time, at most <see cref="MaxKaeks"/>, until done or Stop. Any sign of trouble at the
-/// site stops it. Each KAEK is saved to GreekPlot as soon as it is read, and logged locally (KAEK, time, result - no names).
+/// site stops it. Each KAEK is saved to GreekPlot as soon as it is read, its PDFs stored with it, and logged locally (KAEK, time,
+/// result - no names).
 /// </summary>
+/// <param name="unitCap">Units read per KAEK (default 10); null = all.</param>
 public sealed class RecordsRun(ICadastreSite site, IRecordsSink sink, IRecordsPanel panel, TextWriter console, string? logFolder = null,
-    Func<byte[], SummaryData>? readSummary = null)
+    Func<byte[], SummaryData>? readSummary = null, int? unitCap = CadastreFetcher.DefaultUnitCap,
+    Func<byte[], DescriptiveExtractData>? readExtract = null, Func<byte[], SpatialExtractData>? readDiagram = null)
 {
     public const int MaxKaeks = 300;
     private const int MaxFailuresInARow = 3;
 
-    private readonly StringBuilder _csv = new("Time (UTC),KAEK,Result,Units,Owners,Acts,Last sale,Message\r\n");
+    private readonly StringBuilder _csv = new("Time (UTC),KAEK,Result,Units,Owners,Acts,Documents,Last sale,Message\r\n");
 
     public async Task<string> RunAsync(IReadOnlyList<string> kaeks, CancellationToken ct)
     {
         if (kaeks.Count > MaxKaeks) throw new ArgumentException($"At most {MaxKaeks} KAEKs per run.");
         var started = DateTime.Now;
-        int owners = 0, sales = 0, notOperating = 0, errors = 0, done = 0, failuresInARow = 0;
+        int owners = 0, sales = 0, notOperating = 0, errors = 0, done = 0, failuresInARow = 0, documents = 0;
         string? lastPrice = null;
         string summary;
         try
@@ -73,12 +85,13 @@ public sealed class RecordsRun(ICadastreSite site, IRecordsSink sink, IRecordsPa
             {
                 ct.ThrowIfCancellationRequested();
                 await panel.StatusAsync($"KAEK {done + 1} of {kaeks.Count}: {kaek} (one request every 20-30 s)");
-                await panel.ProgressAsync(new RecordsProgress(done, kaeks.Count, kaek, owners, sales, lastPrice, notOperating, errors));
+                await panel.ProgressAsync(new RecordsProgress(done, kaeks.Count, kaek, owners, sales, lastPrice, notOperating, errors, documents));
 
-                CadastreRecordDto record;
+                KaekFetch fetched;
                 try
                 {
-                    record = await new CadastreFetcher(site, text => console.WriteLine("  " + text), readSummary).FetchAsync(kaek, ct);
+                    fetched = await new CadastreFetcher(site, text => console.WriteLine("  " + text), readSummary, readExtract, readDiagram)
+                        .FetchAsync(kaek, unitCap, ct);
                     failuresInARow = 0;
                 }
                 catch (CadastreTroubleException ex)
@@ -110,11 +123,29 @@ public sealed class RecordsRun(ICadastreSite site, IRecordsSink sink, IRecordsPa
                     continue;
                 }
 
-                var problem = await sink.SaveAsync(record, ct);
-                if (problem is not null)
+                var record = fetched.Record;
+
+                var saved = await sink.SaveAsync(record, ct);
+                if (saved.Problem is not null)
                 {
-                    Log(kaek, record.Status, record, "NOT SAVED: " + problem);
-                    throw new RecordsSinkException(problem);
+                    Log(kaek, record.Status, record, "NOT SAVED: " + saved.Problem);
+                    throw new RecordsSinkException(saved.Problem);
+                }
+
+                // The PDFs go up after the record (they belong to its units' rows), then leave memory. A document GreekPlot
+                // doesn't store stops the run: going on would only fetch more evidence that can't be kept.
+                foreach (var doc in fetched.Documents)
+                {
+                    var why = saved.FetchIds.TryGetValue((doc.UnitV, doc.UnitH), out var fetchId)
+                        ? await sink.UploadAsync(fetchId, doc, CancellationToken.None)
+                        : "this GreekPlot server doesn't store the Cadastre documents yet (it needs the update with database change 035).";
+                    if (why is not null)
+                    {
+                        Log(kaek, record.Status, record, $"SAVED, but the {doc.Label} of {doc.UnitV}/{doc.UnitH} was NOT STORED: {why}");
+                        throw new RecordsSinkException($"the record of {kaek} was saved, but its {doc.Label} ({doc.UnitV}/{doc.UnitH}) was not stored: {why}");
+                    }
+
+                    documents++;
                 }
 
                 done++;
@@ -128,16 +159,19 @@ public sealed class RecordsRun(ICadastreSite site, IRecordsSink sink, IRecordsPa
                 }
 
                 if (record.Status == CadastreStatus.NotOperating) notOperating++;
-                Log(kaek, record.Status, record, null);
+                Log(kaek, record.Status, record, null, fetched.Documents.Count);
                 await panel.LogAsync(record.Status == CadastreStatus.NotOperating
                     ? $"{kaek}: no records (the Cadastre isn't operating there)"
                     : $"{kaek}: {record.Units.Count} unit(s), {unitOwners} owner(s)" + (last is null ? "" : ", last sale " + Describe(last))
+                      + (fetched.Documents.Count > 0 ? $", {fetched.Documents.Count} document(s) stored" : "")
+                      + (record.Units.Any(u => u.ExtractStatus == ExtractStatus.NeedsOcr) ? " - an extract has no readable text (stored)" : "")
+                      + (record.Units.Any(u => u.Status == CadastreStatus.NotRead) ? $" - {record.Units.Count(u => u.Status == CadastreStatus.NotRead)} unit(s) over the unit cap" : "")
                       + (record.Units.Any(u => u.Status == CadastreStatus.NeedsOcr) ? " - a summary is a scan (not read)" : ""),
                     record.Status == CadastreStatus.NotOperating ? "warn" : "ok");
-                await panel.ProgressAsync(new RecordsProgress(done, kaeks.Count, null, owners, sales, lastPrice, notOperating, errors));
+                await panel.ProgressAsync(new RecordsProgress(done, kaeks.Count, null, owners, sales, lastPrice, notOperating, errors, documents));
             }
 
-            summary = $"Done: {done} of {kaeks.Count} KAEK(s) saved to GreekPlot - {owners} owner(s), {sales} sale(s), {notOperating} not operating.";
+            summary = $"Done: {done} of {kaeks.Count} KAEK(s) saved to GreekPlot - {owners} owner(s), {sales} sale(s), {notOperating} not operating, {documents} document(s) stored.";
         }
         catch (OperationCanceledException)
         {
@@ -150,7 +184,7 @@ public sealed class RecordsRun(ICadastreSite site, IRecordsSink sink, IRecordsPa
             summary = $"Stopped after {done} of {kaeks.Count} KAEK(s): {ex.Message}";
         }
 
-        await panel.ProgressAsync(new RecordsProgress(done, kaeks.Count, null, owners, sales, lastPrice, notOperating, errors));
+        await panel.ProgressAsync(new RecordsProgress(done, kaeks.Count, null, owners, sales, lastPrice, notOperating, errors, documents));
         var log = await WriteLogAsync(started);
         console.WriteLine(summary + (log is null ? "" : " Log: " + log));
         await panel.FinishedAsync(summary);
@@ -181,7 +215,7 @@ public sealed class RecordsRun(ICadastreSite site, IRecordsSink sink, IRecordsPa
         (a.ActDate is DateOnly d ? " on " + d.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) : "") +
         (a.ActTypeCode == ActType.Auction ? " (auction)" : "");
 
-    private void Log(string kaek, string status, CadastreRecordDto? record, string? message)
+    private void Log(string kaek, string status, CadastreRecordDto? record, string? message, int? documents = null)
     {
         var last = record is null ? null : LastSale(record);
         _csv.Append(DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)).Append(',')
@@ -189,6 +223,7 @@ public sealed class RecordsRun(ICadastreSite site, IRecordsSink sink, IRecordsPa
             .Append(record?.Units.Count.ToString(CultureInfo.InvariantCulture)).Append(',')
             .Append(record?.Units.Sum(u => u.Owners.Count).ToString(CultureInfo.InvariantCulture)).Append(',')
             .Append(record?.Units.Sum(u => u.Acts.Count).ToString(CultureInfo.InvariantCulture)).Append(',')
+            .Append(documents?.ToString(CultureInfo.InvariantCulture)).Append(',')
             .Append(last is null ? "" : Csv(Describe(last))).Append(',')
             .Append(Csv(message ?? "")).Append("\r\n");
         console.WriteLine($"Records: {kaek} {status}" + (message is null ? "" : " - " + message));

@@ -12,7 +12,8 @@ public sealed class CadastreBlockedException(string message) : Exception(message
 
 /// <param name="Text">The reply as text (HTML), or null for a PDF.</param>
 /// <param name="Bytes">The reply's bytes, for a PDF (kept in memory only).</param>
-public sealed record SiteResponse(int Status, string Url, bool Redirected, string ContentType, string? Text, byte[]? Bytes);
+/// <param name="Disposition">The Content-Disposition header (an extract's download name), for the log.</param>
+public sealed record SiteResponse(int Status, string Url, bool Redirected, string ContentType, string? Text, byte[]? Bytes, string? Disposition = null);
 
 /// <summary>The lawyer service, as the records pipeline sees it: one request at a time.</summary>
 public interface ICadastreSite
@@ -22,10 +23,12 @@ public interface ICadastreSite
 }
 
 /// <summary>
-/// The only requests the module may send (brief §1): search one KAEK, read a record, download a document the record offers,
-/// open the search page. Everything else is refused before it is sent - above all anything under /Professionals/Contracts/
-/// (filings that create a payable "Έντυπο Οφειλής" in the lawyer's name), the extracts (ShowDocs), the person and act
-/// searches, any other POST, and Logout. The same list is enforced again in the page by <see cref="CadastreAllowList.RequestScript"/>.
+/// The only requests the module may send (brief §1, V2 §3): search one KAEK, read a record, download a document the record
+/// offers, open the search page, and (V2) the record's two extracts - <c>POST …/ShowDocs</c> with a body of exactly
+/// <c>ShowKF={KAEK}-{v}-{h}</c> or <c>ShowKD={KAEK}-{v}-{h}</c>, plus the form's anti-forgery token if it has one. Everything
+/// else is refused before it is sent - above all anything under /Professionals/Contracts/ (filings that create a payable
+/// "Έντυπο Οφειλής" in the lawyer's name), the person and act searches, any other POST, any other ShowDocs body, and Logout.
+/// The same list is enforced again in the page by <see cref="CadastreAllowList.RequestScript"/>.
 /// </summary>
 public static partial class CadastreAllowList
 {
@@ -33,7 +36,11 @@ public static partial class CadastreAllowList
     public const string LawyerServiceUrl = "https://ktimatologio.gr/e-services/29";
     public const string SearchPageUrl = Origin + "/Professionals/Inquiry/Main/SearchByEstate";
     public const string FetchEstatesPath = "/Professionals/Inquiry/Main/FetchEstates";
+    public const string ShowDocsPath = "/Professionals/Inquiry/Main/ShowDocs";
     public const string LogoutSelector = "a[href=\"/Professionals/Account/Logout\"]";
+
+    /// <summary>The only extra field an extract's form may carry (ASP.NET's anti-forgery token; unverified, brief V2 §1.1).</summary>
+    public const string TokenField = "__RequestVerificationToken";
 
     /// <summary>The search form's fields exactly as the site's own form sends them (§2.2); only the KAEK changes.</summary>
     public static string FetchEstatesBody(string kaek) =>
@@ -51,14 +58,15 @@ public static partial class CadastreAllowList
 
         var path = url.AbsolutePath.ToLowerInvariant();
         var query = Uri.UnescapeDataString(url.Query.TrimStart('?'));
-        if (path.Contains("/contracts/") || path.Contains("/account/") || path.Contains("showdocs"))
+        if (path.Contains("/contracts/") || path.Contains("/account/"))
         {
-            throw new CadastreBlockedException($"Blocked: {url.AbsolutePath} (filings, extracts and sign-out are never requested).");
+            throw new CadastreBlockedException($"Blocked: {url.AbsolutePath} (filings and sign-out are never requested).");
         }
 
         var allowed = (method, path) switch
         {
             ("POST", "/professionals/inquiry/main/fetchestates") => query.Length == 0 && body is not null && SearchBody().IsMatch(body),
+            ("POST", "/professionals/inquiry/main/showdocs") => url.Query.Length == 0 && body is not null && ExtractBody().IsMatch(body),
             ("GET", var p) when RecordPath().IsMatch(p) => query.Length == 0 || query == "p=1",
             ("GET", "/professionals/inquiry/main/showscans") => body is null && IsScansQuery(url.Query),
             ("GET", "/professionals/inquiry/main/searchbyestate") => body is null && query.Length == 0,
@@ -72,7 +80,8 @@ public static partial class CadastreAllowList
 
     /// <summary>
     /// The one function in the page that sends requests to the site (same session and cookies as the lawyer's own tab). It
-    /// checks the allow-list itself before sending, and reads the reply as text, or a PDF as base64.
+    /// checks the allow-list itself before sending, and reads the reply as text, or a PDF as base64. A document request whose
+    /// reply isn't a PDF hands back the reply's text instead, so the run can stop with the site's own words.
     /// </summary>
     public const string RequestScript = """
         async ([method, path, body, expectPdf]) => {
@@ -82,10 +91,15 @@ public static partial class CadastreAllowList
           if (url.origin !== location.origin) blocked(path + ' is not on this site');
           const p = url.pathname.toLowerCase();
           const q = decodeURIComponent(url.search.replace(/^\?/, ''));
-          if (p.includes('/contracts/') || p.includes('/account/') || p.includes('showdocs')) blocked(url.pathname);
+          if (p.includes('/contracts/') || p.includes('/account/')) blocked(url.pathname);
+          const token = '__RequestVerificationToken=[A-Za-z0-9%._~-]{1,600}';
+          const button = 'Show(?:KF|KD)=\\d{12}-\\d+-\\d+';
+          const extract = new RegExp('^(?:' + token + '&' + button + '|' + button + '(?:&' + token + ')?)$');
+          const isExtract = method === 'POST' && p === '/professionals/inquiry/main/showdocs' && url.search === '' && extract.test(body || '');
           const ok =
             (method === 'POST' && p === '/professionals/inquiry/main/fetchestates' && q === '' &&
               /^KAEK=\d{12}&PropVert=&PropHor=&Street=&StreetFrom=&StreetTo=&TK=&Locality=&OTA=&CadoffId=0&X-Requested-With=XMLHttpRequest$/.test(body || '')) ||
+            isExtract ||
             (method === 'GET' && body == null && /^\/professionals\/inquiry\/main\/viewresults\/\d{12}-\d+-\d+$/.test(p) && (q === '' || q === 'p=1')) ||
             (method === 'GET' && body == null && p === '/professionals/inquiry/main/showscans' && (() => {
               const s = new URLSearchParams(url.search), keys = Array.from(s.keys());
@@ -94,23 +108,32 @@ public static partial class CadastreAllowList
             })()) ||
             (method === 'GET' && body == null && p === '/professionals/inquiry/main/searchbyestate' && q === '');
           if (!ok) blocked(method + ' ' + url.pathname);
+          if ((body != null && /(^|&)ShowK[FD]=/.test(body)) !== isExtract) blocked('an extract only as its own form posts it');
 
           // Never follow a redirect: the browser would request its target before anything could check it against the
           // allow-list. 'manual' hands back an opaque reply instead (status 0, no body), which stops the run as trouble.
           const init = { method, credentials: 'same-origin', redirect: 'manual' };
           if (method === 'POST') {
             init.body = body;
-            init.headers = { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' };
+            // The search is the site's own AJAX form; an extract is a plain form post (a download), so no XHR header.
+            init.headers = isExtract
+              ? { 'Content-Type': 'application/x-www-form-urlencoded' }
+              : { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' };
           }
           const r = await fetch(url.pathname + url.search, init);
           if (r.type === 'opaqueredirect') return { status: 0, url: '', redirected: true, contentType: '' };
-          const out = { status: r.status, url: r.url, redirected: r.redirected, contentType: r.headers.get('content-type') || '' };
+          const out = { status: r.status, url: r.url, redirected: r.redirected, contentType: r.headers.get('content-type') || '',
+                        disposition: r.headers.get('content-disposition') || '' };
           if (expectPdf && r.ok) {
             const b = new Uint8Array(await r.arrayBuffer());
             if (b.length > 20 * 1024 * 1024) throw new Error('The document is larger than 20 MB; not read.');
-            let bin = '';
-            for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
-            out.base64 = btoa(bin);
+            if (b.length > 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) {
+              let bin = '';
+              for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+              out.base64 = btoa(bin);
+            } else {
+              out.text = new TextDecoder('utf-8').decode(b.subarray(0, 200000)); // not a PDF: the site's own words, to stop with
+            }
           } else {
             out.text = await r.text();
           }
@@ -123,6 +146,10 @@ public static partial class CadastreAllowList
 
     [GeneratedRegex(@"^KAEK=\d{12}&PropVert=&PropHor=&Street=&StreetFrom=&StreetTo=&TK=&Locality=&OTA=&CadoffId=0&X-Requested-With=XMLHttpRequest$")]
     private static partial Regex SearchBody();
+
+    // V2 §3: exactly ShowKF= or ShowKD= {KAEK}-{v}-{h}, with at most the form's anti-forgery token before or after it (once).
+    [GeneratedRegex(@"^(?:__RequestVerificationToken=[A-Za-z0-9%._~-]{1,600}&Show(?:KF|KD)=\d{12}-\d+-\d+|Show(?:KF|KD)=\d{12}-\d+-\d+(?:&__RequestVerificationToken=[A-Za-z0-9%._~-]{1,600})?)$")]
+    private static partial Regex ExtractBody();
 
     [GeneratedRegex(@"^/professionals/inquiry/main/viewresults/\d{12}-\d+-\d+$")]
     private static partial Regex RecordPath();
@@ -263,10 +290,10 @@ public sealed class PageTransport(IPage page) : ICadastreTransport
 
         var dto = raw.Deserialize<ReplyDto>(Json)!;
         return new SiteResponse(dto.Status, dto.Url ?? "", dto.Redirected, dto.ContentType ?? "", dto.Text,
-            dto.Base64 is null ? null : Convert.FromBase64String(dto.Base64));
+            dto.Base64 is null ? null : Convert.FromBase64String(dto.Base64), dto.Disposition);
     }
 
-    private sealed record ReplyDto(int Status, string? Url, bool Redirected, string? ContentType, string? Text, string? Base64);
+    private sealed record ReplyDto(int Status, string? Url, bool Redirected, string? ContentType, string? Text, string? Base64, string? Disposition);
 }
 
 
@@ -285,7 +312,8 @@ public static class CadastreReplyCheck
 
         if (r.Status != 200)
         {
-            throw new CadastreTroubleException($"The site answered HTTP {r.Status} to {method} {ShortPath(path)}.");
+            throw new CadastreTroubleException($"The site answered HTTP {r.Status} to {method} {ShortPath(path)}." +
+                (r.Text is { Length: > 0 } t ? " The site said: " + CadastrePages.SiteText(t) : ""));
         }
 
         if (r.Text is not null && CadastrePages.IsSignInPage(r.Text))
@@ -298,7 +326,9 @@ public static class CadastreReplyCheck
             var isPdf = r.Bytes is { Length: > 4 } b && b[0] == '%' && b[1] == 'P' && b[2] == 'D' && b[3] == 'F';
             if (!isPdf)
             {
-                throw new CadastreTroubleException($"Expected a PDF from {ShortPath(path)} but got {(r.ContentType.Length > 0 ? r.ContentType : "something else")}.");
+                // E.g. a charging notice or a confirmation page instead of the extract (unverified, brief V2 §1.1): stop and show it.
+                throw new CadastreTroubleException($"Expected a PDF from {ShortPath(path)} but got {(r.ContentType.Length > 0 ? r.ContentType : "something else")}." +
+                    (r.Text is { Length: > 0 } t ? " The site said: " + CadastrePages.SiteText(t) : ""));
             }
         }
     }

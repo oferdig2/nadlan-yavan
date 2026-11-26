@@ -105,6 +105,22 @@ public static partial class CadastreText
         return m.Success ? m.Value : null;
     }
 
+    /// <summary>
+    /// The right's type from its text: "ΚΥΡΙΟΤΗΤΑ-ΠΛΗΡΗΣ" = ΠΛΗΡΗΣ, "ΨΙΛΗ ΚΥΡΙΟΤΗΤΑ" = ΨΙΛΗ, "ΔΟΥΛΕΙΕΣ-ΕΠΙΚΑΡΠΙΑ" = ΕΠΙΚΑΡΠΙΑ;
+    /// anything else as written (capped), null when there is no text.
+    /// </summary>
+    public static string? RightType(string? rightText)
+    {
+        var n = Norm(rightText);
+        if (n.Length == 0) return null;
+        foreach (var t in new[] { "ΕΠΙΚΑΡΠΙΑ", "ΨΙΛΗ", "ΠΛΗΡΗΣ", "ΟΙΚΗΣΗ", "ΔΟΥΛΕΙΑ" })
+        {
+            if (n.Contains(Norm(t), StringComparison.Ordinal)) return t;
+        }
+
+        return Cap(rightText, 100);
+    }
+
     /// <summary>At most <paramref name="max"/> characters (the database column), never cut inside a surrogate pair.</summary>
     public static string? Cap(string? value, int max)
     {

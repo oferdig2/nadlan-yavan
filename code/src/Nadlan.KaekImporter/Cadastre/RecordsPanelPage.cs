@@ -25,7 +25,7 @@ public sealed class RecordsPanelPage(IPage page) : IRecordsPanel
         LastProgress = new
         {
             done = p.Done, total = p.Total, current = p.Current, owners = p.Owners, sales = p.Sales, lastPrice = p.LastPrice,
-            notOperating = p.NotOperating, errors = p.Errors,
+            notOperating = p.NotOperating, errors = p.Errors, documents = p.Documents,
         };
         return Ui("c => window.NadlanRecords && NadlanRecords.progress(c)", LastProgress);
     }
@@ -55,5 +55,8 @@ public sealed class RecordsPanelPage(IPage page) : IRecordsPanel
 /// <summary>GreekPlot as the records' destination.</summary>
 public sealed class GreekPlotRecordsSink(NadlanApiClient client) : IRecordsSink
 {
-    public Task<string?> SaveAsync(CadastreRecordDto record, CancellationToken ct) => client.SaveCadastreRecordAsync(record, ct);
+    public Task<RecordSaved> SaveAsync(CadastreRecordDto record, CancellationToken ct) => client.SaveCadastreRecordAsync(record, ct);
+
+    public Task<string?> UploadAsync(long cadastreFetchId, FetchedDocument document, CancellationToken ct) =>
+        client.UploadCadastreDocumentAsync(cadastreFetchId, document, ct);
 }

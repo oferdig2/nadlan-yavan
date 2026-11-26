@@ -75,7 +75,7 @@ public class MySqlCadastreTests : IClassFixture<ScratchMySql>
                 Sale(new DateOnly(2024, 3, 28), 21000, w.Kaeks[0] + "/0/1", Buyer()),
                 new CadastreActInput("RecordTitle", null, null, null, "Other", "ΣΥΜΒΟΛΑΙΟΓΡΑΦΙΚΟ ΕΓΓΡΑΦΟ", new DateOnly(1898, 7, 25), "9009", null, null, null, null))));
 
-        var at = await service.SaveAsync(record, w.Admin);
+        var at = (await service.SaveAsync(record, w.Admin)).FetchedUtc;
         var view = (await service.ViewAsync(w.Kaeks[0]))!;
 
         var s = view.Latest!;
@@ -89,7 +89,7 @@ public class MySqlCadastreTests : IClassFixture<ScratchMySql>
         Assert.Equal(("Sale", new DateOnly(2024, 3, 28), 21000m, 63000m), (sale.ActTypeCode, sale.ActDate!.Value, sale.TransactionValue!.Value, sale.ObjectiveValue!.Value));
         Assert.Equal("ΟΔΟΣ ΔΟΚΙΜΗΣ 5, ΑΘΗΝΑ", Assert.Single(sale.Parties).Address);
         Assert.Equal(new DateOnly(1898, 7, 25), flat.Acts[1].ActDate);
-        Assert.Equal("090000009", s.Units[0].Owners[0].EntityTaxId);
+        Assert.Equal("090000009", s.Units[0].Owners[0].TaxId);
         Assert.Equal(700m, view.LastSale!.PricePerSqm);
     }
 
@@ -99,8 +99,8 @@ public class MySqlCadastreTests : IClassFixture<ScratchMySql>
         if (_db is null) { return; }
         var w = await SeedAsync();
         var service = new CadastreService(new MySqlCadastreStore(_db));
-        var first = await service.SaveAsync(For(w.Kaeks[0], Record(Unit(1, 21, new[] { Person("ΠΡΩΤΟΣ ΙΔΙΟΚΤΗΤΗΣ") }))), w.Admin);
-        var second = await service.SaveAsync(For(w.Kaeks[0], Record(Unit(1, 21, new[] { Person("ΔΕΥΤΕΡΟΣ ΙΔΙΟΚΤΗΤΗΣ") }))), w.Admin);
+        var first = (await service.SaveAsync(For(w.Kaeks[0], Record(Unit(1, 21, new[] { Person("ΠΡΩΤΟΣ ΙΔΙΟΚΤΗΤΗΣ") }))), w.Admin)).FetchedUtc;
+        var second = (await service.SaveAsync(For(w.Kaeks[0], Record(Unit(1, 21, new[] { Person("ΔΕΥΤΕΡΟΣ ΙΔΙΟΚΤΗΤΗΣ") }))), w.Admin)).FetchedUtc;
 
         Assert.True(second > first);
         Assert.Equal("ΔΕΥΤΕΡΟΣ ΙΔΙΟΚΤΗΤΗΣ", (await service.ViewAsync(w.Kaeks[0]))!.Latest!.Units[0].Owners[0].Name);
@@ -149,19 +149,111 @@ public class MySqlCadastreTests : IClassFixture<ScratchMySql>
     }
 
     [Fact]
-    public async Task The_database_itself_refuses_a_persons_tax_number()
+    public async Task Every_V2_field_is_saved_and_read_back()
     {
+        if (_db is null) { return; }
+        var w = await SeedAsync();
+        var service = new CadastreService(new MySqlCadastreStore(_db));
+        var details = new CadastrePersonDetails
+        {
+            FatherName = "ΔΟΚΙΜΟΣ ΠΑΤΗΡ", MotherName = "ΔΟΚΙΜΗ ΜΗΤΗΡ", BirthDate = new DateOnly(1970, 1, 1), BirthPlace = "ΑΘΗΝΑ",
+            IdCardNumber = "ΧΧ000000", IdCardDate = new DateOnly(2001, 2, 3), IdCardAuthority = "Τ.Α. ΔΟΚΙΜΩΝ", RightType = "ΨΙΛΗ", Source = "RecordPage",
+        };
+        var extractAct = new CadastreActInput("Extract", "5413", 2024, "ΚΓ ΔΟΚΙΜΩΝ", "Auction", "ΠΩΛΗΣΗ ΔΙΑ ΠΛΕΙΣΤΗΡΙΑΣΜΟΥ", new DateOnly(2024, 7, 10), "4876",
+            null, null, null, new[] { Buyer(tax: "100000004") with { Details = details with { Source = "DescriptiveExtract", BirthDate = new DateOnly(1, 1, 1) } } })
+        {
+            RegDate = new DateOnly(2024, 7, 18), Section = "Later", RightText = "ΚΥΡΙΟΤΗΤΑ ΨΙΛΗ", DocumentText = "ΣΥΜΒΟΛΑΙΟΓΡΑΦΙΚΟ ΕΓΓΡΑΦΟ, 4876 - 10/7/2024",
+            IssuerText = "ΔΟΚΙΜΑΣΤΗΣ ΣΥΜΒΟΛΑΙΟΓΡΑΦΟΣ, ΔΟΚΙΜΙ", RegStatusText = "ΟΡΙΣΤΙΚΗ ΚΑΤΑΧΩΡΙΣΗ",
+        };
+        var unit = Unit(0, 2052.45m, new[] { Person(tax: "100000003") with { Details = details } }, extractAct) with
+        {
+            MeasuredAreaSqm = 2048.10m, RemarksText = "Ο.Τ. 18", OtText = "18", ExtractStatus = "Read", PropertyKind = "ΓΕΩΤΕΜΑΧΙΟ",
+            OfficeText = "ΚΓ ΔΟΚΙΜΩΝ", MapSheet = "6411/7", NeighbourKaeks = "990000000002 990000000003",
+        };
+        var over = new CadastreUnitInput(0, 1, "NotRead", "Not read: over the run's unit cap.", "1", 80m, null, "9/1000", null, null, null);
+        await service.SaveAsync(For(w.Kaeks[0], Record(unit, over)), w.Admin);
+
+        var view = (await service.ViewAsync(w.Kaeks[0]))!;
+        var u = view.Latest!.Units[0];
+        Assert.Equal((2048.10m, "Ο.Τ. 18", "18", "Read", "ΓΕΩΤΕΜΑΧΙΟ", "6411/7"), (u.MeasuredAreaSqm!.Value, u.RemarksText, u.OtText, u.ExtractStatus, u.PropertyKind, u.MapSheet));
+        Assert.Equal("990000000002 990000000003", u.NeighbourKaeks);
+        var o = u.Owners[0];
+        Assert.Equal("100000003", o.TaxId);
+        Assert.Equal(details, o.Details);
+        var a = u.Acts[0];
+        Assert.Equal(("Extract", new DateOnly(2024, 7, 18), "Later", "ΟΡΙΣΤΙΚΗ ΚΑΤΑΧΩΡΙΣΗ"), (a.Source, a.RegDate!.Value, a.Section, a.RegStatusText));
+        var p = a.Parties[0];
+        Assert.Equal(("100000004", (DateOnly?)null, "DescriptiveExtract"), (p.TaxId, p.Details.BirthDate, p.Details.Source)); // 01/01/0001 = NULL
+        Assert.Equal("NotRead", view.Latest.Units[1].Status);
+        // The extract's auction, without a summary: the card's last sale (no price).
+        Assert.Equal(("Auction", "Extract", (decimal?)null), (view.LastSale!.ActTypeCode, view.LastSale.Source, view.LastSale.Price));
+    }
+
+    [Fact]
+    public async Task Other_parcels_of_a_person_come_by_tax_number()
+    {
+        if (_db is null) { return; }
+        var w = await SeedAsync();
+        var service = new CadastreService(new MySqlCadastreStore(_db));
+        var tax = "1" + (40_000_000 + _seq);
+        await service.SaveAsync(For(w.Kaeks[0], Record(Unit(0, null, new[] { Person("ΔΟΚΙΜΟΠΟΥΛΟΣ ΓΙΩΡΓΟΣ", tax) }))), w.Admin);
+        await service.SaveAsync(For(w.Kaeks[1], Record(Unit(0, null, new[] { Person("ΔΟΚΙΜΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ", tax) }))), w.Admin); // spelled otherwise: same ΑΦΜ
+
+        var others = (await service.ViewAsync(w.Kaeks[0]))!.OtherParcels[tax];
+        Assert.Equal(new[] { (w.Parcels[1], w.Kaeks[1]) }, others.Select(x => (x.ParcelId, x.Kaek)));
+    }
+
+    [Fact]
+    public async Task The_parcels_stage_is_kept_in_its_own_table_and_the_newest_sighting_wins()
+    {
+        if (_db is null) { return; }
+        var w = await SeedAsync();
+        var service = new CadastreService(new MySqlCadastreStore(_db));
+        await using var c = await _db.OpenAsync();
+        async Task<string?> Stage(long parcel) =>
+            await c.ExecuteScalarAsync<string?>("SELECT CONCAT(stage, '/', source) FROM parcel_cadastre_stage WHERE parcel_id = @parcel", new { parcel });
+
+        Assert.Null(await Stage(w.Parcels[0])); // no row = unknown
+        await service.SaveAsync(new CadastreRecordInput(w.Kaeks[0], "NotOperating", null, null), w.Admin);
+        Assert.Equal("NotOperating/Lawyer", await Stage(w.Parcels[0]));
+        await service.SaveAsync(For(w.Kaeks[0], Record(Unit(0, null, new[] { Person() }))), w.Admin);
+        Assert.Equal("InOperation/Lawyer", await Stage(w.Parcels[0]));
+        await service.SaveAsync(new CadastreRecordInput(w.Kaeks[0], "Error", "signed out", null), w.Admin); // an error says nothing
+        Assert.Equal("InOperation/Lawyer", await Stage(w.Parcels[0]));
+        Assert.Equal(new[] { "Cadastre stage: Not operating (lawyer service)", "Cadastre stage: Not operating → In operation (lawyer service)" },
+            await c.QueryAsync<string>("SELECT summary FROM activity WHERE entity_type = 'Parcel' AND entity_id = @p AND action_type = 'CadastreStageChanged' ORDER BY activity_id",
+                new { p = w.Parcels[0] }));
+
+        // A newer sighting from the map (the polygon importer) is not overwritten by an older lawyer record.
+        await c.ExecuteAsync("""
+            INSERT INTO parcel_cadastre_stage (parcel_id, kaek, stage, seen_utc, source, request_seen)
+            VALUES (@p, @k, 'SurveyPost', UTC_TIMESTAMP(3) + INTERVAL 1 DAY, 'Polygon', 'GETPSTKG')
+            """, new { p = w.Parcels[1], k = w.Kaeks[1] });
+        await service.SaveAsync(For(w.Kaeks[1], Record(Unit(0, null, new[] { Person() }))), w.Admin);
+        Assert.Equal("SurveyPost/Polygon", await Stage(w.Parcels[1]));
+        Assert.Null(await Stage(w.Parcels[3])); // the provisional parcel has no such KAEK
+    }
+
+    [Fact]
+    public async Task The_database_keeps_a_persons_tax_number_now()
+    {
+        // V2 (owner, 2026-11-26): migration 035 dropped ck_cadastre_owner_tax / ck_cadastre_act_party_tax and renamed the column.
         if (_db is null) { return; }
         var w = await SeedAsync();
         await new CadastreService(new MySqlCadastreStore(_db)).SaveAsync(For(w.Kaeks[0], Record(Unit(0, null, new[] { Person() }))), w.Admin);
         await using var c = await _db.OpenAsync();
         var fetch = await c.ExecuteScalarAsync<long>("SELECT MAX(cadastre_fetch_id) FROM cadastre_fetch WHERE kaek = @k", new { k = w.Kaeks[0] });
 
-        var ex = await Assert.ThrowsAsync<MySqlException>(() => c.ExecuteAsync(
-            "INSERT INTO cadastre_owner (cadastre_fetch_id, name, owner_kind, entity_tax_id) VALUES (@fetch, 'ΔΟΚΙΜΟΣ', 'Person', '100000001')", new { fetch }));
-        Assert.Contains("ck_cadastre_owner_tax", ex.Message);
-        await Assert.ThrowsAsync<MySqlException>(() => c.ExecuteAsync(
-            "UPDATE cadastre_owner SET entity_tax_id = '100000001' WHERE cadastre_fetch_id = @fetch", new { fetch }));
+        await c.ExecuteAsync("INSERT INTO cadastre_owner (cadastre_fetch_id, name, owner_kind, tax_id) VALUES (@fetch, 'ΔΟΚΙΜΟΣ', 'Person', '100000001')", new { fetch });
+        Assert.Equal(1, await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM cadastre_owner WHERE cadastre_fetch_id = @fetch AND tax_id = '100000001'", new { fetch }));
+        Assert.Equal(0, await c.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM information_schema.check_constraints
+            WHERE constraint_schema = DATABASE() AND constraint_name IN ('ck_cadastre_owner_tax', 'ck_cadastre_act_party_tax')
+            """));
+        Assert.Equal(1, await c.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM information_schema.statistics
+            WHERE table_schema = DATABASE() AND table_name = 'cadastre_owner' AND index_name = 'ix_cadastre_owner_tax' AND column_name = 'tax_id'
+            """)); // the index followed the rename
     }
 }
 
@@ -205,11 +297,62 @@ public sealed class CadastreAppFixture : IAsyncLifetime
             }
 
             Parcels = ids.ToArray();
+
+            // V2 tests: KAEKs in another area, so the area counts above never change with them.
+            var area2 = await c.ExecuteScalarAsync<int>("INSERT INTO geographic_area (country_id, code, name) VALUES (@gr, 'CADT2', 'Cadastre test 2'); SELECT LAST_INSERT_ID();", new { gr });
+            var other = new List<long>();
+            foreach (var (k, i) in OtherKaeks.Select((k, i) => (k, i)))
+            {
+                var lon = 22.1 + i * 0.001;
+                other.Add(await c.ExecuteScalarAsync<long>("""
+                    INSERT INTO parcel (country_id, registry_id, geographic_area_id, geometry)
+                    VALUES (@gr, @k, @area2, ST_GeomFromText(@wkt, 4326, 'axis-order=long-lat')); SELECT LAST_INSERT_ID();
+                    """, new { gr, k, area2, wkt = FormattableString.Invariant($"POLYGON(({lon} 38, {lon + 0.0005} 38, {lon + 0.0005} 38.0005, {lon} 38.0005, {lon} 38))") }));
+            }
+
+            OtherParcels = other.ToArray();
         }
 
         Environment.SetEnvironmentVariable(MySqlDatabase.ConnectionStringEnvVar, Db.ConnectionString);
-        App = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseEnvironment("Production"));
+        // The documents go to a storage in memory (never the real bucket); its links are made-up URLs.
+        App = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseEnvironment("Production").ConfigureTestServices(s =>
+        {
+            s.AddSingleton<Nadlan.Core.Files.IObjectStorage>(Storage);
+            s.AddSingleton<Nadlan.Core.Files.IFileUrlProvider>(new FakeUrls());
+        }));
         _ = App.Server;
+    }
+
+    public static readonly string[] OtherKaeks = { "970000000101", "970000000102", "970000000103" };
+    public long[] OtherParcels { get; private set; } = Array.Empty<long>();
+    public MemoryStorage Storage { get; } = new();
+
+    /// <summary>Object storage in memory: what was put, by key.</summary>
+    public sealed class MemoryStorage : Nadlan.Core.Files.IObjectStorage
+    {
+        public readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> Objects = new();
+        public bool Fail;
+        public bool IsConfigured => true;
+        public Task<string> StartMultipartUploadAsync(string key, string contentType, string contentDisposition, CancellationToken ct = default) => throw new NotSupportedException();
+        public string GetPartUploadUrl(string key, string uploadId, int partNumber, TimeSpan lifetime) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Nadlan.Core.Files.UploadedPart>?> ListUploadedPartsAsync(string key, string uploadId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task CompleteMultipartUploadAsync(string key, string uploadId, IReadOnlyList<Nadlan.Core.Files.UploadedPart> parts, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task AbortMultipartUploadAsync(string key, string uploadId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<long?> GetObjectSizeAsync(string key, CancellationToken ct = default) => Task.FromResult(Objects.TryGetValue(key, out var b) ? (long?)b.Length : null);
+        public Task DeleteObjectAsync(string key, CancellationToken ct = default) { Objects.TryRemove(key, out _); return Task.CompletedTask; }
+
+        public Task PutObjectAsync(string key, byte[] content, string contentType, CancellationToken ct = default)
+        {
+            if (Fail) throw new Nadlan.Core.Files.StorageUnavailableException("The test storage is down.");
+            Objects[key] = content;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeUrls : Nadlan.Core.Files.IFileUrlProvider
+    {
+        public string GetUrl(string storageKey) => "https://files.example.invalid/" + storageKey + "?sig=test";
+        public string GetUrl(string storageKey, string downloadName) => GetUrl(storageKey) + "&name=" + Uri.EscapeDataString(downloadName);
     }
 
     public async Task DisposeAsync()
@@ -316,21 +459,124 @@ public class CadastreEndpointTests : IClassFixture<CadastreAppFixture>
         Assert.Equal(21000m, card.GetProperty("lastSale").GetProperty("price").GetDecimal());
         Assert.Equal("2024-03-28", card.GetProperty("lastSale").GetProperty("date").GetString());
         var owner = card.GetProperty("units")[0].GetProperty("owners")[0];
-        Assert.Equal("090000009", owner.GetProperty("entityTaxId").GetString());
+        Assert.Equal("090000009", owner.GetProperty("taxId").GetString());
     }
 
+    private async Task<(int Status, JsonElement Body, HttpContext Http)> UploadAsync(string path, byte[] bytes, string? cookie = null, string? bearer = null)
+    {
+        var http = await _f.Server.SendAsync(ctx =>
+        {
+            ctx.Request.Method = "POST";
+            var q = path.IndexOf('?');
+            ctx.Request.Path = path[..q];
+            ctx.Request.QueryString = new QueryString(path[q..]);
+            ctx.Connection.RemoteIpAddress = IPAddress.Loopback;
+            if (cookie is not null) { ctx.Request.Headers.Cookie = cookie; ctx.Request.Headers["X-Nadlan-Request"] = "1"; }
+            if (bearer is not null) { ctx.Request.Headers.Authorization = "Bearer " + bearer; }
+            ctx.Request.ContentType = "application/pdf";
+            ctx.Request.ContentLength = bytes.Length;
+            ctx.Request.Body = new MemoryStream(bytes);
+            ctx.Features.Set<Microsoft.AspNetCore.Http.Features.IHttpRequestBodyDetectionFeature>(new HasBody());
+        });
+        var text = await new StreamReader(http.Response.Body).ReadToEndAsync();
+        var json = text.Length > 0 && text[0] == '{' ? JsonDocument.Parse(text).RootElement.Clone() : default;
+        return (http.Response.StatusCode, json, http);
+    }
+
+    private static readonly byte[] MadeUpPdf = Encoding.ASCII.GetBytes("%PDF-1.4 made-up extract for a test");
+
     [Fact]
-    public async Task A_persons_tax_number_gets_400_and_nothing_is_saved()
+    public async Task Documents_are_stored_for_Admins_only_and_every_open_is_logged()
     {
         if (Off) { return; }
         var token = await AdminTokenAsync();
-        var kaek = CadastreAppFixture.Kaeks[1];
+        var kaek = CadastreAppFixture.OtherKaeks[1];
+        var saved = await SendAsync("POST", "/api/cadastre/records", For(kaek), bearer: token);
+        var fetchId = saved.Body.GetProperty("units")[0].GetProperty("cadastreFetchId").GetInt64();
+        var sales = await SignInAsync(CadastreAppFixture.SalesEmail);
+        var admin = await SignInAsync(CadastreAppFixture.AdminEmail);
+
+        // The importer stores the descriptive extract; the same file again is not stored twice.
+        var up = await UploadAsync($"/api/cadastre/documents?fetchId={fetchId}&kind=DescriptiveExtract&textReadable=true", MadeUpPdf, bearer: token);
+        Assert.True(up.Status == 200, up.Body.ToString());
+        var docId = up.Body.GetProperty("cadastreDocumentId").GetInt64();
+        Assert.Equal($"{kaek}-0-0-KF.pdf", up.Body.GetProperty("fileName").GetString());
+        Assert.Equal(docId, (await UploadAsync($"/api/cadastre/documents?fetchId={fetchId}&kind=DescriptiveExtract&textReadable=true", MadeUpPdf, bearer: token))
+            .Body.GetProperty("cadastreDocumentId").GetInt64());
+        var key = Assert.Single(_f.Storage.Objects.Keys, k => k.Contains(kaek, StringComparison.Ordinal));
+        Assert.StartsWith($"cadastre/{kaek}/0-0/KF-", key);
+        Assert.DoesNotContain("/_", "/" + key); // the CDN blocks every folder starting with "_"
+
+        // Refused: not a PDF, a summary without its registration, anyone but an Admin.
+        Assert.Equal(400, (await UploadAsync($"/api/cadastre/documents?fetchId={fetchId}&kind=DescriptiveExtract", Encoding.ASCII.GetBytes("<html>no</html>"), bearer: token)).Status);
+        Assert.Equal(400, (await UploadAsync($"/api/cadastre/documents?fetchId={fetchId}&kind=Summary", MadeUpPdf, bearer: token)).Status);
+        Assert.Equal(404, (await UploadAsync($"/api/cadastre/documents?fetchId={fetchId}&kind=SpatialExtract", MadeUpPdf, cookie: sales)).Status);
+        Assert.Equal(404, (await UploadAsync($"/api/cadastre/documents?fetchId=999999999&kind=SpatialExtract", MadeUpPdf, bearer: token)).Status);
+
+        // The card lists it.
+        var card = (await SendAsync("GET", $"/api/parcels/{_f.OtherParcels[1]}/cadastre", cookie: admin)).Body;
+        var listed = Assert.Single(card.GetProperty("units")[0].GetProperty("documents").EnumerateArray());
+        Assert.Equal(("DescriptiveExtract", docId), (listed.GetProperty("kind").GetString(), listed.GetProperty("cadastreDocumentId").GetInt64()));
+        Assert.False(listed.TryGetProperty("storageKey", out _)); // the storage key never leaves the server
+
+        // Opening: 404 for anyone but an Admin (and nothing logged), 401 signed out; each Admin open is logged, then redirected.
+        await using var c = await _f.Db!.OpenAsync();
+        async Task<int> Opens() => await c.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM activity WHERE entity_type = 'CadastreDocument' AND entity_id = @docId AND action_type = 'Opened'", new { docId });
+        Assert.Equal(404, (await SendAsync("GET", $"/api/cadastre/documents/{docId}/content", cookie: sales)).Status);
+        Assert.Equal(401, (await SendAsync("GET", $"/api/cadastre/documents/{docId}/content")).Status);
+        Assert.Equal(0, await Opens());
+
+        var open = await SendAsync("GET", $"/api/cadastre/documents/{docId}/content", cookie: admin);
+        Assert.Equal(302, open.Status);
+        Assert.StartsWith("https://files.example.invalid/cadastre/", open.Http.Response.Headers.Location.ToString());
+        await SendAsync("GET", $"/api/cadastre/documents/{docId}/content", cookie: admin);
+        Assert.Equal(2, await Opens());
+        Assert.Equal(_f.AdminId, await c.ExecuteScalarAsync<long>(
+            "SELECT MAX(user_id) FROM activity WHERE entity_type = 'CadastreDocument' AND entity_id = @docId", new { docId }));
+        Assert.Equal(404, (await SendAsync("GET", "/api/cadastre/documents/999999999/content", cookie: admin)).Status);
+    }
+
+    [Fact]
+    public async Task A_failed_upload_to_the_storage_leaves_no_document_row()
+    {
+        if (Off) { return; }
+        var token = await AdminTokenAsync();
+        var kaek = CadastreAppFixture.OtherKaeks[2];
+        var saved = await SendAsync("POST", "/api/cadastre/records", For(kaek), bearer: token);
+        var fetchId = saved.Body.GetProperty("units")[0].GetProperty("cadastreFetchId").GetInt64();
+        _f.Storage.Fail = true;
+        try
+        {
+            Assert.Equal(503, (await UploadAsync($"/api/cadastre/documents?fetchId={fetchId}&kind=SpatialExtract", Encoding.ASCII.GetBytes("%PDF-1.4 diagram"), bearer: token)).Status);
+        }
+        finally
+        {
+            _f.Storage.Fail = false;
+        }
+
+        await using var c = await _f.Db!.OpenAsync();
+        Assert.Equal(0, await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM cadastre_document WHERE cadastre_fetch_id = @fetchId", new { fetchId }));
+
+        // The stage the lawyer service showed was kept for the Parcel (an extension table, no column on parcel).
+        Assert.Equal(("InOperation", "Lawyer"), await c.QuerySingleAsync<(string, string)>(
+            "SELECT stage, source FROM parcel_cadastre_stage WHERE parcel_id = @p", new { p = _f.OtherParcels[2] }));
+    }
+
+    [Fact]
+    public async Task A_persons_tax_number_is_saved_now()
+    {
+        if (Off) { return; }
+        var token = await AdminTokenAsync();
+        var kaek = CadastreAppFixture.OtherKaeks[0];
 
         var (status, body, _) = await SendAsync("POST", "/api/cadastre/records", For(kaek, Person(tax: "100000001")), bearer: token);
 
-        Assert.Equal(400, status);
-        Assert.Equal("CADASTRE_PERSON_TAX_ID", body.GetProperty("error").GetString());
+        Assert.True(status == 200, body.ToString());
+        Assert.Single(body.GetProperty("units").EnumerateArray()); // each unit's row id, for the documents
         await using var c = await _f.Db!.OpenAsync();
-        Assert.Equal(0, await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM cadastre_fetch WHERE kaek = @kaek", new { kaek }));
+        Assert.Equal("100000001", await c.ExecuteScalarAsync<string>("""
+            SELECT o.tax_id FROM cadastre_owner o JOIN cadastre_fetch f ON f.cadastre_fetch_id = o.cadastre_fetch_id WHERE f.kaek = @kaek
+            """, new { kaek }));
     }
 }

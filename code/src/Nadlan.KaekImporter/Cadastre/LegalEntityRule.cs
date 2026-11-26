@@ -2,19 +2,19 @@ using System.Text.RegularExpressions;
 
 namespace Nadlan.KaekImporter.Cadastre;
 
-/// <summary>What an owner or a party to an act is: GreekPlot keeps the ΑΦΜ (tax number) of a LegalEntity only.</summary>
+/// <summary>What an owner or a party to an act is. V2 (owner, 2026-11-26): a classification only - every ΑΦΜ is kept.</summary>
 public enum PartyKind { Person, LegalEntity, Unknown }
 
 /// <summary>
-/// Company or person (owner's decision of 2026-11-25, brief §0): an ΑΦΜ is kept only when two signs agree.
+/// Company or person (owner's decision of 2026-11-25, brief §0): LegalEntity only when two signs agree.
 /// <list type="number">
 /// <item>No person's names: the owners row (or the summary's person block) has an empty first name and an empty father's
 ///   name, and isn't "ΑΓΝΩΣΤΟΣ" (unknown owner).</item>
 /// <item>Either the summary's person block is marked ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ (legal entity), or the name looks like an entity
 ///   (<see cref="EntityWords"/>, whole words, accents and dots ignored).</item>
 /// </list>
-/// Heirs ("ΚΛΗΡΟΝΟΜΟΙ ...", "ΑΓΝΩΣΤΟΙ ΚΛΗΡΟΝΟΜΟΙ") are never an entity. Anything else is a person and its ΑΦΜ is dropped
-/// while parsing - a real company may lose its ΑΦΜ this way; that's accepted.
+/// Heirs ("ΚΛΗΡΟΝΟΜΟΙ ...", "ΑΓΝΩΣΤΟΙ ΚΛΗΡΟΝΟΜΟΙ") are never an entity. Anything else is a person. Since V2 this only labels the
+/// owner Person / LegalEntity on the card and in lists; it no longer drops anything (brief V2 §5).
 /// </summary>
 public static partial class LegalEntityRule
 {

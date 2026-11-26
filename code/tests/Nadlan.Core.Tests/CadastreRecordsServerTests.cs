@@ -26,16 +26,16 @@ public class CadastreRecordsServerTests
         new(0, h, "Found", null, h == 0 ? null : "1", area, "Α" + h, h == 0 ? null : "9/1000", "ΟΔΟΣ ΔΟΚΙΜΗΣ 12, 10000 ΑΘΗΝΑ", owners, acts);
 
     [Fact]
-    public void A_persons_tax_number_is_refused_with_400()
+    public void A_persons_tax_number_is_kept_now()
     {
-        var ex = Assert.Throws<DomainValidationException>(() => CadastreRules.Validate(Record(Unit(1, 85, new[] { Person(tax: "100000001") }))));
-        Assert.Equal("CADASTRE_PERSON_TAX_ID", ex.Code);
+        // V2 (owner, 2026-11-26): the 400 of V1 is gone; a person's, an unknown owner's and a party's tax number are kept.
+        var units = CadastreRules.Validate(Record(Unit(1, 85, new[] { Person(tax: "100000001"), new CadastreOwnerInput("ΑΓΝΩΣΤΟΣ", "1 / 1", "Unknown", "100000002", null, null) },
+            Sale(new DateOnly(2024, 3, 28), 21000, "990000000001/0/1", Buyer(tax: "100000003")))));
 
-        var unknown = new CadastreOwnerInput("ΑΓΝΩΣΤΟΣ", "1 / 1", "Unknown", "100000001", null, null);
-        Assert.Equal("CADASTRE_PERSON_TAX_ID", Assert.Throws<DomainValidationException>(() => CadastreRules.Validate(Record(Unit(0, null, new[] { unknown })))).Code);
-
-        var party = Record(Unit(1, 85, new[] { Person() }, Sale(new DateOnly(2024, 3, 28), 21000, "990000000001/0/1", Buyer(tax: "100000001"))));
-        Assert.Equal("CADASTRE_PERSON_TAX_ID", Assert.Throws<DomainValidationException>(() => CadastreRules.Validate(party)).Code);
+        Assert.Equal(new[] { "100000001", "100000002" }, units[0].Owners.Select(o => o.TaxId));
+        Assert.Equal("100000003", units[0].Acts[0].Parties[0].TaxId);
+        Assert.Equal("CADASTRE_BAD_TAX_ID", Assert.Throws<DomainValidationException>(() =>
+            CadastreRules.Validate(Record(Unit(1, 85, new[] { Person(tax: "ΑΦΜ 1000") })))).Code);
     }
 
     [Fact]
@@ -44,10 +44,10 @@ public class CadastreRecordsServerTests
         var units = CadastreRules.Validate(Record(Unit(1, 85, new[] { Person(), Company() },
             Sale(new DateOnly(2024, 3, 28), 21000, "990000000001/0/1", Buyer(tax: "090000009", kind: "LegalEntity")))));
 
-        Assert.Equal("090000009", units[0].Owners[1].EntityTaxId);
-        Assert.Null(units[0].Owners[0].EntityTaxId);
+        Assert.Equal("090000009", units[0].Owners[1].TaxId);
+        Assert.Null(units[0].Owners[0].TaxId);
         Assert.Equal(0.5m, units[0].Owners[0].ShareDecimal);
-        Assert.Equal("090000009", units[0].Acts[0].Parties[0].EntityTaxId);
+        Assert.Equal("090000009", units[0].Acts[0].Parties[0].TaxId);
         Assert.Equal("CADASTRE_BAD_TAX_ID", Assert.Throws<DomainValidationException>(() =>
             CadastreRules.Validate(Record(Unit(1, 85, new[] { Company(tax: "ΑΦΜ 0900") })))).Code);
     }

@@ -8,15 +8,18 @@ namespace Nadlan.KaekImporter.Cadastre;
 /// <summary>A line of a PDF page: its baseline (Y, from the bottom), where it starts (X) and its text.</summary>
 public sealed record PdfTextLine(int Page, double Y, double X, string Text);
 
-/// <summary>A party to the act in a summary, after the ΑΦΜ rule's summary half (a person's ΑΦΜ is already gone).</summary>
+/// <summary>A party to the act in a summary: everything its person block shows (V2, owner 2026-11-26).</summary>
 /// <param name="FirstName">A person's first name, or null for an entity (the block holds the entity type instead).</param>
 /// <param name="NoPersonNames">Sign 1: no person's first name and no father's name.</param>
 /// <param name="MarkedEntity">The block is marked ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ (by its entity type text, or a tick on the box).</param>
-/// <param name="CandidateTaxId">The ΑΦΜ, only when the summary itself says entity (both signs); confirmed or dropped later.</param>
+/// <param name="TaxId">The ΑΦΜ, of a person or an entity.</param>
 public sealed record SummaryParty(
-    string Surname, string? FirstName, string? EntityTypeText, bool NoPersonNames, bool MarkedEntity, string? CandidateTaxId,
+    string Surname, string? FirstName, string? EntityTypeText, bool NoPersonNames, bool MarkedEntity, string? TaxId,
     string? Address, string? RightText, string? ShareText, string? RoleText, string? CommentText)
 {
+    /// <summary>Parents, birth, ID card, the right's type (V2).</summary>
+    public PersonDetailsDto Details { get; init; } = PersonDetailsDto.None;
+
     public string Name => CadastreText.Clean(FirstName is null ? Surname : Surname + " " + FirstName);
 
     public string Role
@@ -47,8 +50,8 @@ public sealed record SummaryData(
 
 /// <summary>
 /// Reads a registration summary (ΠΕΡΙΛΗΨΗ ΚΑΤΑΧΩΡΙΣΗΣ ΕΓΓΡΑΠΤΕΑΣ ΠΡΑΞΗΣ, brief §2.5) from its text layer. The PDF stays in
-/// memory and is never written anywhere. Only what GreekPlot keeps is read (§4): the act, its values and date, the units,
-/// and of each party the name, role, right, share and address - never a person's ΑΦΜ, ID card, birth or parents.
+/// memory until it is uploaded to GreekPlot (never written to disk). V2 (owner, 2026-11-26): everything is read - the act, its values
+/// and date, the units, and of each party the name, role, right, share, address, ΑΦΜ, parents, birth and ID card.
 /// </summary>
 public static partial class SummaryPdf
 {
@@ -136,6 +139,11 @@ public static partial class SummaryPdf
     private const string LFirst = "Όνομα / Είδος Νομικού Προσώπου";
     private const string LSurname = "Επώνυμο / Επωνυμία";
     private const string LFather = "Όνομα Πατρός";
+    private const string LFatherSurname = "Επώνυμο Πατρός";
+    private const string LMother = "Όνομα Μητρός";
+    private const string LMotherSurname = "Επώνυμο Μητρός";
+    private const string LBirth = "Ημ/νία & Τόπος Γέννησης";
+    private const string LIdCard = "ΑΔΤ";
     private const string LTax = "ΑΦΜ";
     private const string LAddress = "Διεύθυνση (Οδός, Αριθμός, ΤΚ, Πόλη)";
     private const string LRight = "Είδος Δικαιώματος";
@@ -145,7 +153,7 @@ public static partial class SummaryPdf
 
     private static readonly string[] Labels =
     {
-        LFirst, LSurname, LFather, "Επώνυμο Πατρός", "Όνομα Μητρός", "Επώνυμο Μητρός", "Ημ/νία & Τόπος Γέννησης", "ΑΔΤ",
+        LFirst, LSurname, LFather, LFatherSurname, LMother, LMotherSurname, LBirth, LIdCard,
         LTax, LAddress, "Ημ/νία Σύστασης", LRight, LRole, LComment,
     };
 
@@ -361,12 +369,41 @@ public static partial class SummaryPdf
         var marked = isType || mark == true;
         var kind = mark == false ? PartyKind.Person : LegalEntityRule.Decide(surname, noPersonNames, marked);
 
-        // The ΑΦΜ is read only for an entity; a person's is never taken out of the PDF's text.
-        var tax = kind == PartyKind.LegalEntity ? CadastreText.TaxDigits(Value(LTax)) : null;
+        // V2 (owner, 2026-11-26): everything the block shows is kept, a person's ΑΦΜ, parents, birth and ID card too.
+        var right = CadastreText.Cap(Value(LRight, LShare), 100);
+        string? Join(string? first, string? last) => CadastreText.Cap(CadastreText.Clean($"{last} {first}"), 200);
+        var (birth, place) = Value(LBirth) is { } b ? PdfText.DateAndRest(AfterAny(b, "Έδρα ΝΠ)", "ΝΠ)")) : (null, null);
+        string? idNo = null, idAuthority = null;
+        DateOnly? idDate = null;
+        if (Value(LIdCard) is { } id)
+        {
+            var parts = AfterAny(id, "Εκδ. Αρχή", "Αρχή").Split(',').Select(CadastreText.Clean).ToList();
+            idNo = parts.FirstOrDefault(p => p.Length > 0 && !PdfText.IsDate(p) && p.Any(char.IsLetterOrDigit));
+            idDate = parts.Select(p => PdfText.IsDate(p) ? CadastreText.Date(p) : null).FirstOrDefault(d => d is not null);
+            // "ΧΧ000000, 01/01/2000, Τ.Α. ΔΟΚΙΜΩΝ": number, date, then the authority.
+            idAuthority = parts.Skip(idNo is null ? 0 : parts.IndexOf(idNo) + 1).FirstOrDefault(p => p.Length > 0 && !PdfText.IsDate(p));
+        }
+
         return new SummaryParty(
             CadastreText.Cap(surname, 300)!, isType ? null : CadastreText.Cap(firstOrType, 100), isType ? CadastreText.Cap(firstOrType, 100) : null,
-            noPersonNames, marked, tax, CadastreText.Cap(Address(Value(LAddress)), 300), CadastreText.Cap(Value(LRight, LShare), 100),
-            CadastreText.Cap(Share(), 20), CadastreText.Cap(Value(LRole), 100), CadastreText.Cap(Value(LComment), 100));
+            noPersonNames, marked, CadastreText.TaxDigits(Value(LTax)), CadastreText.Cap(Address(Value(LAddress)), 300), right,
+            CadastreText.Cap(Share(), 20), CadastreText.Cap(Value(LRole), 100), CadastreText.Cap(Value(LComment), 100))
+        {
+            Details = new PersonDetailsDto(
+                Join(Value(LFather), Value(LFatherSurname)), Join(Value(LMother), Value(LMotherSurname)), birth, CadastreText.Cap(place, 200),
+                CadastreText.Cap(idNo, 30), idDate, CadastreText.Cap(idAuthority, 200), CadastreText.RightType(right), PersonSource.Summary),
+        };
+    }
+
+    /// <summary>The text after the first of <paramref name="markers"/> found (the rest of a long label), else all of it.</summary>
+    private static string AfterAny(string value, params string[] markers)
+    {
+        foreach (var m in markers)
+        {
+            if (CadastreText.IndexOfNorm(value, m) is { } at) return CadastreText.Clean(value[at.End..]);
+        }
+
+        return value;
     }
 
     /// <summary>True = the ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ box is ticked, false = ΦΥΣΙΚΟ ΠΡΟΣΩΠΟ is, null = no tick in the text.</summary>
@@ -399,9 +436,11 @@ public static partial class SummaryPdf
         var n = LegalEntityRule.Tokens(typeText);
         var t = string.Join(' ', n);
         bool Starts(string greek) => t.StartsWith(string.Join(' ', LegalEntityRule.Tokens(greek)), StringComparison.Ordinal);
-        if (Starts("ΑΓΟΡΑΠΩΛΗΣΙΑ")) return ActType.Sale;
-        if (Starts("ΠΕΡΙΛΗΨΗ ΚΑΤΑΚΥΡΩΤΙΚΗΣ") || Starts("ΚΑΤΑΚΥΡΩΤΙΚΗ") || Starts("ΚΑΤΑΚΥΡΩΣΗ")) return ActType.Auction;
         if (Starts("ΑΡΣΗ ΚΑΤΑΣΧΕΣΗΣ") || Starts("ΑΡΣΗ ΑΝΑΓΚΑΣΤΙΚΗΣ ΚΑΤΑΣΧΕΣΗΣ") || Starts("ΑΡΣΗ ΣΥΝΤΗΡΗΤΙΚΗΣ ΚΑΤΑΣΧΕΣΗΣ")) return ActType.SeizureLifted;
+        // The extract writes "ΠΩΛΗΣΗ ΔΙΑ ΠΛΕΙΣΤΗΡΙΑΣΜΟΥ" (sale by auction) and "ΠΩΛΗΣΗ" (brief V2 §1.2).
+        if (n.Any(w => w.StartsWith(LegalEntityRule.Tokens("ΠΛΕΙΣΤΗΡΙΑΣΜ")[0], StringComparison.Ordinal))) return ActType.Auction;
+        if (Starts("ΑΓΟΡΑΠΩΛΗΣΙΑ") || Starts("ΠΩΛΗΣΗ")) return ActType.Sale;
+        if (Starts("ΠΕΡΙΛΗΨΗ ΚΑΤΑΚΥΡΩΤΙΚΗΣ") || Starts("ΚΑΤΑΚΥΡΩΤΙΚΗ") || Starts("ΚΑΤΑΚΥΡΩΣΗ")) return ActType.Auction;
         if (Starts("ΑΝΑΓΚΑΣΤΙΚΗ ΚΑΤΑΣΧΕΣΗ") || Starts("ΚΑΤΑΣΧΕΣΗ") || Starts("ΣΥΝΤΗΡΗΤΙΚΗ ΚΑΤΑΣΧΕΣΗ")) return ActType.Seizure;
         if (Starts("ΓΟΝΙΚΗ ΠΑΡΟΧΗ")) return ActType.ParentalGift;
         if (Starts("ΑΠΟΔΟΧΗ ΚΛΗΡΟΝΟΜΙΑΣ") || Starts("ΑΠΟΔΟΧΗ ΚΛΗΡΟΝΟΜΗΣ")) return ActType.Inheritance;

@@ -5,7 +5,7 @@
 // progress }, nadlanRecordsSignedIn(bool), nadlanRecordsStart(json) -> "" or why not, nadlanRecordsStop().
 // This script never sends a request to the site itself and never reads the page on screen except to see whether the
 // lawyer is signed in (the Logout link). Drivable from a --debug-port session: NadlanRecords.start({ kaeks: "..." }) or
-// NadlanRecords.start({ areaId: 12 }), NadlanRecords.stop(), NadlanRecords.state(), NadlanRecords.logLines().
+// NadlanRecords.start({ areaId: 12 }) (add unitCap: "all" for every unit), NadlanRecords.stop(), NadlanRecords.state(), NadlanRecords.logLines().
 (function () {
   "use strict";
   if (window.top !== window || !/^(www\.)?ktimatologio\.gov\.gr$/i.test(location.hostname) ||
@@ -76,13 +76,17 @@
         "<label class=\"opt\"><input type=\"radio\" name=\"nadlan-rec-src\" value=\"paste\"> KAEKs I paste</label>" +
         "<textarea id=\"nadlan-rec-paste\" placeholder=\"12-digit KAEKs, separated by commas, semicolons, spaces or new lines\"></textarea>" +
         "<div class=\"hint\" id=\"nadlan-rec-count\">Each pasted KAEK is fetched again (a new snapshot; history is kept).</div>" +
+        "<label>Units per KAEK <select id=\"nadlan-rec-cap\"><option value=\"10\" selected>10 (the plot and the first flats)</option>" +
+          "<option value=\"all\">All (a big building costs many requests)</option></select></label>" +
       "</div>" +
       "<div class=\"actions\"><button type=\"button\" id=\"nadlan-rec-start\">Start</button>" +
         "<button type=\"button\" id=\"nadlan-rec-stop\" disabled>Stop</button></div>" +
       "<div class=\"status\" id=\"nadlan-rec-status\"></div>" +
       "<div class=\"counts\" id=\"nadlan-rec-counts\"></div>" +
       "<div id=\"nadlan-rec-log\"></div>" +
-      "<footer>Run it only on the PC in Greece (the lawyer's terms). One request to the site every 20-30 s, one KAEK at a time (a minute or two each; longer for buildings with many flats). Don't use this tab during a run; " +
+      "<footer>Run it only on the PC in Greece (the lawyer's terms). One request to the site every 20-30 s, one KAEK at a time. " +
+        "Per KAEK: the search, each unit's record page and descriptive extract, the diagram once, and the last sale's summary " +
+        "(about 5 requests, 2-2.5 minutes for a plot; a building costs 2 per unit more). The extracts and that summary are stored in GreekPlot (Admins only). Don't use this tab during a run; " +
         "closing the map tab closes the importer. Owners as listed by the Cadastre, updated weekly. For research, not legal use.</footer>" +
       "</div>";
     document.body.appendChild(panel);
@@ -161,6 +165,7 @@
     $("nadlan-rec-stop").disabled = !running;
     $("nadlan-rec-area").disabled = running || !ready;
     $("nadlan-rec-paste").disabled = running || !ready;
+    $("nadlan-rec-cap").disabled = running || !ready;
     if (!running && !$("nadlan-rec-status").textContent) {
       status(signedIn ? "Choose an area or paste KAEKs, then Start." : "Sign in first.");
     }
@@ -187,12 +192,13 @@
       "<div>Sales found: <b>" + (c.sales || 0) + "</b></div>" +
       "<div>Last price: <b>" + esc(c.lastPrice || "-") + "</b></div>" +
       "<div>Not operating: <b>" + (c.notOperating || 0) + "</b></div>" +
-      "<div>Errors: <b>" + (c.errors || 0) + "</b></div>";
+      "<div>Errors: <b>" + (c.errors || 0) + "</b></div>" +
+      "<div>Documents stored: <b>" + (c.documents || 0) + "</b></div>";
   }
 
   function setRunning(on) { running = on; update(); }
 
-  // opts: { areaId } or { kaeks: "text" }; without opts, what the form says.
+  // opts: { areaId } or { kaeks: "text" }, and unitCap ("10" or "all"); without opts, what the form says.
   function start(opts) {
     if (!opts) {
       if (source() === "paste") {
@@ -209,7 +215,8 @@
     if (typeof window.nadlanRecordsStart !== "function") { return Promise.resolve("not in the importer"); }
     setRunning(true);
     status("Starting...");
-    return window.nadlanRecordsStart(JSON.stringify({ areaId: opts.areaId ? String(opts.areaId) : null, kaeks: opts.kaeks || null })).then(function (error) {
+    var cap = opts.unitCap ? String(opts.unitCap) : $("nadlan-rec-cap").value;
+    return window.nadlanRecordsStart(JSON.stringify({ areaId: opts.areaId ? String(opts.areaId) : null, kaeks: opts.kaeks || null, unitCap: cap })).then(function (error) {
       if (error) { setRunning(false); status(error); log(error, "err"); }
       return error || "";
     }, function (e) {

@@ -107,7 +107,13 @@ public sealed class RecordsModule(IBrowserContext context, NadlanApiClient clien
         return null;
     }
 
-    private sealed record StartDto(string? AreaId, string? Kaeks);
+    /// <param name="UnitCap">"10" (the default), another number, or "all".</param>
+    private sealed record StartDto(string? AreaId, string? Kaeks, string? UnitCap = null);
+
+    /// <summary>Units per KAEK: 10 unless the user chose another number or "all" (null).</summary>
+    internal static int? UnitCapOf(string? value) =>
+        string.Equals(value?.Trim(), "all", StringComparison.OrdinalIgnoreCase) ? null
+        : int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : CadastreFetcher.DefaultUnitCap;
 
     private async Task<string> StartAsync(IPage page, string json)
     {
@@ -173,8 +179,9 @@ public sealed class RecordsModule(IBrowserContext context, NadlanApiClient clien
         var cts = _run = new CancellationTokenSource();
         _panel = panel;
         var site = new GuardedCadastreSite(new PageTransport(page), _pacer);
-        var run = new RecordsRun(site, new GreekPlotRecordsSink(client), panel, console);
-        console.WriteLine($"Records run started: {kaeks.Count} KAEK(s).");
+        var unitCap = UnitCapOf(dto.UnitCap);
+        var run = new RecordsRun(site, new GreekPlotRecordsSink(client), panel, console, unitCap: unitCap);
+        console.WriteLine($"Records run started: {kaeks.Count} KAEK(s), {(unitCap is int c ? c + " unit(s)" : "all units")} per KAEK.");
         RunTask = Task.Run(async () =>
         {
             try

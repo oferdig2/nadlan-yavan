@@ -19,18 +19,38 @@ public sealed record RecordDocument(string Path, string Item, string Label, stri
 }
 
 /// <summary>
-/// A row of the record page's current owners table, after the first half of the ΑΦΜ rule: the father's name is never kept
-/// (only whether there is one), and the ΑΦΜ survives only on a row with no person's names (a possible entity) - on any
-/// other row it is dropped here, while parsing.
+/// A row of the record page's current owners table: everything it shows (V2, owner 2026-11-26: a person's ΑΦΜ and father's
+/// name are kept too). The two-signs rule (<see cref="LegalEntityRule"/>) now only classifies Person / LegalEntity.
 /// </summary>
-public sealed record OwnerRow(string Surname, string FirstName, bool HasFather, string? ShareText, string? CandidateTaxId)
+public sealed record OwnerRow(string Surname, string FirstName, string FatherName, string? ShareText, string? TaxId)
 {
     /// <summary>Surname + first name for a person, the name alone for a company - as the summaries' parties are named.</summary>
     public string Name => CadastreText.Clean(FirstName.Length == 0 ? Surname : Surname + " " + FirstName);
+    public bool HasFather => FatherName.Length > 0;
     public bool NoPersonNames => LegalEntityRule.HasNoPersonNames(Surname, FirstName, HasFather);
 }
 
-public sealed record RecordPageData(IReadOnlyList<OwnerRow> Owners, IReadOnlyList<RecordDocument> Documents, bool HasOwnersTable);
+/// <summary>A field of an extract's form (ShowDocs), as the page has it.</summary>
+/// <param name="Tag">input, button, select or textarea.</param>
+/// <param name="Type">The input's or button's type, lower case ("" when not given).</param>
+public sealed record FormField(string Tag, string Type, string Name, string Value)
+{
+    public bool IsSubmit => Tag == "button" ? Type is "" or "submit" : Tag == "input" && Type is "submit" or "image";
+}
+
+/// <summary>
+/// A <c>form[action$=ShowDocs]</c> of the record page (brief V1 §2.3, V2 §1.1): its method, encoding, fields in page order,
+/// and any script hooks (onsubmit, onclick, data-confirm ...), which may be a confirmation or a charging notice.
+/// </summary>
+public sealed record ExtractForm(string Action, string? Method, string? Enctype, bool Ajax, IReadOnlyList<FormField> Fields, IReadOnlyList<string> Hooks);
+
+public sealed record RecordPageData(IReadOnlyList<OwnerRow> Owners, IReadOnlyList<RecordDocument> Documents, bool HasOwnersTable)
+{
+    public IReadOnlyList<ExtractForm> ExtractForms { get; init; } = Array.Empty<ExtractForm>();
+
+    /// <summary>The form with the button <paramref name="button"/> (ShowKF or ShowKD), or null when the page has none.</summary>
+    public ExtractForm? FormWith(string button) => ExtractForms.FirstOrDefault(f => f.Fields.Any(x => x.IsSubmit && x.Name == button));
+}
 
 /// <summary>
 /// Reads the lawyer service's HTML as fetched (never the page on screen: the browser may be translating it, brief §1).
@@ -128,10 +148,8 @@ public static partial class CadastrePages
                 if (cells.Length < 5 || tr.QuerySelector("table") is not null) continue; // §2.3: 5 cells (a 6th, e.g. an icon, is ignored)
                 var (afm, surname, name, father, share) = (cells[0], cells[1], cells[2], cells[3], cells[4]);
                 if (surname.Length == 0 && name.Length == 0) continue;
-                var hasFather = father.Length > 0;
-                // A person's ΑΦΜ never leaves this method (brief §4): it is kept only on a row with no person's names.
-                var candidate = LegalEntityRule.HasNoPersonNames(surname, name, hasFather) ? CadastreText.TaxDigits(afm) : null;
-                owners.Add(new OwnerRow(surname, name, hasFather, share.Length > 0 ? share : null, candidate));
+                // V2 (owner, 2026-11-26): the ΑΦΜ and the father's name are kept for everyone.
+                owners.Add(new OwnerRow(surname, name, father, share.Length > 0 ? share : null, CadastreText.TaxDigits(afm)));
             }
         }
 
@@ -150,7 +168,53 @@ public static partial class CadastrePages
                 m.Success ? m.Groups[3].Value : null, m.Success ? m.Groups[4].Value : null));
         }
 
-        return new RecordPageData(owners, documents, table is not null);
+        return new RecordPageData(owners, documents, table is not null) { ExtractForms = ExtractFormsOf(doc) };
+    }
+
+    private static IReadOnlyList<ExtractForm> ExtractFormsOf(IDocument doc)
+    {
+        var forms = new List<ExtractForm>();
+        foreach (var form in doc.QuerySelectorAll("form"))
+        {
+            var action = form.GetAttribute("action") ?? "";
+            if (!action.Split('?', '#')[0].TrimEnd('/').EndsWith("/ShowDocs", StringComparison.OrdinalIgnoreCase)) continue;
+            var fields = new List<FormField>();
+            var hooks = new List<string>();
+            void Hook(IElement e)
+            {
+                foreach (var a in e.Attributes)
+                {
+                    if (a.Name.StartsWith("on", StringComparison.OrdinalIgnoreCase) || a.Name.Contains("confirm", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hooks.Add($"{e.LocalName} {a.Name}=\"{CadastreText.Cap(a.Value, 200)}\"");
+                    }
+                }
+            }
+
+            Hook(form);
+            // The form's own controls, plus any outside it that name it (form="id").
+            var id = form.GetAttribute("id");
+            var controls = form.QuerySelectorAll("input, button, select, textarea").ToList();
+            if (!string.IsNullOrEmpty(id))
+            {
+                controls.AddRange(doc.QuerySelectorAll("input[form], button[form], select[form], textarea[form]")
+                    .Where(c => c.GetAttribute("form") == id && !controls.Contains(c)));
+            }
+
+            foreach (var c in controls)
+            {
+                Hook(c);
+                var name = c.GetAttribute("name");
+                if (string.IsNullOrEmpty(name) || c.HasAttribute("disabled")) continue;
+                var value = c.LocalName == "textarea" ? c.TextContent : c.GetAttribute("value") ?? "";
+                fields.Add(new FormField(c.LocalName, (c.GetAttribute("type") ?? "").Trim().ToLowerInvariant(), name, value.Trim()));
+            }
+
+            var ajax = string.Equals(form.GetAttribute("data-ajax"), "true", StringComparison.OrdinalIgnoreCase);
+            forms.Add(new ExtractForm(action, form.GetAttribute("method"), form.GetAttribute("enctype"), ajax, fields, hooks));
+        }
+
+        return forms;
     }
 
     /// <summary>

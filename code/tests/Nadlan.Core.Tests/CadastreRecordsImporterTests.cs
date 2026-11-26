@@ -39,7 +39,6 @@ public class CadastreRecordsImporterTests
         "<table class=\"MasterGrid\"><tr><th colspan=\"5\">Τρέχοντες Κύριοι</th></tr>" +
         "<tr class=\"HeaderRow\"><th>ΑΦΜ</th><th>Επώνυμο</th><th>Όνομα</th><th>Όνομα Πατρός</th><th>Ποσοστό</th></tr>" + owners + "</table>" +
         "<table class=\"MasterGrid\"><tr><th>Τίτλοι και έγγραφα αρχικών εγγραφών</th><th></th></tr>" + docs + "</table>" +
-        "<form action=\"/Professionals/Inquiry/Main/ShowDocs\" method=\"post\"><button name=\"ShowKF\" value=\"x\">Απόσπασμα</button></form>" +
         "</body></html>";
 
     /// <summary>Lines one under the other (16 pt apart) at the label column, as PdfPig gives them.</summary>
@@ -129,7 +128,7 @@ public class CadastreRecordsImporterTests
     [InlineData("GET", "/Professionals/Contracts/Home/Folders")]
     [InlineData("GET", "/professionals/CONTRACTS/x")]
     [InlineData("GET", "/Professionals/Account/Logout")]
-    [InlineData("POST", "/Professionals/Inquiry/Main/ShowDocs")]                // the extracts (certificates)
+    [InlineData("POST", "/Professionals/Inquiry/Main/ShowDocs")]                // an extract, but with another body (here the search's)
     [InlineData("GET", "/Professionals/Inquiry/Main/ShowDocs?ShowKF=990000000001-0-0")]
     [InlineData("GET", "/Professionals/Inquiry/Main/SearchByPerson")]           // person search: not in V1
     [InlineData("POST", "/Professionals/Inquiry/Main/FetchPersons")]
@@ -165,7 +164,7 @@ public class CadastreRecordsImporterTests
         var script = CadastreAllowList.RequestScript;
         var guard = script.IndexOf("if (!ok) blocked", StringComparison.Ordinal);
         Assert.True(guard > 0 && guard < script.IndexOf("await fetch(", StringComparison.Ordinal), "the allow-list must run before fetch");
-        foreach (var piece in new[] { "'/contracts/'", "'/account/'", "'showdocs'", "fetchestates", "viewresults", "showscans", "searchbyestate", "ktimatologio\\.gov\\.gr" })
+        foreach (var piece in new[] { "'/contracts/'", "'/account/'", "/professionals/inquiry/main/showdocs", "fetchestates", "viewresults", "showscans", "searchbyestate", "ktimatologio\\.gov\\.gr" })
         {
             Assert.Contains(piece, script);
         }
@@ -315,7 +314,7 @@ public class CadastreRecordsImporterTests
     }
 
     [Fact]
-    public void A_persons_tax_number_is_dropped_while_the_record_page_is_parsed()
+    public void Every_owners_tax_number_and_father_are_kept_while_the_record_page_is_parsed()
     {
         var record = CadastrePages.ParseRecord(RecordPage(
             Owner(PersonTax, "ΔΟΚΙΜΟΠΟΥΛΟΣ", "ΑΛΕΞΑΝΔΡΟΣ", "ΠΕΤΡΟΣ", "1 / 2") +
@@ -325,13 +324,13 @@ public class CadastreRecordsImporterTests
 
         Assert.True(record.HasOwnersTable);
         Assert.Equal(4, record.Owners.Count);
-        Assert.Null(record.Owners[0].CandidateTaxId);
-        Assert.Null(record.Owners[1].CandidateTaxId);
-        Assert.Equal(CompanyTax, record.Owners[2].CandidateTaxId);
-        Assert.Null(record.Owners[3].CandidateTaxId);
+        Assert.Equal(PersonTax, record.Owners[0].TaxId);                // V2 (owner, 2026-11-26): people's too
+        Assert.Equal(("100000003", "ΠΕΤΡΟΣ"), (record.Owners[1].TaxId, record.Owners[1].FatherName));
+        Assert.Equal(CompanyTax, record.Owners[2].TaxId);
+        Assert.Null(record.Owners[3].TaxId);
         Assert.Equal("ΔΟΚΙΜΟΠΟΥΛΟΣ ΑΛΕΞΑΝΔΡΟΣ", record.Owners[0].Name);
         Assert.Equal("ΔΟΚΙΜΑΣΤΙΚΗ ΑΝΩΝΥΜΗ ΕΤΑΙΡΕΙΑ", record.Owners[2].Name);
-        Assert.DoesNotContain(record.Owners, o => o.ToString().Contains(PersonTax) || o.ToString().Contains("ΠΕΤΡΟΣ"));
+        Assert.True(record.Owners[2].NoPersonNames && !record.Owners[0].NoPersonNames); // the two-signs rule still classifies
     }
 
     [Fact]
@@ -384,12 +383,15 @@ public class CadastreRecordsImporterTests
         Assert.Equal("ΚΥΡΙΟΤΗΤΑ-ΠΛΗΡΗΣ", buyer.RightText);
         Assert.Equal("100 / 100", buyer.ShareText);
         Assert.Equal("ΟΔΟΣ ΔΟΚΙΜΗΣ, 5, 10000, ΑΘΗΝΑ", buyer.Address);
-        Assert.Null(buyer.CandidateTaxId); // a person's ΑΦΜ never leaves the parser
+        Assert.Equal(PersonTax, buyer.TaxId); // V2: a person's tax number is kept
+        Assert.Equal(("ΑΓΟΡΑΣΤΟΠΟΥΛΟΥ ΝΙΚΟΛΑΟΣ", "ΔΟΚΙΜΗ"), (buyer.Details.FatherName, buyer.Details.MotherName));
+        Assert.Equal((new DateOnly(1970, 1, 1), "ΑΘΗΝΑ"), (buyer.Details.BirthDate!.Value, buyer.Details.BirthPlace));
+        Assert.Equal(("ΧΧ000000", (DateOnly?)null, "Τ.Α. ΔΟΚΙΜΩΝ"), (buyer.Details.IdCardNumber, buyer.Details.IdCardDate, buyer.Details.IdCardAuthority)); // 01/01/0001 = no date
+        Assert.Equal(("ΠΛΗΡΗΣ", PersonSource.Summary), (buyer.Details.RightType, buyer.Details.Source));
         var seller = s.Parties[1];
         Assert.Equal(PartyRole.Transferor, seller.Role);
         Assert.Equal("99000, ΔΟΚΙΜΟΧΩΡΙ", seller.Address);
-        Assert.Null(seller.CandidateTaxId);
-        Assert.DoesNotContain(s.Parties, p => p.ToString().Contains("ΝΙΚΟΛΑΟΣ") || p.ToString().Contains("1970") || p.ToString().Contains("ΧΧ000000"));
+        Assert.Equal("100000002", seller.TaxId);
 
         Assert.Equal(2, s.OldTitles.Count);
         Assert.Equal((ActType.ParentalGift, "13042", new DateOnly(1986, 4, 28)), (s.OldTitles[0].TypeCode, s.OldTitles[0].DeedNo, s.OldTitles[0].Date!.Value));
@@ -474,14 +476,15 @@ public class CadastreRecordsImporterTests
         Assert.Equal("ΔΟΚΙΜΑΣΤΙΚΕΣ ΥΠΟΔΟΜΕΣ", company.Name);          // the company name alone
         Assert.Equal("ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ ΙΔΙΩΤΙΚΟΥ ΔΙΚΑΙΟΥ", company.EntityTypeText);
         Assert.True(company.MarkedEntity && company.NoPersonNames);
-        Assert.Equal(CompanyTax, company.CandidateTaxId);              // marked + no person's names: both signs
+        Assert.Equal(CompanyTax, company.TaxId);
         Assert.Equal("ΚΑΤΑΣΧΕΣΕΙΣ-ΑΝΑΓΚΑΣΤΙΚΗ ΚΑΤΑΣΧΕΣΗ", company.RightText); // the wrapped value, joined
         Assert.Equal(PartyRole.Other, company.Role);
         Assert.Equal("ΟΔΟΣ ΕΤΑΙΡΕΙΑΣ, 1, 10001, ΑΘΗΝΑ", company.Address);
 
         var debtor = s.Parties[1];
         Assert.Equal("ΟΦΕΙΛΕΤΟΥ ΔΟΚΙΜΗ", debtor.Name);
-        Assert.Null(debtor.CandidateTaxId);
+        Assert.Equal(PersonTax, debtor.TaxId); // V2: kept
+        Assert.Equal("ΔΟΚΙΜΟΣ", debtor.Details.FatherName);
         Assert.Equal("ΚΑΘ' ΟΥ", debtor.RoleText);
 
         Assert.Equal(2, s.OldTitles.Count);
@@ -503,7 +506,7 @@ public class CadastreRecordsImporterTests
         }).ToArray());
 
         var party = Assert.Single(SummaryPdf.Parse(lines).Parties);
-        Assert.Null(party.CandidateTaxId);
+        Assert.Equal(PersonTax, party.TaxId);
         Assert.False(party.MarkedEntity);
     }
 
@@ -664,7 +667,7 @@ public class CadastreRecordsImporterTests
     {
         var (transport, reader) = Building();
         var pacer = new CountingPacer();
-        var record = await new CadastreFetcher(new GuardedCadastreSite(transport, pacer), readSummary: reader).FetchAsync(Kaek, default);
+        var record = (await new CadastreFetcher(new GuardedCadastreSite(transport, pacer), readSummary: reader).FetchAsync(Kaek, default)).Record;
 
         Assert.Equal(new[]
         {
@@ -679,32 +682,34 @@ public class CadastreRecordsImporterTests
         Assert.Equal(2, record.Units.Count);
         var plot = record.Units[0];
         var owner = Assert.Single(plot.Owners);
-        Assert.Equal(("LegalEntity", CompanyTax), (owner.Kind, owner.EntityTaxId));
+        Assert.Equal(("LegalEntity", CompanyTax), (owner.Kind, owner.TaxId));
         Assert.Equal(1200.50m, plot.TitleAreaSqm);
         Assert.Equal(ActSource.RecordTitle, Assert.Single(plot.Acts).Source);
 
         var flat = record.Units[1];
         Assert.Equal(CadastreStatus.Found, flat.Status); // the scan (a1) was never needed
         var person = Assert.Single(flat.Owners);
-        Assert.Equal(("Person", (string?)null), (person.Kind, person.EntityTaxId));
+        Assert.Equal(("Person", PersonTax, "ΝΙΚΟΛΑΟΣ"), (person.Kind, person.TaxId, person.Details.FatherName)); // V2: kept
+        Assert.Equal(new DateOnly(1970, 1, 1), person.Details.BirthDate);   // filled from the summary that names this owner
+        Assert.Equal(ExtractStatus.NotFetched, flat.ExtractStatus);           // the record page offers no extract here
         Assert.Equal("ΟΔΟΣ ΔΟΚΙΜΗΣ, 5, 10000, ΑΘΗΝΑ", person.Address); // the buyer in the summary is this owner
         var sale = Assert.Single(flat.Acts, a => a.Source == ActSource.Summary);
         Assert.Equal(("31", 2024, "ΔΟΚΙΜΩΝ", ActType.Sale, 21000m), (sale.RegNo, sale.RegYear!.Value, sale.Office, sale.ActTypeCode, sale.TransactionValue!.Value));
         Assert.Equal("990000000001/0/1", sale.CoversUnits);
         Assert.Equal(2, sale.Parties.Count);
-        Assert.All(sale.Parties, p => Assert.Null(p.EntityTaxId));
+        Assert.Equal(new[] { PersonTax, "100000002" }, sale.Parties.Select(p => p.TaxId));
         Assert.Equal(2, flat.Acts.Count(a => a.Source == ActSource.OldTitle));
 
-        // Nothing a person's: no tax number, father, ID card or birth date anywhere in what is sent.
-        var json = System.Text.Json.JsonSerializer.Serialize(record);
-        foreach (var never in new[] { PersonTax, "100000002", "ΝΙΚΟΛΑΟΣ", "ΚΩΝΣΤΑΝΤΙΝΟΣ", "ΧΧ000000", "1970" })
+        // V2 (owner, 2026-11-26): everything is sent - the tax numbers, parents, ID card and birth.
+        var json = System.Text.Json.JsonSerializer.Serialize(record, new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+        foreach (var kept in new[] { PersonTax, "100000002", "ΝΙΚΟΛΑΟΣ", "ΚΩΝΣΤΑΝΤΙΝΟΣ", "ΧΧ000000", "1970" })
         {
-            Assert.DoesNotContain(never, json);
+            Assert.Contains(kept, json);
         }
     }
 
     [Fact]
-    public void An_entity_on_the_record_page_that_a_summary_shows_as_a_person_loses_its_AFM()
+    public void An_entity_on_the_record_page_that_a_summary_shows_as_a_person_is_a_Person_and_keeps_its_AFM()
     {
         var estate = new EstateRow(Kaek, 0, 1, "/x", null, null, null, null, null);
         var record = CadastrePages.ParseRecord(RecordPage(
@@ -715,12 +720,13 @@ public class CadastreRecordsImporterTests
             .ToArray()));
         var doc = new RecordDocument("/d", "a1", "↳ 31/2024 ΔΟΚΙΜΩΝ (ΠΕΡΙΛΗΨΗ ΕΓΓΡΑΠΤΕΑΣ ΠΡΑΞΗΣ)", "31", 2024, "ΔΟΚΙΜΩΝ", "ΠΕΡΙΛΗΨΗ ΕΓΓΡΑΠΤΕΑΣ ΠΡΑΞΗΣ");
         Assert.Equal("090000010", CadastreFetcher.BuildUnit(estate, CadastrePages.ParseRecord(RecordPage(Owner("090000010", "ΔΟΚΙΜΗ ΕΤΑΙΡΕΙΑ", "", "", "1 / 2"), "")),
-            Array.Empty<(RecordDocument, SummaryData)>()).Owners[0].EntityTaxId); // without the summary it would be kept
+            Array.Empty<(RecordDocument, SummaryData)>()).Owners[0].TaxId);
 
         var unit = CadastreFetcher.BuildUnit(estate, record, new[] { (doc, summary) });
 
-        Assert.All(unit.Owners, o => Assert.Equal(("Person", (string?)null), (o.Kind, o.EntityTaxId)));
-        Assert.All(unit.Acts.SelectMany(a => a.Parties), p => Assert.Null(p.EntityTaxId));
+        Assert.All(unit.Owners, o => Assert.Equal("Person", o.Kind)); // classified as people...
+        Assert.Equal(new[] { CompanyTax, "090000010" }, unit.Owners.Select(o => o.TaxId)); // ...and nothing dropped (V2)
+        Assert.All(unit.Acts.SelectMany(a => a.Parties), p => Assert.Equal(("Person", "090000010"), (p.Kind, p.TaxId)));
     }
 
     [Fact]
@@ -733,12 +739,12 @@ public class CadastreRecordsImporterTests
         var unit = CadastreFetcher.BuildUnit(estate, record, new[] { (doc, SummaryPdf.Parse(SeizureSummary())) });
 
         var owner = Assert.Single(unit.Owners);
-        Assert.Equal(("LegalEntity", CompanyTax, "ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ ΙΔΙΩΤΙΚΟΥ ΔΙΚΑΙΟΥ"), (owner.Kind, owner.EntityTaxId, owner.EntityTypeText));
+        Assert.Equal(("LegalEntity", CompanyTax, "ΝΟΜΙΚΟ ΠΡΟΣΩΠΟ ΙΔΙΩΤΙΚΟΥ ΔΙΚΑΙΟΥ"), (owner.Kind, owner.TaxId, owner.EntityTypeText));
         Assert.Equal("ΟΔΟΣ ΕΤΑΙΡΕΙΑΣ, 1, 10001, ΑΘΗΝΑ", owner.Address);
         var seizure = Assert.Single(unit.Acts, a => a.Source == ActSource.Summary);
         Assert.Equal(ActType.Seizure, seizure.ActTypeCode);
-        Assert.Equal(CompanyTax, seizure.Parties[0].EntityTaxId);
-        Assert.Null(seizure.Parties[1].EntityTaxId);
+        Assert.Equal(CompanyTax, seizure.Parties[0].TaxId);
+        Assert.Equal(("Person", PersonTax), (seizure.Parties[1].Kind, seizure.Parties[1].TaxId));
     }
 
     [Fact]
@@ -748,7 +754,7 @@ public class CadastreRecordsImporterTests
         transport.Replies[FetchEstates] = new SiteResponse(200, "https://ktimatologio.gov.gr/Professionals/Inquiry/Main/FetchEstates", false, "text/html",
             "<table class=\"Grid\"><tr class=\"HeaderRow\"><th>ΚΑΕΚ</th></tr></table>", null);
 
-        var record = await new CadastreFetcher(new GuardedCadastreSite(transport, new CountingPacer())).FetchAsync(Kaek, default);
+        var record = (await new CadastreFetcher(new GuardedCadastreSite(transport, new CountingPacer())).FetchAsync(Kaek, default)).Record;
 
         Assert.Equal((CadastreStatus.NotOperating, 0), (record.Status, record.Units.Count));
         Assert.Single(transport.Sent);
@@ -786,7 +792,7 @@ public class CadastreRecordsImporterTests
         transport.Replies[FetchEstates] = new SiteResponse(200, "https://ktimatologio.gov.gr/Professionals/Inquiry/Main/FetchEstates", false, "text/html",
             reply, null);
 
-        var record = await new CadastreFetcher(new GuardedCadastreSite(transport, new CountingPacer())).FetchAsync(Kaek, default);
+        var record = (await new CadastreFetcher(new GuardedCadastreSite(transport, new CountingPacer())).FetchAsync(Kaek, default)).Record;
 
         Assert.Equal((CadastreStatus.NotOperating, 0), (record.Status, record.Units.Count));
     }
@@ -818,7 +824,7 @@ public class CadastreRecordsImporterTests
             var other => throw new InvalidOperationException("unexpected PDF " + other),
         };
 
-        var record = await new CadastreFetcher(new GuardedCadastreSite(site, new CountingPacer()), readSummary: Reader).FetchAsync(Kaek, default);
+        var record = (await new CadastreFetcher(new GuardedCadastreSite(site, new CountingPacer()), readSummary: Reader).FetchAsync(Kaek, default)).Record;
 
         Assert.Equal(new[] { "GET " + Scans("a5"), "GET " + Scans("a4"), "GET " + Scans("a3") }, site.Sent.Where(s => s.Contains("showScans")));
         var acts = Assert.Single(record.Units).Acts.Where(a => a.Source == ActSource.Summary).ToList();
@@ -885,14 +891,25 @@ public class CadastreRecordsImporterTests
 
     // ---- a run ---------------------------------------------------------------------------------------------------------
 
-    private sealed class Sink : IRecordsSink
+    internal sealed class Sink : IRecordsSink
     {
         public readonly List<CadastreRecordDto> Saved = new();
+        public readonly List<(long FetchId, FetchedDocument Doc)> Uploaded = new();
         public string? Refuse;
-        public Task<string?> SaveAsync(CadastreRecordDto record, CancellationToken ct)
+        public string? RefuseUpload;
+        private long _next = 100;
+
+        public Task<RecordSaved> SaveAsync(CadastreRecordDto record, CancellationToken ct)
         {
-            if (Refuse is not null && record.Status != CadastreStatus.Error) return Task.FromResult<string?>(Refuse);
+            if (Refuse is not null && record.Status != CadastreStatus.Error) return Task.FromResult(RecordSaved.Refused(Refuse));
             Saved.Add(record);
+            return Task.FromResult(new RecordSaved(null, record.Units.ToDictionary(u => (u.UnitV, u.UnitH), _ => ++_next)));
+        }
+
+        public Task<string?> UploadAsync(long cadastreFetchId, FetchedDocument document, CancellationToken ct)
+        {
+            if (RefuseUpload is not null) return Task.FromResult<string?>(RefuseUpload);
+            Uploaded.Add((cadastreFetchId, document));
             return Task.FromResult<string?>(null);
         }
     }
