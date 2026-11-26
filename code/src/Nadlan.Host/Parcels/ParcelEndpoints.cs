@@ -40,6 +40,9 @@ public static class ParcelEndpoints
 
         /// <summary>true = only provisional (TMP-) KAEKs, false = only real ones.</summary>
         [FromQuery] public bool? Provisional { get; set; }
+
+        /// <summary>Cadastre stages to show (InOperation, SurveyPost, PrePosting, NotOperating, Unknown - migration 034); none = all.</summary>
+        [FromQuery] public string[]? Stages { get; set; }
     }
 
     private static ParcelQuery ToQuery(ParcelQueryParams q, UserAccess me)
@@ -60,6 +63,7 @@ public static class ParcelEndpoints
             Kinds = kinds.Count == ParcelKinds.All.Count ? Array.Empty<string>() : kinds,
             HasAssets = q.HasAssets,
             Provisional = q.Provisional,
+            Stages = CadastralStages.ParseFilter(q.Stages),
             Scope = me.Scope,
         };
     }
@@ -67,7 +71,8 @@ public static class ParcelEndpoints
     public sealed record CreateParcelDto(
         string? RegistryId, int? GeographicAreaId, double[][][]? Coordinates, decimal? OfficialAreaSqm,
         string? OT, string? OTExt, string? PlotNumber, string? PlotExt, decimal? Inclination, decimal? BuildFactor,
-        string? Notes, bool AcceptOverlaps, string? Version = null, string? DivisionStatus = null, string? RelatedNumbers = null);
+        string? Notes, bool AcceptOverlaps, string? Version = null, string? DivisionStatus = null, string? RelatedNumbers = null,
+        string? CadastralStage = null, DateTime? CadastralStageSeenUtc = null, string? CadastralStageRequest = null);
 
     public sealed record ParcelNumbersItemDto(long ParcelId, string? OT, string? OTExt, string? PlotNumber, string? PlotExt, string? Version);
 
@@ -214,6 +219,14 @@ public static class ParcelEndpoints
                 parcel.Notes,
                 parcel.CreatedUtc,
                 geometry = GeoJson.Polygon(parcel.Geometry),
+                // Where it stands in the Cadastre (migration 034; null = unknown). Staff only: never on presentations or public links.
+                cadastralStage = parcel.CadastralStage is null ? null : new
+                {
+                    stage = parcel.CadastralStage,
+                    seenUtc = parcel.CadastralStageSeenUtc,
+                    source = parcel.CadastralStageSource,
+                    request = parcel.CadastralStageRequest,
+                },
                 version, // sent back on save (edit check)
                 // Who last entered or changed OT / plot, and when (customer change request #1: checking data entry).
                 otPlotBy = parcel.OtPlotByUserId is null && parcel.OtPlotUpdatedUtc is null ? null : new
@@ -282,6 +295,9 @@ public static class ParcelEndpoints
                 RelatedNumbers = dto.RelatedNumbers,
                 AcceptOverlaps = dto.AcceptOverlaps,
                 CreatedByUserId = me.UserId,
+                CadastralStage = dto.CadastralStage,       // the KAEK importer: the stage its click request answers for (034)
+                CadastralStageSeenUtc = dto.CadastralStageSeenUtc,
+                CadastralStageRequest = dto.CadastralStageRequest,
             }, ct);
 
             coverage.MarkDirty();

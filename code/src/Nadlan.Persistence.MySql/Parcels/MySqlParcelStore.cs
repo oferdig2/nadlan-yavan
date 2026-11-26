@@ -22,15 +22,21 @@ public sealed class MySqlParcelStore : IParcelStore
     private const string AnchorLon = "ST_Longitude(ST_PointN(ST_ExteriorRing(p.geometry), 1))";
     private const string AnchorLat = "ST_Latitude(ST_PointN(ST_ExteriorRing(p.geometry), 1))";
 
+    // The Parcels of a list or count, with their Cadastre stage row if any (migration 034; the stage filter reads cs).
+    private const string FromParcels = "FROM parcel p LEFT JOIN parcel_cadastre_stage cs ON cs.parcel_id = p.parcel_id";
+
     private static readonly string SelectColumns = $"""
         SELECT p.parcel_id, p.country_id, p.registry_id, p.registry_id_is_provisional, p.geographic_area_id,
                ST_AsText(p.geometry, 'axis-order=long-lat') AS geometry_wkt, p.official_area_sqm, p.ot, p.ot_ext,
                p.plot_number, p.plot_ext, p.ot_plot_by_user_id, p.ot_plot_updated_utc, ou.display_name AS ot_plot_by_name,
                p.division_status, p.related_numbers,
                p.inclination, p.build_factor, p.notes, p.created_by_user_id, p.created_utc, p.updated_utc,
+               cs.stage AS cadastral_stage, cs.seen_utc AS cadastral_stage_seen_utc, cs.source AS cadastral_stage_source,
+               cs.request_seen AS cadastral_stage_request,
                {SeaDistanceSql.IsBeachParcel("p")} AS is_beach
         FROM parcel p
         LEFT JOIN app_user ou ON ou.user_id = p.ot_plot_by_user_id
+        LEFT JOIN parcel_cadastre_stage cs ON cs.parcel_id = p.parcel_id
         """;
 
     private readonly MySqlDatabase _db;
@@ -79,7 +85,8 @@ public sealed class MySqlParcelStore : IParcelStore
     private async Task<long> InsertCoreAsync(Parcel parcel, CancellationToken ct)
     {
         await using var conn = await _db.OpenAsync(ct);
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition($"""
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var id = await conn.ExecuteScalarAsync<long>(new CommandDefinition($"""
             INSERT INTO parcel (country_id, registry_id, registry_id_is_provisional, geographic_area_id, geometry,
                                 official_area_sqm, ot, ot_ext, plot_number, plot_ext, ot_plot_by_user_id, ot_plot_updated_utc,
                                 division_status, related_numbers,
@@ -98,7 +105,20 @@ public sealed class MySqlParcelStore : IParcelStore
                 parcel.Inclination, parcel.BuildFactor, parcel.Notes,
                 parcel.CreatedByUserId,
             },
-            cancellationToken: ct));
+            tx, cancellationToken: ct));
+
+        // The Cadastre stage the importer saw (migration 034): its own row, with the Parcel - no row = unknown.
+        if (parcel.CadastralStage is not null)
+        {
+            await conn.ExecuteAsync(new CommandDefinition("""
+                INSERT INTO parcel_cadastre_stage (parcel_id, kaek, stage, seen_utc, source, request_seen, updated_utc)
+                VALUES (@id, @RegistryId, @CadastralStage, @CadastralStageSeenUtc, @CadastralStageSource, @CadastralStageRequest, UTC_TIMESTAMP(3))
+                """, new { id, parcel.RegistryId, parcel.CadastralStage, parcel.CadastralStageSeenUtc, parcel.CadastralStageSource, parcel.CadastralStageRequest },
+                tx, cancellationToken: ct));
+        }
+
+        await tx.CommitAsync(ct);
+        return id;
     }
 
     // ParcelKinds in SQL: same rule as Parcel.Kind (OT and plot entered, one of them, neither - by search key, migration 012).
@@ -132,7 +152,7 @@ public sealed class MySqlParcelStore : IParcelStore
         var (where, args) = Filter(query);
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<(double Lon, double Lat)>(new CommandDefinition(
-            $"SELECT {AnchorLon}, {AnchorLat} FROM parcel p WHERE {where}", args, cancellationToken: ct));
+            $"SELECT {AnchorLon}, {AnchorLat} {FromParcels} WHERE {where}", args, cancellationToken: ct));
         return rows.Select(r => new GeoPoint(r.Lon, r.Lat)).ToList();
     }
 
@@ -140,7 +160,7 @@ public sealed class MySqlParcelStore : IParcelStore
     {
         var (where, args) = Filter(query);
         await using var conn = await _db.OpenAsync(ct);
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition($"SELECT COUNT(*) FROM parcel p WHERE {where}", args, cancellationToken: ct));
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition($"SELECT COUNT(*) {FromParcels} WHERE {where}", args, cancellationToken: ct));
     }
 
     public async Task<IReadOnlyDictionary<string, long>> CountByKindAsync(ParcelQuery query, CancellationToken ct = default)
@@ -148,7 +168,7 @@ public sealed class MySqlParcelStore : IParcelStore
         var (where, args) = Filter(query with { Kinds = Array.Empty<string>() });
         await using var conn = await _db.OpenAsync(ct);
         var rows = await conn.QueryAsync<(string Kind, long Count)>(new CommandDefinition(
-            $"SELECT {KindSql} AS kind, COUNT(*) FROM parcel p WHERE {where} GROUP BY kind", args, cancellationToken: ct));
+            $"SELECT {KindSql} AS kind, COUNT(*) {FromParcels} WHERE {where} GROUP BY kind", args, cancellationToken: ct));
         return rows.ToDictionary(r => r.Kind, r => r.Count);
     }
 
@@ -188,6 +208,25 @@ public sealed class MySqlParcelStore : IParcelStore
         if (query.HasAssets is bool hasAssets)
         {
             where.Add((hasAssets ? "" : "NOT ") + HasVisibleAssetSql(query, args));
+        }
+
+        if (query.Stages.Count > 0)
+        {
+            // parcel_cadastre_stage (migration 034), LEFT JOINed as cs: Unknown = no row; the others as stored.
+            var known = query.Stages.Where(s => s != CadastralStages.Unknown).ToList();
+            var parts = new List<string>();
+            if (known.Count > 0)
+            {
+                parts.Add("cs.stage IN @stages");
+                args.Add("stages", known);
+            }
+
+            if (query.Stages.Contains(CadastralStages.Unknown))
+            {
+                parts.Add("cs.parcel_id IS NULL"); // no row = unknown
+            }
+
+            where.Add("(" + string.Join(" OR ", parts) + ")");
         }
 
         if (query.ExcludeBeaches)
@@ -528,6 +567,10 @@ public sealed class MySqlParcelStore : IParcelStore
         public decimal? Inclination { get; init; }
         public decimal? BuildFactor { get; init; }
         public string? Notes { get; init; }
+        public string? CadastralStage { get; init; }
+        public DateTime? CadastralStageSeenUtc { get; init; }
+        public string? CadastralStageSource { get; init; }
+        public string? CadastralStageRequest { get; init; }
         public long? CreatedByUserId { get; init; }
         public DateTime CreatedUtc { get; init; }
         public DateTime UpdatedUtc { get; init; }
@@ -556,6 +599,10 @@ public sealed class MySqlParcelStore : IParcelStore
             Inclination = Inclination,
             BuildFactor = BuildFactor,
             Notes = Notes,
+            CadastralStage = CadastralStage,
+            CadastralStageSeenUtc = CadastralStageSeenUtc is DateTime seen ? DateTime.SpecifyKind(seen, DateTimeKind.Utc) : null,
+            CadastralStageSource = CadastralStageSource,
+            CadastralStageRequest = CadastralStageRequest,
             CreatedByUserId = CreatedByUserId,
             CreatedUtc = DateTime.SpecifyKind(CreatedUtc, DateTimeKind.Utc),
             UpdatedUtc = DateTime.SpecifyKind(UpdatedUtc, DateTimeKind.Utc),

@@ -46,6 +46,22 @@ public sealed record Parcel
 
     public decimal? BuildFactor { get; init; }
     public string? Notes { get; init; }
+
+    /// <summary>
+    /// Where it stands in the Cadastre (<see cref="CadastralStages"/>); null = unknown. Kept in its own table
+    /// (parcel_cadastre_stage, migration 034: no row = unknown), read with a LEFT JOIN. Staff only.
+    /// </summary>
+    public string? CadastralStage { get; init; }
+
+    /// <summary>When that stage was seen (the newest sighting wins).</summary>
+    public DateTime? CadastralStageSeenUtc { get; init; }
+
+    /// <summary>Who saw it: <see cref="CadastralStages.Polygon"/> (the map) or <see cref="CadastralStages.Lawyer"/>.</summary>
+    public string? CadastralStageSource { get; init; }
+
+    /// <summary>Source Polygon: the click request that answered (GETPST, GETPSTKG, GETPSTKGPRO); null for the lawyer.</summary>
+    public string? CadastralStageRequest { get; init; }
+
     public long? CreatedByUserId { get; init; }
     public DateTime CreatedUtc { get; init; }
     public DateTime UpdatedUtc { get; init; }

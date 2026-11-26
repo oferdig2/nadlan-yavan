@@ -13,7 +13,31 @@ public sealed record GeographicAreaItem(int Id, string? Code, string Name, bool 
 public sealed record AreaKaeks(int AreaId, int Total, int AlreadyFetched, IReadOnlyList<string> Kaeks);
 
 /// <summary>A Parcel already in Nadlan, with its outer ring and holes in lon/lat.</summary>
-public sealed record ExistingParcel(string RegistryId, bool IsProvisional, IReadOnlyList<IReadOnlyList<LonLat>> Rings);
+public sealed record ExistingParcel(string RegistryId, bool IsProvisional, IReadOnlyList<IReadOnlyList<LonLat>> Rings, long ParcelId = 0);
+
+/// <summary>
+/// What GreekPlot said about one check of a Parcel it already has (<c>PUT api/parcels/{id}/cadastre-check</c>, migration 034).
+/// Unsupported = the server is older (no such call yet); Unauthorized = the token was refused; Failed = any other refusal.
+/// </summary>
+public enum CheckOutcome { Unchanged, StageUpdated, ProposalFiled, KaekMismatch, NotFound, Failed, ServerError, Unsupported, Unauthorized }
+
+public sealed record CheckResult(CheckOutcome Outcome, double? DifferenceSqm, string? Message);
+
+/// <summary>
+/// What an import needs from GreekPlot: the Parcels it already has in the view, create one, and check one (update mode).
+/// The real one is <see cref="NadlanApiClient"/>; tests use a fake.
+/// </summary>
+public interface INadlanParcels
+{
+    Task<IReadOnlyList<ExistingParcel>> ListParcelsInAsync(double west, double south, double east, double north, CancellationToken ct);
+
+    Task<CreateResult> CreateParcelAsync(string kaek, int? geographicAreaId, IReadOnlyList<IReadOnlyList<LonLat>> rings, double areaSqm, string notes,
+        CancellationToken ct, string? cadastralStage = null, DateTime? seenUtc = null);
+
+    /// <param name="found">The site answered a shape at the point (then kaekSeen, rings and areaSqm), or nothing.</param>
+    Task<CheckResult> CheckParcelAsync(long parcelId, bool found, string? kaekSeen, string cadastralStage, DateTime seenUtc,
+        IReadOnlyList<IReadOnlyList<LonLat>>? rings, double? areaSqm, CancellationToken ct);
+}
 
 /// <summary>Rejected = Nadlan refused this parcel (4xx). ServerError = Nadlan failed (5xx); may be a one-off or the server being down.
 /// Unauthorized = Nadlan refused the importer's token (revoked, expired, user deactivated): connect again.</summary>
@@ -23,7 +47,7 @@ public enum CreateOutcome { Created, AlreadyExists, Rejected, ServerError, Unaut
 public sealed record CreateResult(CreateOutcome Outcome, long? ParcelId, IReadOnlyList<string> OverlapsWith, string? Message);
 
 /// <summary>Talks to the Nadlan web app over its public HTTP API (the same calls the map page makes).</summary>
-public sealed class NadlanApiClient : IDisposable
+public sealed class NadlanApiClient : INadlanParcels, IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _http;
@@ -120,8 +144,66 @@ public sealed class NadlanApiClient : IDisposable
             .Select(i => new ExistingParcel(
                 i.Summary.RegistryId!,
                 i.Summary.RegistryIdIsProvisional,
-                i.Geometry!.Coordinates!.Select(r => (IReadOnlyList<LonLat>)r.Select(p => new LonLat(p[0], p[1])).ToList()).ToList()))
+                i.Geometry!.Coordinates!.Select(r => (IReadOnlyList<LonLat>)r.Select(p => new LonLat(p[0], p[1])).ToList()).ToList(),
+                i.Summary.ParcelId))
             .ToList();
+    }
+
+    /// <summary>
+    /// One check of a Parcel GreekPlot already has (update mode, Admin only): what the site answered at a point well inside
+    /// it. GreekPlot measures the difference itself and decides (stage updated, a change filed for an Admin, ...).
+    /// </summary>
+    public async Task<CheckResult> CheckParcelAsync(long parcelId, bool found, string? kaekSeen, string cadastralStage, DateTime seenUtc,
+        IReadOnlyList<IReadOnlyList<LonLat>>? rings, double? areaSqm, CancellationToken ct)
+    {
+        var body = new
+        {
+            outcome = found ? "Found" : "NotFound",
+            kaekSeen,
+            cadastralStage,
+            seenUtc,
+            request = Ktimanet.KtimanetClick.RequestOf(cadastralStage),
+            rings = rings?.Select(r => r.Select(p => new[] { p.Lon, p.Lat })),
+            areaSqm = areaSqm is double a ? Math.Round((decimal)a, 2) : (decimal?)null,
+        };
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.PutAsJsonAsync(FormattableString.Invariant($"api/parcels/{parcelId}/cadastre-check"), body, Json, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            return new CheckResult(CheckOutcome.ServerError, null, "GreekPlot could not be reached: " + ex.Message);
+        }
+
+        using (response)
+        {
+            var text = await response.Content.ReadAsStringAsync(ct);
+            if (response.IsSuccessStatusCode)
+            {
+                var reply = JsonSerializer.Deserialize<CheckDto>(text, Json);
+                var outcome = Enum.TryParse<CheckOutcome>(reply?.Outcome, out var o) && o <= CheckOutcome.NotFound ? o : CheckOutcome.Failed;
+                return new CheckResult(outcome, reply?.DifferenceSqm, reply?.Note ?? (outcome == CheckOutcome.Failed ? "Unknown reply: " + reply?.Outcome : null));
+            }
+
+            var error = ParseError(text);
+            if (IsRefused(response.StatusCode))
+            {
+                TokenRejected?.Invoke();
+                return new CheckResult(CheckOutcome.Unauthorized, null, error?.Message ?? $"HTTP {(int)response.StatusCode}");
+            }
+
+            if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed && error is null)
+            {
+                return new CheckResult(CheckOutcome.Unsupported, null,
+                    "this GreekPlot server can't check existing parcels yet (it needs the update with database change 034).");
+            }
+
+            var firstLine = text.Split('\n', 2)[0].Trim();
+            var message = $"HTTP {(int)response.StatusCode}: " + (error?.Message ?? (firstLine.Length > 0 ? firstLine[..Math.Min(firstLine.Length, 300)] : "(empty reply)"));
+            return new CheckResult((int)response.StatusCode >= 500 ? CheckOutcome.ServerError : CheckOutcome.Failed, null, message);
+        }
     }
 
     /// <summary>
@@ -129,7 +211,7 @@ public sealed class NadlanApiClient : IDisposable
     /// now and the real ones are laid over them, so the overlap is expected and only reported.
     /// </summary>
     public async Task<CreateResult> CreateParcelAsync(string kaek, int? geographicAreaId, IReadOnlyList<IReadOnlyList<LonLat>> rings,
-        double areaSqm, string notes, CancellationToken ct)
+        double areaSqm, string notes, CancellationToken ct, string? cadastralStage = null, DateTime? seenUtc = null)
     {
         var body = new
         {
@@ -139,6 +221,10 @@ public sealed class NadlanApiClient : IDisposable
             officialAreaSqm = Math.Round((decimal)areaSqm, 2),
             notes,
             acceptOverlaps = true,
+            // The Cadastre stage the click request answers for (GreekPlot with migration 034 keeps it; older ones ignore it).
+            cadastralStage,
+            cadastralStageSeenUtc = seenUtc,
+            cadastralStageRequest = cadastralStage is null ? null : Ktimanet.KtimanetClick.RequestOf(cadastralStage),
         };
 
         using var response = await _http.PostAsJsonAsync("api/parcels", body, Json, ct);
@@ -181,7 +267,8 @@ public sealed class NadlanApiClient : IDisposable
     private sealed record MeDto(string DisplayName, bool IsAdmin);
     private sealed record ParcelPageDto(List<ParcelItemDto> Items);
     private sealed record ParcelItemDto(ParcelSummaryDto Summary, PolygonDto? Geometry);
-    private sealed record ParcelSummaryDto(string? RegistryId, bool RegistryIdIsProvisional);
+    private sealed record ParcelSummaryDto(string? RegistryId, bool RegistryIdIsProvisional, long ParcelId = 0);
+    private sealed record CheckDto(string? Outcome, double? DifferenceSqm, string? Note);
     private sealed record PolygonDto([property: JsonPropertyName("coordinates")] double[][][]? Coordinates);
     private sealed record CreatedDto(long ParcelId, List<OverlapDto>? Overlaps, string? Warning);
     private sealed record OverlapDto(long ParcelId, string? RegistryId);

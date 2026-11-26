@@ -33,6 +33,18 @@ public sealed record CreateParcelRequest
 
     /// <summary>The user saw the overlap warning and wants to save anyway.</summary>
     public bool AcceptOverlaps { get; init; }
+
+    /// <summary>
+    /// The KAEK importer: the Cadastre stage its click request answers for (<see cref="CadastralStages.FromMap"/>), stored
+    /// with source Polygon. Hand-made Parcels leave it empty (unknown).
+    /// </summary>
+    public string? CadastralStage { get; init; }
+
+    /// <summary>When the importer saw it; now when empty, never later than now.</summary>
+    public DateTime? CadastralStageSeenUtc { get; init; }
+
+    /// <summary>The click request that answered (GETPST, GETPSTKG, GETPSTKGPRO); empty = the one of the stage.</summary>
+    public string? CadastralStageRequest { get; init; }
 }
 
 public enum CreateParcelOutcome
@@ -74,6 +86,9 @@ public sealed record UpdateParcelRequest
     public string? RelatedNumbers { get; init; }
 
     public bool AcceptOverlaps { get; init; }
+
+    /// <summary>Why the polygon changed, for the history line (e.g. an accepted Cadastre change); null = an edit.</summary>
+    public string? GeometryNote { get; init; }
 
     /// <summary>The signed-in user who saves it: recorded as who entered OT / plot when those change.</summary>
     public long? EditedByUserId { get; init; }
@@ -130,6 +145,9 @@ public sealed class ParcelService
         var (division, related) = ParcelDivision.Resolve(request.DivisionStatus, request.RelatedNumbers, ParcelDivision.Regular, null);
         var area = await ResolveAreaAsync(request.GeographicAreaId, currentAreaId: null, ct);
         var (registryId, provisional) = ResolveRegistryId(request, area);
+        var stage = CadastralStages.ParseFromMap(request.CadastralStage);
+        DateTime? stageSeen = stage is null ? null : CadastralStages.SeenUtc(request.CadastralStageSeenUtc, DateTime.UtcNow);
+        var stageRequest = stage is null ? null : CadastralStages.RequestFor(stage, request.CadastralStageRequest);
         await using var writeLock = await _parcels.LockParcelWritesAsync(ct); // checks below and the insert: one at a time
 
         // Scenario 13: never silently duplicate a KAEK; point the user at the existing Parcel instead.
@@ -174,6 +192,10 @@ public sealed class ParcelService
                 Inclination = request.Inclination,
                 BuildFactor = request.BuildFactor,
                 Notes = TextNormalize.NullIfBlank(request.Notes),
+                CadastralStage = stage,
+                CadastralStageSeenUtc = stageSeen,
+                CadastralStageSource = stage is null ? null : CadastralStages.Polygon,
+                CadastralStageRequest = stageRequest,
             }, ct);
         }
         catch (DuplicateKeyException)
@@ -184,7 +206,7 @@ public sealed class ParcelService
         }
 
         await _activity.RecordAsync(new ActivityEntry("Parcel", id, ActivityActions.ParcelCreated,
-            $"Parcel {registryId} created{(provisional ? " (provisional KAEK)" : "")}{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}{(checkError is null ? "" : " - overlap check failed")}.",
+            $"Parcel {registryId} created{(provisional ? " (provisional KAEK)" : "")}{(stage is null ? "" : $", Cadastre stage: {CadastralStages.Label(stage)} (map)")}{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}{(checkError is null ? "" : " - overlap check failed")}.",
             overlaps.Count > 0 || checkError is not null ? new { overlaps, overlapCheckError = checkError } : null), ct);
         if (hasNumbers)
         {
@@ -280,7 +302,7 @@ public sealed class ParcelService
             return new CreateParcelResult(CreateParcelOutcome.DuplicateRegistryId, null, registryId, false, winner?.ParcelId, Array.Empty<ParcelOverlapHit>());
         }
 
-        await RecordParcelChangesAsync(existing, updated, overlaps, checkError, ct);
+        await RecordParcelChangesAsync(existing, updated, overlaps, checkError, ct, request.GeometryNote);
         return new CreateParcelResult(CreateParcelOutcome.Updated, existing.ParcelId, registryId, provisional, null, overlaps,
             checkError is null ? null : OverlapCheckFailedWarning);
     }
@@ -343,7 +365,7 @@ public sealed class ParcelService
     }
 
     private async Task RecordParcelChangesAsync(Parcel before, Parcel after, IReadOnlyList<ParcelOverlapHit> overlaps, string? overlapCheckError,
-        CancellationToken ct)
+        CancellationToken ct, string? geometryNote = null)
     {
         if (before.RegistryId != after.RegistryId)
         {
@@ -355,7 +377,7 @@ public sealed class ParcelService
         if (!ReferenceEquals(before.Geometry, after.Geometry))
         {
             await _activity.RecordAsync(new ActivityEntry("Parcel", after.ParcelId, ActivityActions.ParcelGeometryChanged,
-                $"Polygon edited{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}{(overlapCheckError is null ? "" : " - overlap check failed")}.",
+                $"{geometryNote ?? "Polygon edited"}{(overlaps.Count > 0 ? $", saved despite {overlaps.Count} overlap(s)" : "")}{(overlapCheckError is null ? "" : " - overlap check failed")}.",
                 new { oldWkt = before.Geometry.ToWkt(), overlapCheckError }), ct); // keep the old shape: no geometry versioning in Phase 1
         }
 

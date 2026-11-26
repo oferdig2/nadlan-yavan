@@ -13,18 +13,18 @@ namespace Nadlan.KaekImporter.Import;
 public sealed class ClickImport
 {
     private readonly ImportSession _session;
-    private readonly KtimanetPage _site;
+    private readonly IKtimanetSite _site;
     private readonly Channel<string> _replies = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
     private readonly Task _worker;
 
-    public ClickImport(KtimanetPage site, NadlanApiClient? nadlan, int? geographicAreaId, TextWriter console)
+    public ClickImport(IKtimanetSite site, INadlanParcels? nadlan, int? geographicAreaId, TextWriter console)
     {
         _site = site;
         _session = new ImportSession(site, nadlan, geographicAreaId, console);
         _worker = Task.Run(WorkAsync);
     }
 
-    /// <summary>Called with the body of every map-click reply (PostHandler GETPSTKG) while this mode is on.</summary>
+    /// <summary>Called with the body of every map-click reply (PostHandler GETPST / GETPSTKG / GETPSTKGPRO) while this mode is on; the reply says the stage.</summary>
     public void OnClickReply(string body) => _replies.Writer.TryWrite(body);
 
     /// <summary>Imports what is still queued, then writes the report.</summary>

@@ -16,24 +16,33 @@ public sealed record ImportSettings(
 /// orange in Land Parcels areas) are found in the browser; each is clicked once in its middle (see
 /// <see cref="AreaProbePlanner"/>) with the site's own click request for those lines, nearest the centre of the view
 /// first. Requests go at a human pace: a random pause after each new parcel, a shorter one otherwise.
+/// Parcels GreekPlot already has are skipped (no request) - unless update mode is on ("Also check parcels already in
+/// GreekPlot", Admin only): then each is clicked once, well inside it, at the same pace as a new parcel, and GreekPlot
+/// refreshes its Cadastre stage or files what changed for an Admin (brief PolygonStageAndUpdate §3).
 /// </summary>
 public sealed class ImportRun
 {
     private const int MaxConsecutiveSiteErrors = 3;
     private const double SampleStepMetres = 5.0;
 
-    private readonly KtimanetPage _site;
-    private readonly NadlanApiClient? _nadlan;
+    private readonly IKtimanetSite _site;
+    private readonly INadlanParcels? _nadlan;
     private readonly ImportSettings _settings;
     private readonly TextWriter _console;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly string? _reportFolder;
 
     /// <param name="nadlan">Null = offline: the run is shown in full but nothing is saved.</param>
-    public ImportRun(KtimanetPage site, NadlanApiClient? nadlan, ImportSettings settings, TextWriter console)
+    /// <param name="delay">The pause between requests (tests record it instead of waiting).</param>
+    public ImportRun(IKtimanetSite site, INadlanParcels? nadlan, ImportSettings settings, TextWriter console,
+        Func<TimeSpan, CancellationToken, Task>? delay = null, string? reportFolder = null)
     {
         _site = site;
         _nadlan = nadlan;
         _settings = settings;
         _console = console;
+        _delay = delay ?? Task.Delay;
+        _reportFolder = reportFolder;
     }
 
     /// <summary>Reads the areas in the current view; returns them, or an error for the user.</summary>
@@ -48,9 +57,11 @@ public sealed class ImportRun
             : (areas, null);
     }
 
-    public async Task RunAsync(MapAreas view, int? geographicAreaId, CancellationToken ct)
+    /// <param name="checkExisting">Update mode: check the parcels GreekPlot already has in the view (one request each) instead
+    /// of skipping them. Off = exactly the run as before.</param>
+    public async Task RunAsync(MapAreas view, int? geographicAreaId, CancellationToken ct, bool checkExisting = false)
     {
-        var session = new ImportSession(_site, _nadlan, geographicAreaId, _console);
+        var session = new ImportSession(_site, _nadlan, geographicAreaId, _console, _reportFolder);
         var report = session.Report;
         var coverage = new Coverage();
         var excluded = new List<EgsaPoint>();
@@ -69,13 +80,17 @@ public sealed class ImportRun
         }
         try
         {
+            var siteErrors = 0;
             if (_nadlan is not null)
             {
-                await PreloadExistingAsync(view.Extent, coverage, session, _nadlan, ct);
+                var existing = await PreloadExistingAsync(view.Extent, coverage, session, _nadlan, checkExisting, ct);
+                if (checkExisting && existing.Count > 0)
+                {
+                    siteErrors = await CheckExistingAsync(existing, view, session, coverage, ct);
+                }
             }
             await _site.CountsAsync(report.Counts);
 
-            var siteErrors = 0;
             foreach (var area in areas)
             {
                 report.AreasDone++;
@@ -106,14 +121,7 @@ public sealed class ImportRun
                     }
                     catch (PlaywrightException ex) when (!ct.IsCancellationRequested)
                     {
-                        await _site.LogAsync($"Site error: {ex.Message.Split('\n')[0].Trim()}", "err");
-                        if (++siteErrors >= MaxConsecutiveSiteErrors)
-                        {
-                            throw new StopImportException(
-                                "Ktimatologio stopped answering. Reload its page and start again - parcels already imported are skipped.");
-                        }
-
-                        await PauseAsync(_settings.MinParcelDelay, _settings.MaxParcelDelay, ct);
+                        siteErrors = await SiteErrorAsync(ex, siteErrors, ct);
                         continue;
                     }
 
@@ -132,7 +140,7 @@ public sealed class ImportRun
                         excluded.Add(point); // the site answered with a shape that isn't here; don't ask here again
                     }
 
-                    var outcome = await session.HandleAsync(shape, rings, ct);
+                    var outcome = await session.HandleAsync(shape, rings, ct, view.ClickRequest);
                     await (outcome is ShapeOutcome.Saved or ShapeOutcome.NadlanFailed
                         ? PauseAsync(_settings.MinParcelDelay, _settings.MaxParcelDelay, ct)
                         : PauseAsync(_settings.MinMissDelay, _settings.MaxMissDelay, ct));
@@ -153,9 +161,10 @@ public sealed class ImportRun
 
     /// <summary>
     /// Parcels with a real KAEK that Nadlan already has need no request to the site; they are listed in the report.
-    /// Provisional (TMP-) ones are not skipped - the real parcel is imported over them.
+    /// Provisional (TMP-) ones are not skipped - the real parcel is imported over them. Returns the real ones (to check).
     /// </summary>
-    private async Task PreloadExistingAsync(MapExtent extent, Coverage coverage, ImportSession session, NadlanApiClient nadlan, CancellationToken ct)
+    private async Task<IReadOnlyList<ExistingParcel>> PreloadExistingAsync(MapExtent extent, Coverage coverage, ImportSession session, INadlanParcels nadlan,
+        bool checkExisting, CancellationToken ct)
     {
         var corners = new[]
         {
@@ -168,14 +177,102 @@ public sealed class ImportRun
         foreach (var parcel in existing)
         {
             coverage.Add(parcel.Rings);
-            session.MarkAlreadyInNadlan(parcel.RegistryId);
+            session.MarkAlreadyInNadlan(parcel.RegistryId, listed: !checkExisting);
             await _site.AddShapeAsync(Egsa87.FromWgs84(parcel.Rings), "exists"); // so skipped parcels don't look missed
         }
 
         if (existing.Count > 0)
         {
-            await _site.LogAsync($"{existing.Count} parcels in this view are already in GreekPlot; skipping them.");
+            await _site.LogAsync(checkExisting
+                ? $"{existing.Count} parcels in this view are already in GreekPlot; checking each of them first (one request each)."
+                : $"{existing.Count} parcels in this view are already in GreekPlot; skipping them.");
         }
+
+        return existing;
+    }
+
+    /// <summary>
+    /// Update mode: one click per existing parcel, at a point well inside it (its pole of inaccessibility), with the view's
+    /// request and the pace of a new parcel; nearest the centre of the view first. Returns the site errors in a row so far.
+    /// </summary>
+    private async Task<int> CheckExistingAsync(IReadOnlyList<ExistingParcel> existing, MapAreas view, ImportSession session, Coverage coverage,
+        CancellationToken ct)
+    {
+        var centre = view.Extent.Centre;
+        var todo = existing
+            .Select(p => (Parcel: p, Inside: PolygonMath.InsidePoint(Egsa87.FromWgs84(p.Rings))))
+            .OrderBy(x => x.Inside is { } i ? Distance(i.Point, centre) : double.MaxValue)
+            .ToList();
+        var siteErrors = 0;
+        var done = 0;
+        foreach (var (parcel, inside) in todo)
+        {
+            ct.ThrowIfCancellationRequested();
+            done++;
+            if (inside is not { } at)
+            {
+                session.Report.Add(new ReportRow(parcel.RegistryId, ParcelResult.CheckFailed, parcel.ParcelId, null, Array.Empty<string>(),
+                    "No point inside this parcel's polygon to click (degenerate shape) - not checked."));
+                continue;
+            }
+
+            await _site.SetProbeAsync(at.Point);
+            await _site.StatusAsync($"Checking parcel {done} of {todo.Count} already in GreekPlot...");
+            string reply;
+            try
+            {
+                session.Report.Requests++;
+                reply = await _site.QueryAsync(at.Point, view.ClickRequest);
+                siteErrors = 0;
+            }
+            catch (PlaywrightException ex) when (!ct.IsCancellationRequested)
+            {
+                siteErrors = await SiteErrorAsync(ex, siteErrors, ct);
+                continue;
+            }
+
+            var seen = DateTime.UtcNow;
+            KtimanetShape? shape;
+            try
+            {
+                shape = KtimanetReply.Parse(reply);
+            }
+            catch (FormatException ex)
+            {
+                await _site.LogAsync($"{parcel.RegistryId}: could not read the site's reply - {ex.Message}", "err");
+                await PauseAsync(_settings.MinParcelDelay, _settings.MaxParcelDelay, ct);
+                continue;
+            }
+
+            if (shape is not null) coverage.Add(Egsa87.ToWgs84(shape.Rings)); // the sweep needn't ask there again
+            try
+            {
+                await session.CheckAsync(parcel, shape, view.ClickRequest, seen, ct);
+            }
+            catch (ChecksUnsupportedException ex)
+            {
+                await _site.LogAsync(ex.Message, "warn");
+                break; // an older GreekPlot: the sweep for new parcels still runs
+            }
+
+            await PauseAsync(_settings.MinParcelDelay, _settings.MaxParcelDelay, ct);
+        }
+
+        return siteErrors;
+    }
+
+    /// <summary>A failed request: logged, and after a few in a row the run stops. Returns the new count.</summary>
+    private async Task<int> SiteErrorAsync(PlaywrightException ex, int siteErrors, CancellationToken ct)
+    {
+        await _site.LogAsync($"Site error: {ex.Message.Split('\n')[0].Trim()}", "err");
+        if (++siteErrors >= MaxConsecutiveSiteErrors)
+        {
+            throw new StopImportException(
+                "Ktimatologio stopped answering. Reload its page and start again - parcels already imported are skipped.");
+        }
+
+        await PauseAsync(_settings.MinParcelDelay, _settings.MaxParcelDelay, ct);
+        return siteErrors;
     }
 
     private async Task PauseAsync(TimeSpan min, TimeSpan max, CancellationToken ct)
@@ -186,7 +283,7 @@ public sealed class ImportRun
             await _site.StatusAsync($"Waiting {delay.TotalSeconds:0} s before the next request...");
         }
 
-        await Task.Delay(delay, ct);
+        await _delay(delay, ct);
     }
 
     private static double Distance(EgsaPoint a, EgsaPoint b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));

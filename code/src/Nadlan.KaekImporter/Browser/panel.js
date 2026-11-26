@@ -1,6 +1,6 @@
 // Injected into gis.ktimanet.gr/gis/map by NadlanKaekImporter. Draws the control panel and the progress
 // overlay; all the work happens in the .NET tool, which calls window.NadlanPanel.* and receives
-// window.nadlanStart(areaId) / window.nadlanStop() / window.nadlanClickMode(on, areaId) / window.nadlanConnect() and
+// window.nadlanStart(areaId, checkExisting) / window.nadlanStop() / window.nadlanClickMode(on, areaId) / window.nadlanConnect() and
 // window.nadlanState() -> { areas: [{ id, name }], userName, isAdmin, offline (null, or why nothing will be saved), needsConnect }
 // and window.nadlanInspectKaek() (opens the lawyer service tab, Admins only; see records-panel.js) (all exposed by Playwright). The state is asked for when the panel is built, so a reload never shows stale data.
 (function () {
@@ -12,7 +12,9 @@
     exists: { stroke: "#2563eb", fill: "rgba(37,99,235,0.18)" },
     rejected: { stroke: "#dc2626", fill: "rgba(220,38,38,0.25)" },
     road: { stroke: "#9ca3af", fill: "rgba(156,163,175,0.12)" },
-    found: { stroke: "#7c3aed", fill: "rgba(124,58,237,0.22)" } // offline: found but not saved
+    found: { stroke: "#7c3aed", fill: "rgba(124,58,237,0.22)" }, // offline: found but not saved
+    checked: { stroke: "#0d9488", fill: "rgba(13,148,136,0.22)" }, // update mode: checked, polygon unchanged
+    proposed: { stroke: "#ea580c", fill: "rgba(234,88,12,0.25)" }  // update mode: filed for an Admin (Cadastre changes)
   };
   var offline = null;        // why nothing will be saved, or null
   var needsConnect = false;  // Nadlan reachable, but no (valid) token yet
@@ -67,6 +69,11 @@
         "the importer remembers the connection. Your user must be allowed to create Parcels.</div>" +
       "<label id=\"nadlan-area-label\">Geographic area for new parcels<select id=\"nadlan-area\"><option value=\"\">- choose the area -</option></select></label>" +
       "<label class=\"check\"><input type=\"checkbox\" id=\"nadlan-click\"> Import each parcel I click on the map</label>" +
+      // Update mode (Admin only, off by default): Acquire polygons also clicks each parcel GreekPlot already has in the view, once,
+      // at the pace of a new parcel; GreekPlot refreshes its Cadastre stage, and a changed polygon waits for an Admin.
+      "<label class=\"check\" id=\"nadlan-check-label\" hidden title=\"One request per parcel already in GreekPlot, at the normal pace. " +
+        "GreekPlot refreshes its Cadastre stage; a changed polygon, another KAEK or a parcel not found goes to Cadastre changes for an Admin.\">" +
+        "<input type=\"checkbox\" id=\"nadlan-check\"> Also check parcels already in GreekPlot</label>" +
       "<div class=\"actions\"><button type=\"button\" id=\"nadlan-start\">Acquire polygons</button>" +
       "<button type=\"button\" id=\"nadlan-stop\" disabled>Stop</button></div>" +
       // Admin only: owners & sales from the Cadastre's lawyer service, in a new tab of this browser (records-panel.js).
@@ -82,7 +89,8 @@
       if (!requireArea()) { return; }
       var areaId = document.getElementById("nadlan-area").value;
       setRunning(true);
-      window.nadlanStart(areaId).then(function (error) {
+      var check = document.getElementById("nadlan-check");
+      window.nadlanStart(areaId, !check.closest("label").hidden && check.checked).then(function (error) {
         if (error) { setRunning(false); status(error); log(error, "err"); }
       }, function (e) { setRunning(false); status("Could not start: " + e.message); });
     };
@@ -172,6 +180,7 @@
     document.getElementById("nadlan-stop").disabled = !on;
     document.getElementById("nadlan-area").disabled = on || needsConnect;
     document.getElementById("nadlan-click").disabled = on || needsConnect;
+    document.getElementById("nadlan-check").disabled = on || needsConnect;
   }
 
   function setClickMode(on) {
@@ -204,6 +213,10 @@
     document.getElementById("nadlan-area-label").hidden = !!offline || needsConnect;
     document.getElementById("nadlan-user").textContent = s.userName && !needsConnect && !offline ? "as " + s.userName : "";
     document.getElementById("nadlan-inspect").hidden = !s.isAdmin || !!offline || needsConnect;
+    // Update mode: Admin only, off by default (never remembered); offline there is nothing in GreekPlot to check.
+    var checkLabel = document.getElementById("nadlan-check-label");
+    checkLabel.hidden = !s.isAdmin || !!offline || needsConnect;
+    if (checkLabel.hidden) { document.getElementById("nadlan-check").checked = false; }
 
     var click = document.getElementById("nadlan-click");
     if (needsConnect && click.checked) { click.checked = false; }
@@ -244,6 +257,15 @@
           "<div>" + sw("exists") + "Already in GreekPlot: <b>" + (c.exists || 0) + "</b></div>" +
           "<div>" + sw("rejected") + "Rejected: <b>" + (c.rejected || 0) + "</b></div>") +
       "<div>" + sw("road") + "Roads skipped: <b>" + (c.roads || 0) + "</b></div>" +
+      (c.checked
+        ? "<div>" + sw("checked") + "Checked: <b>" + c.checked + "</b></div>" +
+          "<div>Unchanged: <b>" + (c.unchanged || 0) + "</b></div>" +
+          "<div>Stage updated: <b>" + (c.stageUpdated || 0) + "</b></div>" +
+          "<div>" + sw("proposed") + "Change proposed: <b>" + (c.proposed || 0) + "</b></div>" +
+          "<div>KAEK mismatch: <b>" + (c.kaekMismatch || 0) + "</b></div>" +
+          "<div>No reply: <b>" + (c.notFound || 0) + "</b></div>" +
+          (c.checkFailed ? "<div>Check failed: <b>" + c.checkFailed + "</b></div>" : "")
+        : "") +
       "<div>Requests to site: <b>" + (c.requests || 0) + "</b></div>" +
       "<div>Areas: <b>" + (c.areasDone || 0) + "</b> / " + (c.areasTotal || 0) + "</div>";
   }

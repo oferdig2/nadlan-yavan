@@ -25,6 +25,8 @@
     <!-- Work (Parcels view): choose a work request, then collect its parcels on the map (work-map-panel.js). -->
     <button type="button" class="btn" data-tool="work" data-requires="MANAGE_WORK" title="Work requests for contractors: collect a request's parcels on the map" hidden>Work</button>
     <button type="button" class="btn off-view" data-tool="portfolios">Portfolios</button> <!-- Assets view only -->
+    <!-- Admin only (migration 034): polygon changes the KAEK importer found on parcels already in GreekPlot (cadastre-changes.js). -->
+    <button type="button" class="btn" data-tool="cadastre-changes" title="Cadastre changes: polygons the importer found changed, waiting for an Admin" hidden>Cadastre changes</button>
     <button type="button" class="btn" data-tool="new-parcel" data-requires="EDIT_ALL_PARCELS" hidden>+ New parcel</button>
     <span class="quick-entry-setting" data-requires="EDIT_ALL_PARCELS" hidden>
       <label class="check" title="Click a parcel to type its OT and plot straight away (Enter saves)"><input type="checkbox" data-role="quick-entry"> Quick OT/plot entry</label>
@@ -72,6 +74,8 @@
   <script src="/js/portfolio-panel.js"></script>
   <script src="/js/legal-owners.js"></script>
   <script src="/js/cadastre-records.js"></script> <!-- the card's Cadastre block (lawyer research): Admin only -->
+  <script src="/js/cadastre-stage.js"></script> <!-- the Cadastre stage: card row, map filter (staff only) -->
+  <script src="/js/cadastre-changes.js"></script> <!-- "Cadastre changes": re-scraped polygons for an Admin to accept or reject -->
   <script src="/js/asset-contacts.js"></script>
   <!-- map -->
   <script src="/js/map-highlight.js"></script>

@@ -40,6 +40,7 @@ public static class PersistenceRegistration
         services.AddSingleton<IMapDropStore, MySqlMapDropStore>();
         services.AddSingleton<ISeaDistanceStore, MySqlSeaDistanceStore>();
         services.AddSingleton<Nadlan.Core.Cadastre.ICadastreStore, Nadlan.Persistence.MySql.Cadastre.MySqlCadastreStore>(); // owners & sales (031)
+        services.AddSingleton<IParcelCadastreStore, MySqlParcelCadastreStore>(); // Cadastre stage, polygon changes for review (034)
         services.AddSingleton<IAgentShareStore, MySqlAgentShareStore>();
         services.AddSingleton<IFileTargetResolver, MySqlFileTargetResolver>();
         services.AddSingleton<MySqlActivityLog>();
@@ -66,7 +67,8 @@ public static class PersistenceRegistration
         // Read once at startup, like every setting (Admin > Settings: "restart to apply").
         services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Nadlan.Host.Configuration.NadlanOptions>>().Value.Places.ToSettings());
         services.AddSingleton<SeaDistanceService>();
-        services.AddSingleton<Nadlan.Core.Cadastre.CadastreService>();
+        services.AddSingleton<ParcelCadastreService>(); // Cadastre stage, checks of existing Parcels, the review (034)
+        services.AddSingleton<Nadlan.Core.Cadastre.CadastreService>(); // sets the stage from each lawyer record (ParcelCadastreService)
         services.AddSingleton<AgentShareService>();
         services.AddSingleton<AssetCreatorService>();
         services.AddSingleton<ContactService>();

@@ -5,8 +5,26 @@ using Nadlan.KaekImporter.Import;
 
 namespace Nadlan.KaekImporter.Ktimanet;
 
+/// <summary>
+/// What an import needs from the Cadastre map tab: ask it about a point, read the view's areas, and drive the panel. The real
+/// one is <see cref="KtimanetPage"/>; tests use a fake (no browser, no request to the site).
+/// </summary>
+public interface IKtimanetSite
+{
+    Task<(MapAreas? Areas, string? Error)> ReadAreasAsync(double sampleStepMetres);
+    Task<string> QueryAsync(EgsaPoint p, string request);
+    Task StatusAsync(string text);
+    Task LogAsync(string text, string kind = "");
+    Task CountsAsync(object counts);
+    Task SetSweepAsync(MapExtent e);
+    Task SetProbeAsync(EgsaPoint p);
+    Task FinishedAsync(string text);
+    Task RefreshStateAsync();
+    Task AddShapeAsync(IReadOnlyList<IReadOnlyList<EgsaPoint>> rings, string kind);
+}
+
 /// <summary>The gis.ktimanet.gr map tab: asks it about points, and drives the injected Nadlan panel.</summary>
-public sealed class KtimanetPage
+public sealed class KtimanetPage : IKtimanetSite
 {
     public const string MapUrl = "https://gis.ktimanet.gr/gis/map";
 

@@ -163,6 +163,8 @@ public static class AssetTableEndpoints
         createdUtc = r.CreatedUtc,
         updatedUtc = r.UpdatedUtc,
         seaMetres = places?.Shown(r.SeaMetres), // cached only: the table never calculates
+        cadastralStage = r.CadastralStage,       // the Parcel's Cadastre stage (migration 034): a column hidden by default
+        cadastralStageSeenUtc = r.CadastralStageSeenUtc,
         staff = staff ? new
         {
             createdByUserId = r.CreatedByUserId,

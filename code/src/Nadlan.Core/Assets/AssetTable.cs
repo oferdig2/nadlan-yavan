@@ -35,6 +35,11 @@ public sealed record AssetTableRow
     /// <summary>Distance to the sea in metres, from a fresh cache row only (the table never calculates it).</summary>
     public int? SeaMetres { get; init; }
 
+    /// <summary>The Parcel's Cadastre stage (migration 034; null = unknown) and when it was seen. Staff only.</summary>
+    public string? CadastralStage { get; init; }
+
+    public DateTime? CadastralStageSeenUtc { get; init; }
+
     // Who owns and who manages it (N1) - sent only to users who edit every Asset; an Agent's table shows neither.
     public long? CreatedByUserId { get; init; }
     public string? CreatedByName { get; init; }

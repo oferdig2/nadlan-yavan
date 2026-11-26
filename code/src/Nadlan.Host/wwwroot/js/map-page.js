@@ -364,7 +364,8 @@
     // who see only some Parcels: they get their own polygons at any zoom. A colour (kind) filter is fine: the surface
     // has one layer per colour and hides the unticked ones.
     function surfaceAllowed(filter) {
-      return seesAllParcels && !filter.registryId && !filter.ot && !filter.plot && filter.provisional === undefined && !filter.areaIds.length && filter.hasAssets === undefined;
+      return seesAllParcels && !filter.registryId && !filter.ot && !filter.plot && filter.provisional === undefined && !filter.areaIds.length && filter.hasAssets === undefined &&
+        !(filter.stages && filter.stages.length); // a Cadastre stage filter: the surface would show every Parcel
     }
 
     function overview(mode, filter) {
@@ -644,6 +645,19 @@
     if (Nadlan.session.can("MANAGE_WORK") && Nadlan.workMapPanel) {
       workPanel = Nadlan.workMapPanel.init({ map: map, setStatus: setStatus });
       $("[data-tool=work]").on("click", function () { workPanel.open(); });
+    }
+
+    // "Cadastre changes" (Admin only, migration 034): polygons the importer's update mode found changed, for an Admin to decide.
+    var me = Nadlan.session.user();
+    if (me && me.isAdmin && Nadlan.cadastreChanges) {
+      var cadastreChanges = Nadlan.cadastreChanges.init({
+        map: map,
+        areas: Nadlan.reference.active(ref.geographicAreas),
+        setStatus: setStatus,
+        showParcel: showParcelById,
+        onChanged: function (parcelId) { if (parcelId) { popups.refreshParcel(parcelId); } reload(); }
+      });
+      $("[data-tool=cadastre-changes]").prop("hidden", false).on("click", function () { cadastreChanges.open(); });
     }
 
     filters.setMode("parcels");

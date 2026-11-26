@@ -75,6 +75,8 @@
 .asset-grid .col-files { position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -1px 0 0 var(--border); }
 .asset-grid th.col-files { z-index: 3; background: #f1f5f9; }
 .asset-grid .col-sea { width: 80px; color: var(--muted); }
+.asset-grid .col-stage { width: 110px; white-space: nowrap; } /* the Cadastre stage (migration 034), hidden by default */
+.table-toolbar .table-col-toggle { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
 .asset-grid .col-person { min-width: 110px; max-width: 150px; }
 .asset-grid .col-person .cell-value { max-width: 150px; }
 .asset-grid .cell-note { color: #15803d; font-size: 11px; white-space: nowrap; }

@@ -6,6 +6,9 @@ namespace Nadlan.KaekImporter.Ktimanet;
 /// <summary>A shape returned by a Ktimatologio map click, in the Greek grid.</summary>
 public sealed record KtimanetShape(string Kaek, IReadOnlyList<IReadOnlyList<EgsaPoint>> Rings)
 {
+    /// <summary>The click request the reply answers (its first field, e.g. GETPSTKG): says the Cadastre stage (<see cref="KtimanetClick.StageOf"/>).</summary>
+    public string? Request { get; init; }
+
     /// <summary>
     /// A real land parcel has an all-digit KAEK (e.g. 120981108035). Roads, streams, beaches etc. are "special
     /// properties" with letters in the KAEK (e.g. 12098ΕΚ00029); those are not imported.
@@ -36,6 +39,39 @@ public static class KtimanetClick
     /// </summary>
     public static bool IsMapClick(string? postData) =>
         postData is not null && postData.Split('&').Any(field => field.StartsWith("Message=GETPST", StringComparison.Ordinal));
+
+    /// <summary>"Προανάρτηση Κτηματογράφησης" (Pre-Posting): the site's own click there (the sweep asks GETPSTKG).</summary>
+    public const string PrePosting = "GETPSTKGPRO";
+
+    /// <summary>
+    /// The Cadastre stage a click request answers for, as GreekPlot stores it (migration 034): GETPST = InOperation (the
+    /// Cadastre is in operation), GETPSTKG = SurveyPost, GETPSTKGPRO = PrePosting; null for anything else.
+    /// </summary>
+    public static string? StageOf(string? request) => request switch
+    {
+        Operating => "InOperation",
+        Posting => "SurveyPost",
+        PrePosting => "PrePosting",
+        _ => null,
+    };
+
+    /// <summary>The click request that answers for a stage (the reverse of <see cref="StageOf"/>), sent with it to GreekPlot.</summary>
+    public static string? RequestOf(string? stage) => stage switch
+    {
+        "InOperation" => Operating,
+        "SurveyPost" => Posting,
+        "PrePosting" => PrePosting,
+        _ => null,
+    };
+
+    /// <summary>"in operation", "survey post", "pre-posting" for the panel and the report.</summary>
+    public static string StageLabel(string? stage) => stage switch
+    {
+        "InOperation" => "in operation",
+        "SurveyPost" => "survey post",
+        "PrePosting" => "pre-posting",
+        _ => "stage unknown",
+    };
 }
 
 /// <summary>
@@ -96,7 +132,8 @@ public static class KtimanetReply
             rings.Add(xRings[r].Select((x, i) => new EgsaPoint(x, yRings[r][i])).ToList());
         }
 
-        return new KtimanetShape(kaek, rings);
+        var request = parts[0].Trim();
+        return new KtimanetShape(kaek, rings) { Request = request.StartsWith("GETPST", StringComparison.Ordinal) ? request : null };
     }
 
     private static List<double[]> Rings(string text) =>

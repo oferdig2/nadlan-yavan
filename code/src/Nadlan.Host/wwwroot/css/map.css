@@ -285,3 +285,10 @@ body.is-drawing .map { outline: 3px solid #be123c; outline-offset: -3px; }
 .card-cadastre .cad-history li { padding: 3px 0; border-top: 1px solid var(--border); font-size: 12px; }
 .card-cadastre .cad-parties { font-size: 12px; padding-left: 8px; }
 .card-cadastre .cad-foot { font-size: 11px; margin-top: 4px; }
+
+/* "Cadastre changes" (Admin, migration 034): the importer's polygon changes waiting for review. */
+.cad-changes-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 60vh; overflow: auto; }
+.cad-change { padding: 6px 0; border-top: 1px solid var(--border, #e2e8f0); display: grid; gap: 2px; }
+.cad-change .btn-row { margin-top: 2px; }
+.cad-change .warn { color: var(--warn-text); }
+.cad-changes .cad-changes-count { margin-left: 8px; }

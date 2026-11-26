@@ -54,6 +54,14 @@
           "<label>Plot<input class=\"input\" data-filter=\"plot\" placeholder=\"e.g. 22\" enterkeyhint=\"search\" title=\"Exact plot number, with or without its letter\"></label>" +
         "</div>" +
         "<div class=\"field\"><span class=\"field-label\">Geographic area</span>" + areaSelect(Nadlan.reference.active(ref.geographicAreas)) + "</div>" +
+        // Parcels view: the Cadastre stage (migration 034) - none ticked = all. Staff only (the map is).
+        (Nadlan.cadastreStage
+          ? "<fieldset class=\"checks\" data-parcels-only><legend>Cadastre stage</legend>" +
+              Nadlan.cadastreStage.FILTER_VALUES.map(function (v) {
+                return "<label class=\"check\"><input type=\"checkbox\" data-filter=\"stages\" value=\"" + v + "\"> " +
+                  Nadlan.format.escapeHtml(Nadlan.cadastreStage.label(v)) + "</label>";
+              }).join("") + "</fieldset>"
+          : "") +
         "<div data-assets-only>" +
           "<div class=\"form-row\">" +
             "<label>Price from<input class=\"input\" data-filter=\"priceMin\" inputmode=\"decimal\" enterkeyhint=\"search\"></label>" +
@@ -156,6 +164,11 @@
           // All areas ticked (or none) = no area filter. Real and provisional KAEKs are always both searched (remark 1).
           areaIds: checkedIds("areaIds").length === $areaBoxes.length ? [] : checkedIds("areaIds")
         };
+        if (mode === "parcels") {
+          // All ticked or none = no stage filter.
+          var stages = $root.find(":checkbox[data-filter=stages]:checked").map(function () { return this.value; }).get();
+          f.stages = stages.length === $root.find(":checkbox[data-filter=stages]").length ? [] : stages;
+        }
         if (mode === "assets") {
           f.priceMin = number("priceMin");
           f.priceMax = number("priceMax");

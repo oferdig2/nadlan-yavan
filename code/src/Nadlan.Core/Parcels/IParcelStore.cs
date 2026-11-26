@@ -63,6 +63,9 @@ public sealed record ParcelQuery
     /// <summary>True = only provisional (TMP-) KAEKs, false = only real ones; null = both.</summary>
     public bool? Provisional { get; init; }
 
+    /// <summary>Only these Cadastre stages (<see cref="CadastralStages.FilterValues"/>; Unknown = none known); empty = all.</summary>
+    public IReadOnlyList<string> Stages { get; init; } = Array.Empty<string>();
+
     /// <summary>Leave out beach Parcels (the Asset table's "+", Map drop suggestions): they are public places, not plots.</summary>
     public bool ExcludeBeaches { get; init; }
 

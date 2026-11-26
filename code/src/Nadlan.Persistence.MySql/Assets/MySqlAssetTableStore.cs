@@ -13,7 +13,7 @@ public sealed class MySqlAssetTableStore : IAssetTableStore
     // One row per Asset, on its first Parcel (Phase 1: the only one).
     private const string SelectFormat = """
         SELECT a.asset_id, p.parcel_id, p.registry_id, p.registry_id_is_provisional, p.geographic_area_id,
-               ga.name AS geographic_area, p.ot, p.ot_ext, p.plot_number, p.plot_ext,
+               ga.name AS geographic_area, p.ot, p.ot_ext, p.plot_number, p.plot_ext, pcs.stage AS cadastral_stage, pcs.seen_utc AS cadastral_stage_seen_utc,
                a.asset_status_id, a.property_type_id, a.ask_price, a.currency_code, a.house_sqm, a.remarks,
                a.created_utc, a.updated_utc, sd.distance_m AS sea_metres, ({1}) AS price_visible, ({2}) AS can_edit,
                a.created_by_user_id, cu.display_name AS created_by_name, a.managing_contact_id, mc.display_name AS managing_contact_name,
@@ -24,6 +24,7 @@ public sealed class MySqlAssetTableStore : IAssetTableStore
         JOIN parcel p ON p.parcel_id = (SELECT fap.parcel_id FROM asset_parcel fap WHERE fap.asset_id = a.asset_id
                                         ORDER BY fap.sort_order, fap.parcel_id LIMIT 1)
         LEFT JOIN geographic_area ga ON ga.geographic_area_id = p.geographic_area_id
+        LEFT JOIN parcel_cadastre_stage pcs ON pcs.parcel_id = p.parcel_id -- the Cadastre stage (034): no row = unknown
         LEFT JOIN app_user cu ON cu.user_id = a.created_by_user_id
         LEFT JOIN contact mc ON mc.contact_id = a.managing_contact_id
         {3}
@@ -64,5 +65,6 @@ public sealed class MySqlAssetTableStore : IAssetTableStore
     {
         CreatedUtc = DateTime.SpecifyKind(r.CreatedUtc, DateTimeKind.Utc),
         UpdatedUtc = DateTime.SpecifyKind(r.UpdatedUtc, DateTimeKind.Utc),
+        CadastralStageSeenUtc = r.CadastralStageSeenUtc is DateTime s ? DateTime.SpecifyKind(s, DateTimeKind.Utc) : null,
     };
 }

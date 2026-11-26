@@ -94,6 +94,26 @@
       html: function (r) { return r.staff && r.staff.createdByName ? esc(r.staff.createdByName) : "<span class=\"muted\">—</span>"; } }
   ];
 
+  // The Parcel's Cadastre stage (migration 034): hidden by default, shown with the toolbar's "Cadastre stage" box (remembered
+  // in this browser). Read-only; the date it was seen is the cell's tooltip.
+  var STAGE_KEY = "nadlan.assetTable.stageColumn";
+  var STAGE_COLUMN = { key: "stage", label: "Cadastre stage", cls: "col-stage",
+    sortValue: function (r) { return r.cadastralStage ? Nadlan.cadastreStage.label(r.cadastralStage) : "~"; },
+    html: function (r) { return Nadlan.cadastreStage.cellHtml(r.cadastralStage, r.cadastralStageSeenUtc); } };
+
+  function stageColumnWanted() {
+    try { return window.localStorage.getItem(STAGE_KEY) === "1"; } catch (e) { return false; }
+  }
+
+  function showStageColumn(on) {
+    try { window.localStorage.setItem(STAGE_KEY, on ? "1" : "0"); } catch (e) { /* private mode: not remembered */ }
+    var at = COLUMNS.indexOf(STAGE_COLUMN);
+    if (on && at < 0) { COLUMNS.splice(COLUMNS.indexOf(column("sea")) + 1, 0, STAGE_COLUMN); }
+    if (!on && at >= 0) { COLUMNS.splice(at, 1); if (sort.key === "stage") { sort = { key: null, dir: 1 }; } }
+    $root.find("thead").html(headHtml());
+    render();
+  }
+
   function addStaffColumns() {
     if (!meta.staff || column("manager")) { return; }
     var at = COLUMNS.indexOf(column("files"));
@@ -130,6 +150,8 @@
           Nadlan.reference.optionsHtml(ref.assetStatuses, null) + "</select>" +
         "<select class=\"input\" data-f=\"typeId\" aria-label=\"Property type\"><option value=\"\">All property types</option>" +
           Nadlan.reference.optionsHtml(ref.propertyTypes, null) + "<option value=\"none\">(no type)</option></select>" +
+        "<label class=\"check table-col-toggle\" title=\"Show the Parcel's Cadastre stage (in operation, survey post, ...) as a column\">" +
+          "<input type=\"checkbox\" data-act=\"stage-column\"> Cadastre stage</label>" +
         "<span class=\"table-count muted\"></span>" +
         "<button type=\"button\" class=\"btn btn-primary\" data-act=\"add\" hidden title=\"Add an Asset (Alt+N)\">+ Add an Asset</button>" +
       "</div>" +
@@ -155,6 +177,7 @@
       render();
     });
     $root.on("click", "[data-act=add]", openAdd);
+    $root.on("change", "[data-act=stage-column]", function () { showStageColumn(this.checked); });
     $(document).on("keydown", function (e) {
       if (e.altKey && (e.key === "n" || e.key === "N") && !$(".ui-dialog:visible").length) { e.preventDefault(); openAdd(); }
     });
@@ -168,6 +191,11 @@
       meta = data;
       rows = data.items;
       addStaffColumns();
+      if (stageColumnWanted() && COLUMNS.indexOf(STAGE_COLUMN) < 0) {
+        $root.find("[data-act=stage-column]").prop("checked", true);
+        COLUMNS.splice(COLUMNS.indexOf(column("sea")) + 1, 0, STAGE_COLUMN);
+        $root.find("thead").html(headHtml());
+      }
       $root.find("[data-act=add]").prop("hidden", !data.canCreate && !data.noContact);
       if (data.truncated) { setStatus("Showing the newest " + rows.length + " Assets.", false); }
       render();

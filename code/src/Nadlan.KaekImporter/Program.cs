@@ -160,12 +160,16 @@ public static class Program
             finally { connecting = false; }
         }));
 
-        await context.ExposeFunctionAsync("nadlanStart", (string areaId) => Safely("Starting the import", async () =>
+        // checkExisting: "Also check parcels already in GreekPlot" (update mode, Admin only, off by default): each parcel GreekPlot
+        // has in the view is clicked once too, and GreekPlot refreshes its Cadastre stage or files a change for an Admin.
+        await context.ExposeFunctionAsync("nadlanStart", (string areaId, bool checkExisting) => Safely("Starting the import", async () =>
         {
             if (connection.NeedsConnect) return "Connect to GreekPlot first.";
             if (current is not null) return "An import is already running.";
             if (clicks is not null) return "Switch off click import first.";
             if (AreaProblem(areaId) is string noArea) return noArea;
+            if (checkExisting && Nadlan() is not null && !connection.IsAdmin) return "Only an Admin can check parcels already in GreekPlot.";
+            checkExisting = checkExisting && Nadlan() is not null; // offline there is nothing in GreekPlot to check
             var run = new ImportRun(site, Nadlan(), options.Settings, Console.Out);
             MapAreas view;
             try
@@ -181,10 +185,11 @@ public static class Program
             }
 
             var cts = current = new CancellationTokenSource();
-            Console.WriteLine($"Import started over {view.Extent.Width:0} x {view.Extent.Height:0} m, {view.Areas.Count} areas.");
+            Console.WriteLine($"Import started over {view.Extent.Width:0} x {view.Extent.Height:0} m, {view.Areas.Count} areas" +
+                              (checkExisting ? ", checking the parcels already in GreekPlot too." : "."));
             currentRun = Task.Run(async () =>
             {
-                try { await run.RunAsync(view, AreaId(areaId), cts.Token); }
+                try { await run.RunAsync(view, AreaId(areaId), cts.Token, checkExisting); }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine("Import failed: " + ex);

@@ -269,16 +269,29 @@ public sealed class CadastreService
 {
     public const int OtherParcelsLimit = 50;
     private readonly ICadastreStore _store;
+    private readonly Parcels.ParcelCadastreService? _stages;
 
-    public CadastreService(ICadastreStore store)
+    /// <param name="stages">Sets the Parcel's Cadastre stage from each record (migration 034); null = not kept (tools, old tests).</param>
+    public CadastreService(ICadastreStore store, Parcels.ParcelCadastreService? stages = null)
     {
         _store = store;
+        _stages = stages;
     }
 
+    /// <summary>
+    /// Stores the record, then the Parcel's Cadastre stage (brief PolygonStageAndUpdate §2.3): a KAEK found by the lawyer
+    /// service = in operation, "Δεν βρέθηκαν εγγραφές" = not operating, seen at the record's time. An Error says nothing.
+    /// </summary>
     public async Task<DateTime> SaveAsync(CadastreRecordInput input, long userId, CancellationToken ct = default)
     {
         var units = CadastreRules.Validate(input);
-        return await _store.SaveAsync(input.Kaek!, units, userId, ct);
+        var at = await _store.SaveAsync(input.Kaek!, units, userId, ct);
+        if (_stages is not null)
+        {
+            await _stages.RecordLawyerAsync(input.Kaek!, input.Status!, at, userId, ct);
+        }
+
+        return at;
     }
 
     public Task<(IReadOnlyList<string> Kaeks, IReadOnlySet<string> Fetched)> AreaKaeksAsync(int areaId, CancellationToken ct = default)

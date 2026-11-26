@@ -23,7 +23,8 @@
     }
 
     // by: who last entered or changed OT / plot ({ name, utc } from GET /api/parcels/{id}), shown under the numbers.
-    function parcelHtml(p, by) {
+    // stage: its Cadastre stage ({ stage, seenUtc, source } from the same call, migration 034); nothing when unknown.
+    function parcelHtml(p, by, stage) {
       return row("KAEK", f.registryId(p.registryId, p.registryIdIsProvisional)) +
         row("Area", f.text(p.geographicArea)) +
         row("OT / Plot", f.text(p.ot) + " / " + f.text(p.plot) + (by ? "<div class=\"muted card-by\">by " + f.escapeHtml(by.name) +
@@ -32,7 +33,8 @@
           ? row("Parcel", (p.divisionStatus === "divided" ? "Divided" : "United") +
               (p.relatedNumbers ? "<div class=\"muted card-by\">other: " + f.escapeHtml(p.relatedNumbers) + "</div>" : ""))
           : "") +
-        row("Official area", f.sqm(p.officialAreaSqm));
+        row("Official area", f.sqm(p.officialAreaSqm)) +
+        (stage && stage.stage && Nadlan.cadastreStage ? row("Cadastre", Nadlan.cadastreStage.cardHtml(stage)) : "");
     }
 
     function assetsHtml(assets) {
@@ -106,7 +108,7 @@
         Nadlan.api.get("/api/parcels/" + state.parcelId).then(function (d) {
           state.parcel = d.summary;
           state.details = d;
-          $card.find(".card-body").html(parcelHtml(d.summary, d.otPlotBy));
+          $card.find(".card-body").html(parcelHtml(d.summary, d.otPlotBy, d.cadastralStage));
           chipText();
           // What this user may do here (the server decides; buttons only follow).
           var rights = d.rights || {};
