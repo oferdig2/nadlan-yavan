@@ -7,7 +7,12 @@ namespace Nadlan.KaekImporter.Cadastre;
 /// </summary>
 public sealed class CadastreFetcher(ICadastreSite site, Action<string>? progress = null, Func<byte[], SummaryData>? readSummary = null)
 {
-    public const int MaxSummariesPerUnit = 2;
+    /// <summary>
+    /// Summaries read per unit, newest first: reading goes on until one is a sale or an auction, at most this many. One deed is
+    /// often registered as several summaries of the same date (live 2026-11-26, 460990208019: the auction 5413 came after
+    /// an erasure 5414 and a seizure lifting 5415) - stopping at the two newest missed the price.
+    /// </summary>
+    public const int MaxSummariesPerUnit = 4;
 
     public async Task<CadastreRecordDto> FetchAsync(string kaek, CancellationToken ct)
     {
@@ -16,11 +21,12 @@ public sealed class CadastreFetcher(ICadastreSite site, Action<string>? progress
         var estates = CadastrePages.ParseEstates(html).Where(e => e.Kaek == kaek).ToList();
         if (estates.Count == 0)
         {
-            // "Not operating" ONLY for the site's real empty result: its results table with no rows. Anything else - a
+            // "Not operating" ONLY for the site's real empty result: its results table with no rows, or the short reply
+            // "Δεν βρέθηκαν εγγραφές" (no records found; seen live 2026-11-26 for Skroponeria). Anything else - a
             // refusal such as "Δεν έχετε ενεργοποιήσει τη λειτουργία χρέωσης" (charging not activated, seen live
             // 2026-11-25), a message, an empty reply, a whole page, or rows for other KAEKs - stops the run and shows the
             // site's own text. Saved as NotOperating it would be skipped by every later area run.
-            if (CadastrePages.IsWholePage(html) || !CadastrePages.IsEmptyResultTable(html))
+            if (CadastrePages.IsWholePage(html) || !(CadastrePages.IsEmptyResultTable(html) || CadastrePages.IsNoRecordsReply(html)))
             {
                 throw new CadastreTroubleException($"The search for {kaek} didn't return its result table. The site said: {CadastrePages.SiteText(html)}");
             }
@@ -49,6 +55,10 @@ public sealed class CadastreFetcher(ICadastreSite site, Action<string>? progress
                 }
 
                 summaries.Add((doc, data));
+                if (data.Readable && data.Acts.Any(a => a.TypeCode is ActType.Sale or ActType.Auction))
+                {
+                    break; // the unit's last sale is found: older summaries aren't needed
+                }
             }
 
             units.Add(BuildUnit(estate, record, summaries));

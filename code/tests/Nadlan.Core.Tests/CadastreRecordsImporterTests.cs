@@ -260,6 +260,13 @@ public class CadastreRecordsImporterTests
     [InlineData("ΥΠΟΥΡΓΕΙΟ ΔΟΚΙΜΩΝ", true)]
     [InlineData("ΔΟΚΙΜΗ Α.Β.Ε.Ε.", true)]
     [InlineData("ΔΟΚΙΜΗ ΑΤΕ", true)]
+    [InlineData("ΟΡΦΑΝΟΤΡΟΦΕΙΟΝ ΘΗΛΕΩΝ ΔΟΚΙΜΟΥ ΚΑΙ ΔΟΚΙΜΗΣ", true)]  // old spellings, seen live 2026-11-26
+    [InlineData("ΤΑΜΕΙΟΝ ΔΟΚΙΜΩΝ", true)]
+    [InlineData("ΔΟΚΙΜΑΣΤΙΚΗ ΑΝΩΝΥΜΟΣ ΕΤΑΙΡΙΑ", true)]
+    [InlineData("ΙΕΡΑΣ ΜΟΝΗΣ ΔΟΚΙΜΩΝ", true)]
+    [InlineData("ΔΗΜΟΥ", false)]                                   // also a common surname: never an entity word
+    [InlineData("ΟΡΦΑΝΟΣ", false)]                                 // a surname that starts like a stem
+    [InlineData("ΤΑΜΕΙΟΥΔΑΚΗΣ", false)]
     [InlineData("ΔΗΜΟΣΘΕΝΟΥΣ", false)]                            // whole words only
     [InlineData("ΑΕΡΑΚΗΣ", false)]
     [InlineData("ΠΑΠΑΔΟΠΟΥΛΟΣ", false)]
@@ -664,9 +671,9 @@ public class CadastreRecordsImporterTests
             FetchEstates,
             $"GET /Professionals/Inquiry/Main/viewResults/{Kaek}-0-0?p=1",
             $"GET /Professionals/Inquiry/Main/viewResults/{Kaek}-0-1?p=1",
-            "GET " + Scans("a3"), "GET " + Scans("a1"), // the two newest summaries only
+            "GET " + Scans("a3"), // the newest summary is the sale: older ones aren't read (fewer requests)
         }, transport.Sent);
-        Assert.Equal(5, pacer.Turns); // every request waited for its turn
+        Assert.Equal(4, pacer.Turns); // every request waited for its turn
 
         Assert.Equal(CadastreStatus.Found, record.Status);
         Assert.Equal(2, record.Units.Count);
@@ -677,7 +684,7 @@ public class CadastreRecordsImporterTests
         Assert.Equal(ActSource.RecordTitle, Assert.Single(plot.Acts).Source);
 
         var flat = record.Units[1];
-        Assert.Equal(CadastreStatus.NeedsOcr, flat.Status); // one of its summaries is a scan
+        Assert.Equal(CadastreStatus.Found, flat.Status); // the scan (a1) was never needed
         var person = Assert.Single(flat.Owners);
         Assert.Equal(("Person", (string?)null), (person.Kind, person.EntityTaxId));
         Assert.Equal("ΟΔΟΣ ΔΟΚΙΜΗΣ, 5, 10000, ΑΘΗΝΑ", person.Address); // the buyer in the summary is this owner
@@ -766,6 +773,58 @@ public class CadastreRecordsImporterTests
         Assert.Contains("The site said:", ex.Message);
         if (reply.Contains("χρέωσης")) Assert.Contains("Δεν έχετε ενεργοποιήσει τη λειτουργία χρέωσης", ex.Message);
         Assert.Single(transport.Sent); // nothing more was asked after it
+    }
+
+    [Theory]
+    // The site's real "nothing found" reply (live 2026-11-26, a Skroponeria KAEK): no table, just this text.
+    [InlineData("<div id=\"GridEstates\">Δεν βρέθηκαν εγγραφές</div>")]
+    [InlineData("<span>Δεν βρέθηκαν εγγραφές.</span>")]
+    [InlineData("δεν βρεθηκαν εγγραφες")]
+    public async Task The_sites_no_records_reply_means_not_operating(string reply)
+    {
+        var transport = new FakeTransport();
+        transport.Replies[FetchEstates] = new SiteResponse(200, "https://ktimatologio.gov.gr/Professionals/Inquiry/Main/FetchEstates", false, "text/html",
+            reply, null);
+
+        var record = await new CadastreFetcher(new GuardedCadastreSite(transport, new CountingPacer())).FetchAsync(Kaek, default);
+
+        Assert.Equal((CadastreStatus.NotOperating, 0), (record.Status, record.Units.Count));
+    }
+
+    [Fact]
+    public async Task One_deeds_several_summaries_are_read_until_the_auction_is_found()
+    {
+        // Live 2026-11-26 (460990208019): one deed registered three times the same day - 5413 the auction, 5414 an erasure,
+        // 5415 a seizure lifting. Newest first is 5415, 5414, 5413; stopping at two missed the price.
+        string[] Head(string actLine) => SaleHead.Select(l => l.Replace("1) Αγοραπωλησία / 63.430,03 / 21000", actLine)).ToArray();
+        var site = new FakeTransport();
+        site.Replies[FetchEstates] = new SiteResponse(200, "https://ktimatologio.gov.gr/Professionals/Inquiry/Main/FetchEstates", false, "text/html",
+            EstatesFragment((0, 1, "", "100,00")), null);
+        site.Html("GET", $"/Professionals/Inquiry/Main/viewResults/{Kaek}-0-1?p=1",
+            RecordPage(Owner("", "ΔΟΚΙΜΗ", "ΕΛΕΝΗ", "ΝΙΚΟΣ", "1 / 1"),
+                Doc("↳ 5413/2024 ΔΟΚΙΜΩΝ (ΠΕΡΙΛΗΨΗ ΕΓΓΡΑΠΤΕΑΣ ΠΡΑΞΗΣ)", "a3") +
+                Doc("↳ 5414/2024 ΔΟΚΙΜΩΝ (ΠΕΡΙΛΗΨΗ ΕΓΓΡΑΠΤΕΑΣ ΠΡΑΞΗΣ)", "a4") +
+                Doc("↳ 5415/2024 ΔΟΚΙΜΩΝ (ΠΕΡΙΛΗΨΗ ΕΓΓΡΑΠΤΕΑΣ ΠΡΑΞΗΣ)", "a5") +
+                Doc("↳ 9/2019 ΔΟΚΙΜΩΝ (ΠΕΡΙΛΗΨΗ ΕΓΓΡΑΠΤΕΑΣ ΠΡΑΞΗΣ)", "a1")));
+        site.Pdf(Scans("a5"), "lift");
+        site.Pdf(Scans("a4"), "erase");
+        site.Pdf(Scans("a3"), "auction");
+        site.Pdf(Scans("a1"), "never-read");
+        SummaryData Reader(byte[] bytes) => Encoding.ASCII.GetString(bytes) switch
+        {
+            "%PDF-lift" => SummaryPdf.Parse(Lines(Head("1) Άρση κατάσχεσης /  / "))),
+            "%PDF-erase" => SummaryPdf.Parse(Lines(Head("1) Εξάλειψη /  / "))),
+            "%PDF-auction" => SummaryPdf.Parse(Lines(Head("1) Περίληψη κατακυρωτικής έκθεσης / 341001,45 / 318000"))),
+            var other => throw new InvalidOperationException("unexpected PDF " + other),
+        };
+
+        var record = await new CadastreFetcher(new GuardedCadastreSite(site, new CountingPacer()), readSummary: Reader).FetchAsync(Kaek, default);
+
+        Assert.Equal(new[] { "GET " + Scans("a5"), "GET " + Scans("a4"), "GET " + Scans("a3") }, site.Sent.Where(s => s.Contains("showScans")));
+        var acts = Assert.Single(record.Units).Acts.Where(a => a.Source == ActSource.Summary).ToList();
+        Assert.Contains(acts, a => a.ActTypeCode == ActType.SeizureLifted);
+        var auction = Assert.Single(acts, a => a.ActTypeCode == ActType.Auction);
+        Assert.Equal(318000m, auction.TransactionValue);
     }
 
     [Fact]

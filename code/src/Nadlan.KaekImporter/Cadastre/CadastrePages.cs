@@ -82,6 +82,16 @@ public static partial class CadastrePages
         return doc.QuerySelectorAll("table.Grid").Length > 0 && doc.QuerySelectorAll("table.Grid tr.NormalRow").Length == 0;
     }
 
+    private static readonly string NoRecords = string.Join(' ', LegalEntityRule.Tokens("Δεν βρέθηκαν εγγραφές"));
+
+    /// <summary>
+    /// The site's other "nothing found" reply: a short fragment that says exactly "Δεν βρέθηκαν εγγραφές" (no records found),
+    /// with no results table - seen live 2026-11-26 for a Skroponeria KAEK, where the Cadastre isn't operating. Accents, case
+    /// and punctuation are ignored; any other wording is not this reply.
+    /// </summary>
+    public static bool IsNoRecordsReply(string html) =>
+        Parse(html).QuerySelectorAll("table.Grid").Length == 0 && string.Join(' ', LegalEntityRule.Tokens(SiteText(html))) == NoRecords;
+
     /// <summary>The reply's visible text, cleaned and shortened, to show the user what the site actually said.</summary>
     public static string SiteText(string html)
     {

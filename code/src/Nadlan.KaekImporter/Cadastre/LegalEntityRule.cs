@@ -27,6 +27,12 @@ public static partial class LegalEntityRule
         // Added at review, 2026-11-25: common owners the first list missed (e.g. the orphanage of Korai & Stadiou).
         "ΟΡΦΑΝΟΤΡΟΦΕΙΟ", "ΕΤΑΙΡΙΑ", "ΚΛΗΡΟΔΟΤΗΜΑ", "ΝΟΣΟΚΟΜΕΙΟ", "ΜΗΤΡΟΠΟΛΗ", "ΕΝΟΡΙΑ", "ΥΠΟΥΡΓΕΙΟ", "Α.Β.Ε.Ε.", "ΑΒΕΕ",
         "Α.Τ.Ε.", "ΑΤΕ",
+        // Old (katharevousa) and genitive forms, whole words only - seen live 2026-11-26: "ΟΡΦΑΝΟΤΡΟΦΕΙΟΝ ΘΗΛΕΩΝ ..." was missed.
+        // No partial-word matching (a stem would hit surnames), and not ΔΗΜΟΥ, which is also a common surname.
+        "ΟΡΦΑΝΟΤΡΟΦΕΙΟΝ", "ΤΑΜΕΙΟΝ", "ΣΩΜΑΤΕΙΟΝ", "ΝΟΣΟΚΟΜΕΙΟΝ", "ΠΑΝΕΠΙΣΤΗΜΙΟ", "ΠΑΝΕΠΙΣΤΗΜΙΟΝ", "ΥΠΟΥΡΓΕΙΟΝ", "ΙΔΡΥΜΑΤΟΣ",
+        "ΕΤΑΙΡΕΙΑΣ", "ΕΤΑΙΡΙΑΣ", "ΑΝΩΝΥΜΟΣ ΕΤΑΙΡΙΑ", "ΑΝΩΝΥΜΟΣ ΕΤΑΙΡΕΙΑ", "ΑΝΩΝ ΕΤΑΙΡΙΑ", "ΑΝΩΝ ΕΤΑΙΡΕΙΑ", "ΜΟΝΗΣ", "ΕΚΚΛΗΣΙΑΣ",
+        "ΚΟΙΝΟΤΗΤΟΣ", "ΚΟΙΝΟΤΗΤΑΣ", "ΠΕΡΙΦΕΡΕΙΑΣ", "ΣΥΛΛΟΓΟΥ", "ΣΥΝΕΤΑΙΡΙΣΜΟΥ", "ΟΡΓΑΝΙΣΜΟΥ", "ΚΛΗΡΟΔΟΤΗΜΑΤΟΣ", "ΕΝΟΡΙΑΣ",
+        "ΜΗΤΡΟΠΟΛΕΩΣ", "ΜΗΤΡΟΠΟΛΗΣ", "ΤΡΑΠΕΖΗΣ", "ΤΡΑΠΕΖΑΣ", "ΝΟΣΟΚΟΜΕΙΟΥ", "ΟΡΦΑΝΟΤΡΟΦΕΙΟΥ", "ΤΑΜΕΙΟΥ", "ΣΩΜΑΤΕΙΟΥ",
     };
 
     private static readonly string[][] EntityTokens = EntityWords.Select(Tokens).Distinct(new SequenceComparer()).ToArray();
